@@ -127,8 +127,10 @@ Open **Einstellungen** (settings):
 
 - **Reverse proxy** (Nginx Proxy Manager, Traefik, Caddy …): point a hostname to `<docker-host>:8095` and enable WebSocket support.
 - **Home Assistant dashboard**: embed printlog with a *Webpage* card (`type: iframe`) – use the HTTPS URL if HA itself runs on HTTPS.
-- **Windows folder links**: each print can store a local folder path. *Einstellungen → Windows* has a small script that registers
-  a `printlog-open:` link handler so the folder opens in Explorer.
+- **Windows folder links**: each print can store a local folder or file path. *Einstellungen → Windows* offers a double-click
+  setup (`printlog-einrichten.cmd`) that registers a `printlog-open:` link handler for the current user. Folders open in Explorer;
+  3D files (3MF, STL, STEP, OBJ) open in their default app only if they lie inside a project folder chosen on the PC during setup,
+  everything else is just highlighted in Explorer. A link never starts programs or scripts.
 
 ## Configuration
 
