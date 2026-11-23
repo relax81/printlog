@@ -59,7 +59,9 @@ The interface is available in **English and German** (Settings → View → Lang
   - *Filament* per AMS slot (grams × €/kg), priced by type (PLA, PETG …) or by exact product (e.g. "Bambu PLA Matte").
   - *Printer* depreciation, maintenance per year and wear per hour.
 - **Selling prices** – two named margins, an optional margin per customer and a fixed final price per print.
-- **Customers** – partial payments and partial hand-overs, gifts, open amounts per customer.
+- **Customers** – partial payments and partial hand-overs, gifts, open amounts per customer. Tick **No billing** for
+  a customer you only use for your own prints (e.g. models you upload): costs and statistics still count, but there are
+  never open amounts, unpaid or not-handed-over badges, no "Billing" tab and no payment status on receipt or PDF.
 - **Sharing** – a receipt-style PNG for the customer (WhatsApp etc.), an internal version with the full calculation,
   and an A4 PDF cost sheet, in the language of the interface.
 - **Discreet mode** – one click blurs all internal figures when a customer is watching.
@@ -327,7 +329,9 @@ Bilder der Oberfläche stehen oben im englischen Teil unter [Screenshots](#scree
   - *Filament* pro AMS-Fach (Gramm × €/kg), Preis nach Typ (PLA, PETG …) oder nach Sorte (z. B. „Bambu PLA Matte“).
   - *Drucker*: Abschreibung, Wartung pro Jahr und Verschleiß pro Stunde.
 - **Verkaufspreise** – zwei benannte Margen, optional eine Marge pro Kunde und ein fester Endpreis pro Druck.
-- **Kunden** – Teilzahlungen und Teilübergaben, Verschenktes, offene Beträge pro Kunde.
+- **Kunden** – Teilzahlungen und Teilübergaben, Verschenktes, offene Beträge pro Kunde. Mit dem Häkchen **Keine Abrechnung**
+  wird ein Kunde zum reinen Sammelplatz für Eigenbedarf (z. B. Modelle für eigene Uploads): Kosten und Statistik zählen
+  weiter, aber es gibt nie Offenes, keine Badges „nicht bezahlt/nicht übergeben“, keinen Tab „Abrechnung“ und keinen Zahlungsstand auf Bon und PDF.
 - **Teilen** – ein PNG im Kassenbon-Stil für Kunden (WhatsApp usw.), eine interne Variante mit voller Kalkulation und
   eine A4-PDF-Kostenaufstellung, jeweils in der Sprache der Oberfläche.
 - **Diskret-Modus** – ein Klick verwischt alle internen Werte, wenn ein Kunde mitschaut.
@@ -493,11 +497,13 @@ Sonderfälle:
 
 - **Drucke**: Live-Suche (Teilwörter, mehrere Wörter, Umlaute egal), Filter, Tabelle oder Galerie, „Nach Tagen“ gruppiert.
   Ein Farbbalken zeigt die Kostenanteile, Antippen öffnet die Aufschlüsselung. „☑ Auswählen“ für Mehrfachauswahl und Löschen mit „Rückgängig“.
-- **Druckdetails**: Tabs Übersicht, Abrechnung (nur mit Kunde), Bearbeiten und Fotos. Der Start-Tab ist einstellbar.
+- **Druckdetails**: Tabs Übersicht, Abrechnung (nur mit Kunde, nicht bei „Keine Abrechnung“), Bearbeiten und Fotos. Der Start-Tab ist einstellbar.
 - **Endpreis, Zahlung, Übergabe** (nur mit Kunde, ohne Ausschuss): optionaler Endpreis, sonst Kosten + Kundenmarge.
   Zahlungen und Übergaben sind einzelne Einträge, damit Teilzahlungen und Teilabholungen gehen. Badges in der Liste öffnen ein
   Menü (z. B. „Alles bezahlt“).
 - **Verschenkt**: zählt weiter in Kosten und Statistik, braucht aber keine Zahlung; unter „Kunden“ mit Anzahl und Wert pro Zeitraum.
+- **Keine Abrechnung** (Häkchen beim Kunden): gilt für alle Drucke dieses Kunden, nicht pro Druck. Anders als „Verschenkt“
+  taucht nichts unter „Verschenkt“ auf; der Kunde steht unter „Kunden“ mit dem Schild „Keine Abrechnung“ statt offener Beträge.
 - **Teilen** („📤 Teilen“): Bild für Kunden, Bild intern, PDF. Am Handy über das Teilen-Menü des Systems, am PC als Download.
   Das Häkchen „Bezahlt/Übergeben mit drauf“ lässt den Zahlungsstand weg. Im Diskret-Modus nur das Kundenbild.
 - **Projekt-ID** wie `PL-7K3Q` auf Liste, Detailseite, Bon, PDF und im Dateinamen; Enter auf einer ID in der Suche öffnet den Druck.

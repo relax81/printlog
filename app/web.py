@@ -260,6 +260,7 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
             str(form.get("contact") or "").strip() or None,
             str(form.get("note") or "").strip() or None,
             parse_num(form.get("margin_pct")),
+            str(form.get("no_billing") or "") == "1",
         )
         raise web.HTTPSeeOther("customers?saved=1")
 

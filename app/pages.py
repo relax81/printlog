@@ -539,6 +539,11 @@ def _status_badges(j: dict[str, Any]) -> str:
     return out + customer_badges(j)
 
 
+def billable(j: dict[str, Any]) -> bool:
+    """Druck mit Kunde, bei dem abgerechnet wird (nicht „Keine Abrechnung“ beim Kunden)."""
+    return bool(j.get("customer_id")) and not j.get("customer_nobill")
+
+
 def amount_due(j: dict[str, Any]) -> float | None:
     """Was der Kunde zahlen soll: Endpreis, sonst Kosten + Kundenmarge."""
     if j.get("final_price") is not None:
@@ -553,9 +558,9 @@ def _acts(title: str, items: list[tuple[str, str, dict[str, str] | None]]) -> st
 
 def customer_badges(j: dict[str, Any], cls: str = "bdg") -> str:
     """Zahlung und Übergabe als antippbare Badges (nur Drucke mit Kunde, kein Ausschuss)."""
-    if j.get("gift") and not j.get("customer_id") and not j.get("is_scrap"):
+    if j.get("gift") and not billable(j) and not j.get("is_scrap"):
         return f'<span class="{cls} st-gift">{t("🎁 verschenkt")}</span>'
-    if not j.get("customer_id") or j.get("is_scrap"):
+    if not billable(j) or j.get("is_scrap"):
         return ""
     jid = j["id"]
     out = ""
@@ -905,8 +910,8 @@ def _sec(key: str, title: str, summary: str, body: str, cls: str = "box") -> str
 
 
 def _deal_box(job: dict[str, Any], handovers: list[dict[str, Any]], payments: list[dict[str, Any]]) -> str:
-    """Box „Preis, Zahlung & Übergabe“ auf der Detailseite (nur mit Kunde)."""
-    if not job.get("customer_id"):
+    """Box „Preis, Zahlung & Übergabe“ auf der Detailseite (nur mit Kunde, der abgerechnet wird)."""
+    if not billable(job):
         return ""
     if job.get("is_scrap"):
         return (f'<div class="dealg"><div class="box"><h3>{t("Zahlung &amp; Übergabe")}</h3>'
@@ -969,7 +974,7 @@ def _deal_box(job: dict[str, Any], handovers: list[dict[str, Any]], payments: li
 
 def _deal_strip(job: dict[str, Any]) -> str:
     """Kompakte Zeile in der Übersicht: Betrag + antippbare Badges, Details im Tab „Abrechnung“."""
-    if not job.get("customer_id") or job.get("is_scrap"):
+    if not billable(job) or job.get("is_scrap"):
         return ""
     due = amount_due(job)
     src = t("Endpreis") if job.get("final_price") is not None else t("Vorschlag")
@@ -1142,7 +1147,7 @@ def page_job(store: Store, job: dict[str, Any], saved: str | None) -> str:
         return " on" if tab == start else ""
 
     ab_tab = ab_pane = ""
-    if job.get("customer_id"):
+    if billable(job):
         ab_tab = f'<button type="button" data-tab="ab" class="{on("ab").strip()}">{t("Abrechnung")}</button>'
         ab_pane = (f'<section class="pane{on("ab")}" data-pane="ab">'
                    f'{_deal_box(job, store.handovers(job["id"]), store.payments(job["id"]))}</section>')
@@ -1233,7 +1238,7 @@ def page_customers(store: Store, saved: str | None, show: str | None = None,
 <input name="contact" value="{e(c["contact"] or "")}" placeholder="{e(t("Kontakt"))}" style="width:200px">
 <input name="note" value="{e(c["note"] or "")}" placeholder="{e(t("Notiz"))}" style="width:220px">
 <input name="margin_pct" class="num calc" style="width:90px" value="{fmt_input(c.get("margin_pct"))}" inputmode="decimal" placeholder="{e(t("Marge %"))}" title="{e(t("Eigene Marge in %, hat Vorrang"))}">
-<button>{t("Speichern")}</button></form></td>
+{_nobill_box(c.get("no_billing"))}<button>{t("Speichern")}</button></form></td>
 <td class="n" data-l="{e(t("Drucke"))}">{c["n"]}</td>
 <td class="n" data-l="{e(t("Offen"))}">{_open_tags(c)}</td>
 <td class="n" data-l="{e(t("Bezahlt"))}">{fmt_num(c["paid_amount"], 2, "€") if c["paid_amount"] else "–"}</td>
@@ -1269,24 +1274,32 @@ def page_customers(store: Store, saved: str | None, show: str | None = None,
     body = f"""<style>.osum{{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:0 0 12px}}
 .otag{{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:999px;font-weight:600;font-size:13px;white-space:nowrap;text-decoration:none;
  border:1px solid color-mix(in srgb,currentColor 35%,transparent);background:color-mix(in srgb,currentColor 10%,transparent)}}
-.otag.warn{{color:var(--warn)}}.otag.run{{color:var(--run)}}.otag.ok{{color:var(--ok)}}.otag.gift{{color:#b07cf0}}
-.gper{{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0}}.gper select,.gper input{{width:auto}}td .otag{{margin:2px 0 2px 4px}}</style>
+.otag.none{{color:var(--muted)}}.otag.warn{{color:var(--warn)}}.otag.run{{color:var(--run)}}.otag.ok{{color:var(--ok)}}.otag.gift{{color:#b07cf0}}
+.gper{{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0}}.nob{{display:inline-flex;align-items:center;gap:5px;white-space:nowrap;font-size:13px}}.nob input{{width:auto;margin:0}}.gper select,.gper input{{width:auto}}td .otag{{margin:2px 0 2px 4px}}</style>
 {banner}<h2 style="margin-top:0">{t("Neuer Kunde")}</h2>
 <form method="post" action="customers" class="f">
 <input name="name" placeholder="{e(t("Name"))}" required><input name="contact" placeholder="{e(t("Kontakt (optional)"))}">
-<input name="note" placeholder="{e(t("Notiz (optional)"))}"><input name="margin_pct" class="num" inputmode="decimal" placeholder="{e(t("Marge % (optional)"))}" style="width:150px"><button class="primary">{t("Anlegen")}</button></form>
+<input name="note" placeholder="{e(t("Notiz (optional)"))}"><input name="margin_pct" class="num" inputmode="decimal" placeholder="{e(t("Marge % (optional)"))}" style="width:150px">{_nobill_box(False)}<button class="primary">{t("Anlegen")}</button></form>
 <h2>{t("Kunden")}</h2>{summary}
 <div class="wrap"><table class="stack"><thead><tr><th>{t("Name · Kontakt · Notiz")}</th><th class="n">{t("Drucke")}</th><th class="n">{t("Offen")}</th><th class="n">{t("Bezahlt")}</th><th class="n">{t("Verschenkt")}</th>
 <th class="n calc">{t("Kosten")}</th><th class="n">{t("Letzter Druck")}</th><th></th><th></th></tr></thead><tbody>{rows}</tbody></table></div>
 <p class="muted">{t("Offen = Endpreis (oder Kosten + Kundenmarge) minus eingetragene Zahlungen, ohne Ausschuss und ohne Verschenktes. Ein Klick auf ein Schild zeigt die passenden Drucke.")}</p>
 <p class="muted">{t("Verschenkt: Anzahl und Wert (Endpreis bzw. Kosten + Kundenmarge) der verschenkten Drucke im gewählten Zeitraum, nach Druckstart. Die Kosten stehen im Tooltip.")}</p>
 <p class="muted">{t("Die Marge eines Kunden gilt für alle seine Drucke und wird zusätzlich zu den allgemeinen Margen angezeigt.")}</p>
+<p class="muted">{t("Keine Abrechnung: für Eigenbedarf, z. B. Drucke für eigene Uploads. Kosten und Statistik zählen weiter, aber es gibt keine Zahlungen, keine Übergaben und nichts Offenes. Anders als „verschenkt“ (pro Druck) gilt das für alle Drucke des Kunden.")}</p>
 <p class="muted">{t("Drucke weist du auf der Detailseite eines Drucks (Tab „Bearbeiten“) einem Kunden zu. Beim Löschen eines Kunden bleiben seine Drucke erhalten, nur ohne Kunde.")}</p>"""
     script = """document.querySelectorAll('form.d').forEach(f=>f.onsubmit=()=>confirm(_t("Kunde löschen? Die Drucke bleiben erhalten.")));"""
     return layout(t("Kunden"), "customers", body, script)
 
 
+def _nobill_box(on: Any) -> str:
+    return (f'<label class="nob" title="{e(t("Kosten zählen weiter, aber nie offen, unbezahlt oder nicht übergeben"))}">'
+            f'<input type="checkbox" name="no_billing" value="1"{" checked" if on else ""}>{t("Keine Abrechnung")}</label>')
+
+
 def _open_tags(c: dict[str, Any]) -> str:
+    if c.get("no_billing"):
+        return f'<span class="otag none">{t("Keine Abrechnung")}</span>'
     out = ""
     if c["open_n"]:
         out += (f'<a class="otag warn" href="./?customer={c["id"]}&todo=unbezahlt">💶 {fmt_num(c["open_amount"], 2, "€")}'
@@ -1641,7 +1654,7 @@ def csv_rows(store: Store, f: dict[str, str | None]) -> list[list[Any]]:
             round(dur, 2) if dur else None, t(_status_of(j)), j["progress"], grams, mats, j["kwh"],
             j["cost"], j.get("cost_filament"), j.get("cost_printer"), j.get("cost_total"), *[round(_price(j, p), 2) if _price(j, p) is not None else None for _, p in mg],
             t("ja") if j.get("is_scrap") else t("nein"), j.get("project_title"), j.get("project_url"), j.get("local_path"), j.get("job_note"),
-            j.get("final_price"), (0 if j.get("gift") else round(amount_due(j), 2)) if j.get("customer_id") and amount_due(j) is not None else None,
+            j.get("final_price"), (0 if j.get("gift") else round(amount_due(j), 2)) if billable(j) and amount_due(j) is not None else None,
             round(j.get("paid") or 0, 2), j.get("delivered") or 0,
         ])
     return out

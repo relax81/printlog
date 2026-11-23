@@ -514,4 +514,9 @@ EN: dict[str, str] = {
     'Kein Energiezähler und kein fester Wattwert (Einstellungen → Drucker)': 'No energy meter and no fixed wattage (Settings → Printers)',
     'Kosten unbekannt': 'Costs unknown',
     'aktiv': 'active',
+    'Keine Abrechnung': 'No billing',
+    'keine (Eigenbedarf)': 'none (own use)',
+    'Wert (keine Abrechnung)': 'Value (no billing)',
+    'Kosten zählen weiter, aber nie offen, unbezahlt oder nicht übergeben': 'Costs still count, but never open, unpaid or not handed over',
+    'Keine Abrechnung: für Eigenbedarf, z. B. Drucke für eigene Uploads. Kosten und Statistik zählen weiter, aber es gibt keine Zahlungen, keine Übergaben und nichts Offenes. Anders als „verschenkt“ (pro Druck) gilt das für alle Drucke des Kunden.': 'No billing: for own use, e.g. prints for your own uploads. Costs and statistics still count, but there are no payments, no handovers and nothing open. Unlike "gift" (per print), this applies to all of the customer\'s prints.',
 }

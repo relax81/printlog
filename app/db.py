@@ -155,16 +155,19 @@ class Store:
     # Übergebene Stück (Summe der Übergaben, auch Teilabholungen) und Soll-Stückzahl
     DELIVERED_SQL = "(SELECT COALESCE(SUM(h.qty),0) FROM handovers h WHERE h.job_id = jobs.id)"
     QTY_SQL = "COALESCE(jobs.quantity, 1)"
-    DELIVERABLE_SQL = "(jobs.customer_id IS NOT NULL AND COALESCE(jobs.scrap, jobs.status = 'abgebrochen') = 0 AND jobs.state = 'done')"
+    # Kunde mit Häkchen „Keine Abrechnung“ (z. B. Eigenbedarf): Kosten zählen, aber nie offen/unbezahlt/nicht übergeben.
+    NOBILL_SQL = "COALESCE((SELECT cb.no_billing FROM customers cb WHERE cb.id = jobs.customer_id), 0) = 1"
+    DELIVERABLE_SQL = ("(jobs.customer_id IS NOT NULL AND COALESCE(jobs.scrap, jobs.status = 'abgebrochen') = 0 AND jobs.state = 'done' "
+                       f"AND NOT {NOBILL_SQL})")
 
     # Zu zahlen: Endpreis, sonst Kosten + Kundenmarge. Gezahlt: Summe der Zahlungen.
     DUE_SQL = ("COALESCE(jobs.final_price, jobs.cost_total * (1 + COALESCE("
                "(SELECT c.margin_pct FROM customers c WHERE c.id = jobs.customer_id), 0) / 100.0))")
     PAID_SQL = "(SELECT COALESCE(SUM(p.amount),0) FROM payments p WHERE p.job_id = jobs.id)"
     GIFT_SQL = "COALESCE(jobs.gift, 0) = 1"
-    # Druck mit Kunde, der kein Ausschuss, nicht verschenkt ist und einen Preis hat: dafür wird Geld erwartet.
+    # Druck mit Kunde (mit Abrechnung), der kein Ausschuss, nicht verschenkt ist und einen Preis hat: dafür wird Geld erwartet.
     PAYABLE_SQL = (f"(jobs.customer_id IS NOT NULL AND {DUE_SQL} IS NOT NULL "
-                   "AND COALESCE(jobs.scrap, jobs.status = 'abgebrochen') = 0 AND COALESCE(jobs.gift, 0) = 0)")
+                   f"AND COALESCE(jobs.scrap, jobs.status = 'abgebrochen') = 0 AND COALESCE(jobs.gift, 0) = 0 AND NOT {NOBILL_SQL})")
 
     # Ausschuss, wenn so markiert oder (ohne Markierung) abgebrochen.
     SCRAP_SQL = "COALESCE(jobs.scrap, jobs.status = 'abgebrochen')"
@@ -181,6 +184,9 @@ class Store:
         have = {r["name"] for r in self._conn.execute("PRAGMA table_info(customers)")}
         if "margin_pct" not in have:
             self._conn.execute("ALTER TABLE customers ADD COLUMN margin_pct REAL")
+        if "no_billing" not in have:
+            # 1 = keine Abrechnung (z. B. Eigenbedarf): keine Zahlungen/Übergaben, Kosten zählen weiter
+            self._conn.execute("ALTER TABLE customers ADD COLUMN no_billing INTEGER")
         self._conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_jobs_code ON jobs(code)")
         self._conn.commit()
         self.ensure_codes()
@@ -354,7 +360,7 @@ class Store:
 
     def get(self, job_id: int) -> dict[str, Any] | None:
         row = self._conn.execute(
-            f"SELECT jobs.*, customers.name AS customer_name, customers.margin_pct AS customer_margin, "
+            f"SELECT jobs.*, customers.name AS customer_name, customers.margin_pct AS customer_margin, COALESCE(customers.no_billing, 0) AS customer_nobill, "
             f"{Store.SCRAP_SQL} AS is_scrap, {Store.DELIVERED_SQL} AS delivered, {Store.PAID_SQL} AS paid FROM jobs LEFT JOIN customers ON customers.id = jobs.customer_id "
             "WHERE jobs.id = ?", (job_id,)).fetchone()
         return dict(row) if row else None
@@ -417,7 +423,7 @@ class Store:
     def list_jobs(self, limit: int = 500, offset: int = 0, **filters: Any) -> list[dict[str, Any]]:
         where, args = self._filters(**filters)
         rows = self._conn.execute(
-            f"SELECT jobs.*, customers.name AS customer_name, customers.margin_pct AS customer_margin, "
+            f"SELECT jobs.*, customers.name AS customer_name, customers.margin_pct AS customer_margin, COALESCE(customers.no_billing, 0) AS customer_nobill, "
             f"{Store.SCRAP_SQL} AS is_scrap, {Store.DELIVERED_SQL} AS delivered, {Store.PAID_SQL} AS paid FROM jobs "
             f"LEFT JOIN customers ON customers.id = jobs.customer_id {where} "
             "ORDER BY start_ts DESC, jobs.id DESC LIMIT ? OFFSET ?",
@@ -569,17 +575,18 @@ class Store:
         return {r["customer_id"]: dict(r) for r in rows}
 
     def save_customer(self, customer_id: int | None, name: str, contact: str | None,
-                      note: str | None, margin_pct: float | None = None) -> int:
+                      note: str | None, margin_pct: float | None = None, no_billing: bool = False) -> int:
+        nb = 1 if no_billing else None
         with self._lock, self._conn:
             if customer_id:
                 self._conn.execute(
-                    "UPDATE customers SET name = ?, contact = ?, note = ?, margin_pct = ? WHERE id = ?",
-                    (name, contact, note, margin_pct, customer_id),
+                    "UPDATE customers SET name = ?, contact = ?, note = ?, margin_pct = ?, no_billing = ? WHERE id = ?",
+                    (name, contact, note, margin_pct, nb, customer_id),
                 )
                 return customer_id
             cur = self._conn.execute(
-                "INSERT INTO customers (name, contact, note, margin_pct, created_at) VALUES (?, ?, ?, ?, ?)",
-                (name, contact, note, margin_pct, time.time()),
+                "INSERT INTO customers (name, contact, note, margin_pct, no_billing, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (name, contact, note, margin_pct, nb, time.time()),
             )
             return int(cur.lastrowid)
 
