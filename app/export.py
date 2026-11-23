@@ -119,7 +119,10 @@ def collect(store: Store, job: dict[str, Any], image_dir: Path, status: bool = T
         due, src = cost, t("Selbstkosten")
     gift = bool(job.get("gift"))
     scrap = bool(job.get("is_scrap"))
-    payable = status and has_customer and not gift and not scrap and due is not None
+    # Kunde mit „Keine Abrechnung“ (Eigenbedarf): nie Zahlungs- oder Übergabestand zeigen
+    nobill = has_customer and bool(job.get("customer_nobill"))
+    billed = has_customer and not nobill
+    payable = status and billed and not gift and not scrap and due is not None
     paid = job.get("paid") or 0.0
 
     # Material mit Kosten je Slot (gleiche Regeln wie costing.compute)
@@ -156,6 +159,7 @@ def collect(store: Store, job: dict[str, Any], image_dir: Path, status: bool = T
         "due_calc": due,
         "due_src": src,
         "gift": gift,
+        "nobill": nobill,
         "scrap": scrap,
         "customer": job.get("customer_name") if has_customer else None,
         "payable": payable,
@@ -165,14 +169,14 @@ def collect(store: Store, job: dict[str, Any], image_dir: Path, status: bool = T
         "payments": store.payments(job["id"]) if status else [],
         "handovers": store.handovers(job["id"]) if status else [],
         "delivered": min(job.get("delivered") or 0, qty),
-        "show_handover": status and has_customer and not scrap and job.get("state") == "done",
+        "show_handover": status and billed and not scrap and job.get("state") == "done",
         "materials": materials,
         "grams": grams,
         "rate": rate,
         "printer": printer_names(store).get(job["printer"], job["printer"]),
         "status": _status_of(job),
         "photo": photo,
-        "profit": None if (cost is None or due is None or gift) else due - cost,
+        "profit": None if (cost is None or due is None or gift or nobill) else due - cost,
     }
 
 
@@ -688,7 +692,7 @@ def report_pdf(data: dict[str, Any]) -> bytes:
                 P(sub, st_muted)]
     due = data["due_calc"]
     tiles = [tile(t("Selbstkosten"), _eur(data["cost"]), t("{v} pro Stück", v=_eur(data["cost"] / qty)) if qty > 1 and data["cost"] is not None else t("für den ganzen Druck")),
-             tile(t("Geschenkt") if data["gift"] else t("Zu zahlen"), _eur(0 if data["gift"] else due),
+             tile(t("Geschenkt") if data["gift"] else t("Wert (keine Abrechnung)") if data["nobill"] else t("Zu zahlen"), _eur(0 if data["gift"] else due),
                   (t("Wert {v}", v=_eur(due)) if data["gift"] else data["due_src"]), True)]
     if data["profit"] is not None:
         pct = t("{p} % auf die Kosten", p=fmt_num(data["profit"] / data["cost"] * 100, 0)) if data["cost"] else ""
@@ -712,6 +716,8 @@ def report_pdf(data: dict[str, Any]) -> bytes:
         facts.append((t("Ausschuss"), t("ja")))
     if data["gift"]:
         facts.append((t("Abrechnung"), t("verschenkt")))
+    elif data["nobill"]:
+        facts.append((t("Abrechnung"), t("keine (Eigenbedarf)")))
     rows = []
     for i in range(0, len(facts), 2):
         pair = facts[i:i + 2] + [("", "")] * (2 - len(facts[i:i + 2]))
@@ -760,7 +766,7 @@ def report_pdf(data: dict[str, Any]) -> bytes:
                                       sum_rows=1 if job.get("final_price") is not None else 0)]
 
     # Zahlungen
-    if data["customer"] and not data["scrap"] and data["status_shown"]:
+    if data["customer"] and not data["nobill"] and not data["scrap"] and data["status_shown"]:
         block: list[Any] = H(t("Zahlungen"))
         if data["gift"]:
             block.append(P(t("Verschenkt, keine Zahlung nötig."), st_muted))
