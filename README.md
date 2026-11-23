@@ -50,7 +50,8 @@ The interface is available in **English and German** (Settings → View → Lang
 - **Statistics** by day, week or month: print hours per printer, cost split, filament by material, success rate,
   a table per printer and a yearly heat map of print hours.
 - **Calendar** with the prints, hours, costs and thumbnails of each day.
-- **CSV export** of the current list (Excel-friendly) and a scheduled **backup** of database and images to a mounted folder.
+- **Data & backup** in the settings: full backup as one **ZIP** (database, photos, logo, all settings) to download and restore,
+  **CSV export** (Excel-friendly), a scheduled **backup** to a mounted folder and a guarded **reset**.
 
 **Costs and customers**
 
@@ -73,6 +74,7 @@ The interface is available in **English and German** (Settings → View → Lang
 | ![Print detail](docs/screenshots/print-detail.png) **Print detail** | ![Billing tab](docs/screenshots/print-billing.png) **Billing: final price, payments, hand-overs** |
 | ![Statistics](docs/screenshots/statistics.png) **Statistics** | ![Calendar](docs/screenshots/calendar.png) **Calendar** |
 | ![Customers](docs/screenshots/customers.png) **Customers** | ![Language setting](docs/screenshots/settings-language.png) **Settings → View → Language** |
+| ![Data & backup](docs/screenshots/settings-data.png) **Settings → Data & backup** | ![Reset](docs/screenshots/settings-reset.png) **Reset with confirmation code** |
 | ![Prints grouped by day](docs/screenshots/prints-by-day.png) **Grouped by day** | ![German interface](docs/screenshots/de-drucke.png) **The same list in German** |
 
 | Phone | Receipt for the customer | Internal receipt | PDF cost sheet |
@@ -178,7 +180,7 @@ Open **Settings**:
 - **Margins** – up to two named margins (e.g. private / business).
 - **Receipt & PDF** – your own logo for the receipt image and the PDF.
 - **View** – language, start tab of the detail page, how long prints stay in the trash.
-- **Backup** – schedule (needs `BACKUP_DIR`, see below).
+- **Data & backup** – ZIP backup and restore, CSV export, backup schedule (needs `BACKUP_DIR`, see below), reset.
 
 #### 6. Optional extras
 
@@ -202,6 +204,8 @@ All settings are environment variables (in `.env` or the Portainer stack). Every
 | `PRINTLOG_PORT` | `8095` | Port on the Docker host. |
 | `BACKUP_DIR` | empty (off) | Backup target inside the container, e.g. `/backup` (mount a folder there in `docker-compose.yml`). |
 | `BACKUP_HOUR` | `3` | Default hour for the backup schedule. |
+| `IMPORT_MAX_MB` | `4096` | Largest ZIP accepted for a restore. A reverse proxy may need a higher upload limit, too. |
+| `SAFETY_KEEP` | `5` | Automatic backups kept before a restore or reset. |
 | `IMAGE_DELAY_S` | `60` | Seconds to wait before fetching the cover image after a start. |
 | `ENERGY_ENTITY` | empty | Only for upgrades from very old versions: energy entity pattern with `{printer}` placeholder. |
 | `LOG_LEVEL` | `INFO` | Python log level. |
@@ -213,6 +217,18 @@ before the language setting stay German until you change it.
 
 **Data** is stored in the Docker volume `printlog-data`: `printlog.db` (SQLite) and `images/` (cover images, photos, logo).
 **Backups** with `BACKUP_DIR` set: a database copy per run in `db/printlog-YYYY-MM-DD.db` (the last 14 are kept) and a mirror of all images in `images/`.
+
+**Full backup as ZIP** (*Settings → Data & backup*): *Download ZIP* packs `printlog.db` (prints, customers, payments,
+trash and all settings incl. printer mapping and prices), `images/` (covers, photos, receipt logo), `manifest.json` and a
+readable `einstellungen.json`. *Restore a backup* takes such a ZIP back. printlog only accepts the files listed above (no
+paths outside the data folder, no links, size limits, a valid printlog database without triggers), shows a preview
+(now vs. after the restore) and only replaces data after you confirm. Before every restore or reset it automatically
+saves the current state as a ZIP in `sicherungen/` inside the data volume; the last ones are listed in the same tab
+for download or restoring. The language setting is kept.
+
+**Reset** (*Settings → Data & backup → Reset …*): choose *Only prints and history* (prints, photos, payments, handovers,
+trash; customers and settings stay) or *Everything* (like a fresh installation, only the language stays) and type the
+code shown on the page. An automatic backup is made first.
 
 ### Updating
 
@@ -264,7 +280,8 @@ filament weight per slot is usually not available there. Support for other brand
 - `GET /health` – 200 when connected to Home Assistant, otherwise 503
 - `GET /api/jobs` – prints as JSON (filters as in the UI, e.g. `?printer=x1c&month=2026-11`, plus `limit`, `offset`)
 - `GET /api/summary` – totals overall and per printer
-- `GET /export.csv` – CSV export with the current filters
+- `GET /export.csv` – CSV export (filters as in the UI, e.g. `?month=2026-11&printer=x1c`)
+- `GET /backup.zip` – full backup as ZIP
 - `POST /api/jobs/{id}` – update task_name, customer_id, quantity, job_note
 - `POST /api/jobs/{id}/photos` – upload a photo (multipart field `photo`)
 - `POST /api/jobs/{id}/delete`, `POST /api/jobs/delete` (`ids=1,2,3`) – move to trash
@@ -320,7 +337,9 @@ Bilder der Oberfläche stehen oben im englischen Teil unter [Screenshots](#scree
 - **Statistik** nach Tag, Woche oder Monat: Druckstunden pro Drucker, Kostenanteile, Filament nach Material,
   Erfolgsquote, Tabelle pro Drucker und eine Jahres-Heatmap der Druckstunden.
 - **Kalender** mit Drucken, Stunden, Kosten und Vorschaubildern pro Tag.
-- **CSV-Export** der aktuellen Liste (Excel-tauglich) und geplantes **Backup** von Datenbank und Bildern in einen eingehängten Ordner.
+- **Daten & Backup** in den Einstellungen: Komplettsicherung als ein **ZIP** (Datenbank, Fotos, Logo, alle Einstellungen) zum
+  Herunterladen und Wiedereinspielen, **CSV-Export** (Excel-tauglich), geplantes **Backup** in einen eingehängten Ordner und
+  abgesichertes **Zurücksetzen**.
 
 **Kosten und Kunden**
 
@@ -425,7 +444,7 @@ Unter **Einstellungen**:
 - **Margen** – bis zu zwei benannte Margen (z. B. Privat / Gewerbe).
 - **Bon & PDF** – eigenes Logo für Bon-Bild und PDF.
 - **Ansicht** – Sprache, Start-Tab der Detailseite, Aufbewahrung im Papierkorb.
-- **Backup** – Zeitplan (braucht `BACKUP_DIR`, siehe unten).
+- **Daten & Backup** – ZIP-Sicherung und Einspielen, CSV-Export, Backup-Zeitplan (braucht `BACKUP_DIR`, siehe unten), Zurücksetzen.
 
 #### 6. Optional
 
@@ -449,6 +468,8 @@ Umgebungsvariablen (in `.env` oder im Portainer-Stack); alles andere stellst du 
 | `PRINTLOG_PORT` | `8095` | Port auf dem Docker-Host. |
 | `BACKUP_DIR` | leer (aus) | Backup-Ziel im Container, z. B. `/backup` (dort in `docker-compose.yml` einen Ordner einhängen). |
 | `BACKUP_HOUR` | `3` | Standard-Uhrzeit für den Backup-Zeitplan. |
+| `IMPORT_MAX_MB` | `4096` | Größtes ZIP, das sich einspielen lässt. Ein Reverse Proxy braucht evtl. auch ein höheres Upload-Limit. |
+| `SAFETY_KEEP` | `5` | So viele automatische Sicherungen vor Einspielen/Zurücksetzen bleiben. |
 | `IMAGE_DELAY_S` | `60` | Sekunden bis zum Abruf des Vorschaubilds nach dem Start. |
 | `ENERGY_ENTITY` | leer | Nur für Updates von sehr alten Ständen: Muster der Energie-Entität mit Platzhalter `{printer}`. |
 | `LOG_LEVEL` | `INFO` | Log-Level. |
@@ -462,6 +483,18 @@ schon vor der Sprachwahl gab, bleiben deutsch, bis du es änderst.
 **Backup** mit gesetztem `BACKUP_DIR`: pro Lauf eine Datenbank-Kopie in `db/printlog-JJJJ-MM-TT.db` (die letzten 14 bleiben)
 und ein Spiegel aller Bilder in `images/`. Täglich oder wöchentlich (Standard: sonntags 3 Uhr), Änderungen greifen ohne Neustart;
 „Jetzt sichern“ steht in den Einstellungen.
+
+**Komplettsicherung als ZIP** (*Einstellungen → Daten & Backup*): *ZIP herunterladen* packt `printlog.db` (Drucke, Kunden,
+Zahlungen, Papierkorb und alle Einstellungen inkl. Drucker-Zuordnung und Preise), `images/` (Vorschaubilder, Fotos,
+Bon-Logo), `manifest.json` und eine lesbare `einstellungen.json`. *Sicherung einspielen* nimmt so ein ZIP zurück. printlog
+akzeptiert nur die genannten Dateien (keine Pfade außerhalb des Datenordners, keine Links, Größenlimits, gültige
+printlog-Datenbank ohne Trigger), zeigt eine Vorschau (jetzt vs. nach dem Einspielen) und ersetzt erst nach deiner
+Bestätigung. Vor jedem Einspielen oder Zurücksetzen sichert printlog den bisherigen Stand automatisch als ZIP in
+`sicherungen/` im Daten-Volume; die letzten stehen im selben Tab zum Herunterladen oder Einspielen. Die Sprache bleibt.
+
+**Zurücksetzen** (*Einstellungen → Daten & Backup → Zurücksetzen …*): *Nur Drucke und Verlauf* (Drucke, Fotos, Zahlungen,
+Übergaben, Papierkorb; Kunden und Einstellungen bleiben) oder *Alles* (wie eine frische Installation, nur die Sprache
+bleibt) wählen und den angezeigten Code eintippen. Vorher entsteht automatisch eine Sicherung.
 
 ### Aktualisieren
 

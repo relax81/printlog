@@ -7,6 +7,7 @@ import contextvars
 import csv
 import io
 import json
+import logging
 import re
 import time
 from datetime import datetime
@@ -16,6 +17,7 @@ from urllib.parse import quote, urlencode
 
 from aiohttp import web
 
+from . import archive
 from .costing import compute, parse_materials, recompute_all
 from .db import Store
 from .export import bon_png, collect, file_name, report_pdf
@@ -33,12 +35,16 @@ from .pages import (
     page_customers,
     page_job,
     page_jobs,
+    page_import,
+    page_reset,
     page_settings,
     page_trash,
     results,
 )
 from .stats import page_calendar, page_stats
 from .ui import STATIC_DIR, parse_num, printer_names
+
+log = logging.getLogger("printlog.web")
 
 IMAGE_TYPES = {
     "image/jpeg": ".jpg",
@@ -272,8 +278,10 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
     @routes.get("/settings")
     async def settings(request: web.Request) -> web.Response:
         live = await _live_states(ha_state, store)
-        return _html(page_settings(store, request.query.get("saved"), request.query.get("logo"),
-                                   live, request.query.get("pmsg")))
+        q = request.query
+        data_msg = {k: q[k] for k in ("restored", "reset") if archive.safety_path(data_dir, q.get(k, ""))}
+        return _html(page_settings(store, q.get("saved"), q.get("logo"), live, q.get("pmsg"),
+                                   archive.safety_files(data_dir), data_msg))
 
     @routes.post("/settings")
     async def save_settings(request: web.Request) -> web.Response:
@@ -336,6 +344,146 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
         if enabled():
             await backup_now(store, image_dir)
         raise web.HTTPSeeOther("settings")
+
+    # ---- Daten & Backup: ZIP herunterladen, einspielen, zurücksetzen ------------
+
+    data_dir = image_dir.parent
+    reset_codes: dict[str, tuple[str, float]] = {}
+    busy = asyncio.Lock()  # nie zwei Einspiel-/Zurücksetz-Vorgänge gleichzeitig
+
+    def _err(exc: Exception) -> str:
+        if isinstance(exc, archive.ArchiveError):
+            return t(exc.key, **exc.values)
+        return t("Unerwarteter Fehler: {msg}", msg=str(exc)[:200])
+
+    async def _send_file(request: web.Request, path: Path, name: str, delete: bool = False) -> web.StreamResponse:
+        resp = web.StreamResponse(headers={
+            "Content-Type": "application/zip",
+            "Content-Disposition": f'attachment; filename="{name}"',
+            "Content-Length": str(path.stat().st_size),
+            "Cache-Control": "no-store",
+        })
+        await resp.prepare(request)
+        try:
+            with open(path, "rb") as fh:
+                while chunk := fh.read(1024 * 1024):
+                    await resp.write(chunk)
+            await resp.write_eof()
+        finally:
+            if delete:
+                path.unlink(missing_ok=True)
+        return resp
+
+    @routes.get("/backup.zip")
+    async def backup_zip(request: web.Request) -> web.StreamResponse:
+        archive.cleanup_stage(data_dir)
+        name = f"printlog-{time.strftime('%Y-%m-%d_%H%M')}.zip"
+        tmp = archive.stage_dir(data_dir) / f"export-{archive.new_token()}.zip"
+        await in_thread(archive.build_zip, store, image_dir, tmp)
+        return await _send_file(request, tmp, name, delete=True)
+
+    @routes.get("/safety/{name}")
+    async def safety_download(request: web.Request) -> web.StreamResponse:
+        path = archive.safety_path(data_dir, request.match_info["name"])
+        if path is None:
+            raise web.HTTPNotFound()
+        return await _send_file(request, path, path.name)
+
+    def _current() -> dict[str, Any]:
+        cur = store.counts()
+        cur["images"] = sum(1 for p in image_dir.iterdir() if p.is_file()) if image_dir.is_dir() else 0
+        return cur
+
+    async def _preview(zip_path: Path, source: str | None) -> web.Response:
+        token = archive.new_token()
+        try:
+            info = await in_thread(archive.unpack, zip_path, archive.stage_dir(data_dir) / token)
+        except Exception as exc:  # noqa: BLE001
+            import shutil
+            shutil.rmtree(archive.stage_dir(data_dir) / token, ignore_errors=True)
+            return _html(page_import(_current(), None, None, _err(exc)))
+        return _html(page_import(_current(), info, token, None, source))
+
+    @routes.post("/import")
+    async def import_upload(request: web.Request) -> web.Response:
+        """ZIP hochladen (gestreamt, ohne Größenlimit von aiohttp), prüfen, Vorschau zeigen."""
+        archive.cleanup_stage(data_dir)
+        tmp = archive.stage_dir(data_dir) / f"upload-{archive.new_token()}.zip"
+        try:
+            reader = await request.multipart()
+            field = await reader.next()
+            while field is not None and getattr(field, "name", None) != "file":
+                field = await reader.next()
+            if field is None or not getattr(field, "filename", None):
+                return _html(page_import(_current(), None, None, t("Bitte eine ZIP-Datei auswählen.")))
+            size = 0
+            with open(tmp, "wb") as fh:
+                while chunk := await field.read_chunk(1024 * 1024):  # type: ignore[union-attr]
+                    size += len(chunk)
+                    if size > archive.MAX_UPLOAD:
+                        return _html(page_import(_current(), None, None, t("Die Datei ist zu groß.")))
+                    fh.write(chunk)
+            return await _preview(tmp, None)
+        finally:
+            tmp.unlink(missing_ok=True)
+
+    @routes.post("/import-safety")
+    async def import_safety(request: web.Request) -> web.Response:
+        form = await request.post()
+        path = archive.safety_path(data_dir, str(form.get("name") or ""))
+        if path is None:
+            raise web.HTTPNotFound()
+        return await _preview(path, path.name)
+
+    @routes.post("/import/apply")
+    async def import_apply(request: web.Request) -> web.Response:
+        form = await request.post()
+        if not form.get("confirm"):
+            return _html(page_import(_current(), None, None, t("Bitte das Einspielen bestätigen.")))
+        async with busy:
+            try:
+                res = await in_thread(archive.apply, store, image_dir, data_dir, str(form.get("token") or ""))
+            except Exception as exc:  # noqa: BLE001
+                log.exception("Einspielen fehlgeschlagen")
+                return _html(page_import(_current(), None, None, _err(exc)))
+        raise web.HTTPSeeOther(f"../settings?restored={quote(res['safety'])}#backup")
+
+    def _new_reset_code() -> tuple[str, str]:
+        import secrets
+
+        from .db import CODE_ALPHABET
+        now = time.time()
+        for k in [k for k, (_, ts) in reset_codes.items() if now - ts > 1800]:
+            reset_codes.pop(k, None)
+        token = archive.new_token()
+        code = "".join(secrets.choice(CODE_ALPHABET) for _ in range(5))
+        reset_codes[token] = (code, now)
+        return token, code
+
+    @routes.get("/reset")
+    async def reset_page(request: web.Request) -> web.Response:
+        token, code = _new_reset_code()
+        return _html(page_reset(store.counts(), token, code))
+
+    @routes.post("/reset")
+    async def reset_do(request: web.Request) -> web.Response:
+        form = await request.post()
+        entry = reset_codes.pop(str(form.get("token") or ""), None)
+        scope = form.get("scope")
+        typed = re.sub(r"\s", "", str(form.get("code") or "")).upper()
+        error = None
+        if entry is None or time.time() - entry[1] > 1800:
+            error = t("Der Code ist abgelaufen. Bitte den neuen Code eintippen.")
+        elif scope not in ("history", "all"):
+            error = t("Bitte auswählen, was gelöscht werden soll.")
+        elif typed != entry[0]:
+            error = t("Der Code stimmt nicht. Es wurde nichts gelöscht.")
+        if error:
+            token, code = _new_reset_code()
+            return _html(page_reset(store.counts(), token, code, error))
+        async with busy:
+            safety = await in_thread(archive.reset, store, image_dir, data_dir, scope == "all")
+        raise web.HTTPSeeOther(f"settings?reset={quote(safety)}#backup")
 
     @routes.get("/stats")
     async def stats(request: web.Request) -> web.Response:
