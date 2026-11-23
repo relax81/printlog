@@ -237,6 +237,11 @@ If you want to feed printlog from something other than the blueprint, fire an ev
 `final` is sent after the cool-down; its meter reading is used for the kWh. Without `final` within 20 minutes,
 printlog closes the print with the reading from `stop`.
 
+Pauses of any length are fine: the blueprint sends `start` again when the print resumes, and printlog uses
+`printer_start_time` to recognise it as the same print (no new row). If `stop` arrives without a `start`, printlog takes
+the meter reading at `printer_start_time` from the HA history, so the print still gets its kWh (rows from the last
+7 days that missed this are repaired on the next connection to HA).
+
 ### Other printers
 
 printlog is built around the Bambu Lab integration (status names, AMS weights per slot, cover image). Electricity
@@ -464,7 +469,7 @@ erneut kopieren) und die Automationen neu laden; bestehende Automationen behalte
 
 | Event-Phase | Wann | Was passiert |
 |---|---|---|
-| `start` | Status wechselt auf `running` (nicht aus Pause/Offline) | Zeile anlegen, Zählerstand merken, Vorschaubild holen |
+| `start` | Status wechselt auf `running` (auch nach Pause, nicht aus Offline) | Zeile anlegen, Zählerstand merken, Vorschaubild holen |
 | `stop`  | Status wechselt von `running`/`pause`/`prepare` auf `finish`/`failed` | Status fertig/abgebrochen, Zählerstand und Fortschritt merken |
 | `final` | Leistung unter Standby (Abkühlen vorbei, max. 5 min) + 70 s | kWh = Ende − Start, Kosten = kWh × Strompreis |
 
@@ -474,7 +479,13 @@ Sonderfälle:
   Druckstatus- und Zähler-Sensoren (seit der letzten Verbindung, max. 7 Tage) und holt verpasste `start`/`stop` nach denselben
   Regeln wie die Automation nach. Bereits erfasste Events werden nicht doppelt angelegt, Drucke aus dem Papierkorb nicht neu.
 - Kein `final` innerhalb von 20 min: Abschluss mit dem Zählerstand vom `stop`.
-- Neuer Start ohne Ende davor: die alte Zeile wird „unvollständig“. Ende ohne Start: Zeile „unvollständig“ ohne kWh.
+- Pausen (Magnete einsetzen, Platte prüfen, kurzer Fehler beim Vorbereiten, egal wie lange): Beim Weiterdrucken schickt der
+  Blueprint wieder `start`. printlog erkennt an der Startzeit des Druckers (`printer_start_time`), dass es derselbe Druck
+  ist, und legt keine neue Zeile an. Fehlte der erste Start, wird er so nachgeholt.
+- Neuer Start ohne Ende davor (andere Startzeit): die alte Zeile wird „unvollständig“.
+- Ende ohne Start: printlog legt die Zeile beim Ende an und holt den Zählerstand zur Startzeit des Druckers aus dem
+  HA-Verlauf („Startwert aus HA-Verlauf ergänzt“). Nur wenn auch das nicht geht, bleibt sie „unvollständig“ ohne kWh.
+  Solche Zeilen der letzten 7 Tage repariert printlog beim nächsten Verbinden mit HA automatisch.
 - Steckdose offline oder Zähler zurückgesetzt: keine kWh, Hinweis in der Zeile; mit fester Leistung wird geschätzt.
 - Fehldrucke bekommen eine eigene Zeile „abgebrochen“, Filament nur anteilig bis zum Abbruch.
 

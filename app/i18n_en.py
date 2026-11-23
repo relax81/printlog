@@ -507,6 +507,7 @@ EN: dict[str, str] = {
     'kWh geschätzt mit {w} W': 'kWh estimated at {w} W',
     'Kein Druckende empfangen (neuer Druck gestartet)': 'No print end received (new print started)',
     'Druckstart nicht empfangen': 'Print start not received',
+    'Startwert aus HA-Verlauf ergänzt': 'Start reading filled in from HA history',
     'Abkühlphase nicht gemessen': 'Cool-down not measured',
     'Zählerstand fehlte (Plug offline?)': 'Meter reading missing (plug offline?)',
     'Zähler wurde zurückgesetzt': 'Meter was reset',

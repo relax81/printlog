@@ -8,7 +8,9 @@ Nach jedem (Neu-)Verbinden liest der Container deshalb aus dem HA-Recorder,
 wie sich der Druckstatus seit der letzten Verbindung geändert hat, und spielt
 die Übergänge nach denselben Regeln wie die HA-Automation nach:
 
-* ``start``: Status wechselt auf ``running``, aber nicht aus Pause/Offline.
+* ``start``: Status wechselt auf ``running``, aber nicht aus Offline/Unbekannt.
+             Auch nach einer Pause: printlog erkennt an der Startzeit des
+             Druckers, dass es derselbe Druck ist (siehe ``logic._same_print``).
 * ``stop``:  Status wechselt von ``running``/``pause``/``prepare`` auf
              ``finish``/``failed``.
 * ``final``: Für Drucke, deren Ende länger als die Abkühlphase zurückliegt,
@@ -35,9 +37,11 @@ from . import printers as pcfg
 
 log = logging.getLogger("printlog.recovery")
 
-START_NOT_FROM = {"running", "pause", "unavailable", "unknown", "offline"}
+START_NOT_FROM = {"running", "unavailable", "unknown", "offline"}
 STOP_FROM = {"running", "pause", "prepare"}
 STOP_TO = {"finish", "failed"}
+
+ENERGY_LOOKBACK_S = 15 * 60     # Plug meldet etwa minütlich; so weit zurück suchen
 
 SEEN_KEY = "ha_seen_ts"          # zuletzt mit HA verbunden (Unix-Zeit)
 
@@ -73,6 +77,15 @@ class Recovery:
 
     def learn(self, data: dict[str, Any]) -> None:
         pcfg.learn(self.store, data)
+
+    async def energy_at(self, printer: str, ts: float) -> float | None:
+        """Zählerstand des Plugs zum Zeitpunkt ``ts`` aus dem HA-Verlauf."""
+        cfg = pcfg.by_key(self.store).get(printer) or {}
+        entity = _energy(cfg)
+        if not entity or not self.ha.connected:
+            return None
+        history = await self.ha.get_history([entity], ts - ENERGY_LOOKBACK_S, ts + 1)
+        return _value_at(history.get(entity, []), ts)
 
     def mark_seen(self) -> None:
         self.store.set_setting(SEEN_KEY, f"{time.time():.0f}")
@@ -125,6 +138,8 @@ class Recovery:
             column = "start_ts" if phase == "start" else "end_ts"
             if self.store.job_near(key, column, ts, DUPLICATE_S):
                 continue
+            if phase == "start" and self.store.job_during(key, ts):
+                continue  # Weiterdrucken nach Pause: Druck ist schon erfasst
             cfg = printers[key]
             latest = not any(t[1] == key for t in transitions[i + 1:])
             data = await self._event(key, cfg, phase, cur, ts, history, price, latest)
@@ -163,8 +178,12 @@ class Recovery:
             )
             closed += 1
 
-        if replayed or closed:
-            log.info("Nachgeholt: %s Start/Ende, %s Abkühlphasen", replayed, closed)
+        # Drucke, deren Start fehlte (z. B. Pause schon beim Vorbereiten): Startwert nachtragen.
+        repaired = await self.processor.repair_missing_start(now - MAX_LOOKBACK_S)
+
+        if replayed or closed or repaired:
+            log.info("Nachgeholt: %s Start/Ende, %s Abkühlphasen, %s Startwerte",
+                     replayed, closed, repaired)
 
     async def _event(self, key: str, cfg: dict[str, Any], phase: str, status: str, ts: float,
                      history: dict[str, list[tuple[float, str]]], price: float | None,

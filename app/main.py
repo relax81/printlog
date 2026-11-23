@@ -62,6 +62,7 @@ async def _start_background(app: web.Application) -> None:
             return None
 
     recovery = Recovery(store, ha, processor, fetch_image, get_price)
+    processor.energy_at = recovery.energy_at  # fehlenden Startwert aus dem HA-Verlauf holen
     started = time.time()
     recovered = asyncio.Event()
     caught_up = False  # letzter Nachhol-Lauf erfolgreich
