@@ -1169,7 +1169,7 @@ def page_job(store: Store, job: dict[str, Any], saved: str | None) -> str:
 <label>{t("Abrechnung")}<select name="gift">{opt("0", t("berechnen"), "1" if job.get("gift") else "0")}{opt("1", t("🎁 verschenkt (keine Zahlung)"), "1" if job.get("gift") else "0")}</select></label>
 <label>{t("Projekttitel")}<input name="project_title" value="{e(job.get("project_title") or "")}" placeholder="{e(t("wird beim Speichern aus dem Link geholt, wenn leer"))}"></label>
 <label class="full">{t("Projektlink (MakerWorld, Printables …)")}<input name="project_url" type="url" value="{e(job.get("project_url") or "")}" placeholder="https://makerworld.com/…"></label>
-<label class="full">{t("Lokaler Ordner (Windows-Pfad)")}<input name="local_path" value="{e(job.get("local_path") or "")}" placeholder="{e(t("z. B. D:\\3D-Druck\\Projekte\\Halter"))}" spellcheck="false"></label>
+<label class="full">{t("Lokaler Ordner oder 3D-Datei (Windows-Pfad)")}<input name="local_path" value="{e(job.get("local_path") or "")}" placeholder="{e(t("z. B. D:\\3D-Druck\\Projekte\\Halter"))}" spellcheck="false"></label>
 {mat_fields}<label class="full">{t("Notiz")}<textarea name="job_note" rows="3">{e(job.get("job_note") or "")}</textarea></label>
 <div class="act"><button class="primary">{t("Speichern")}</button></div>
 </form></div>
@@ -1478,14 +1478,15 @@ def page_settings(store: Store, saved: str | None, logo: str | None = None,
 · <a href="trash">{t("Papierkorb öffnen ({n})", n=store.trash_count())}</a></p>"""),
         pane("backup", "Backup", backup_html.replace("<h2>Backup</h2>", '<h2 style="margin-top:0">Backup</h2>', 1)),
         pane("windows", "Windows", f"""<h2 style="margin-top:0">{t("Ordner-Links (Windows)")}</h2>
-<p>{t("Bei jedem Druck kannst du einen lokalen Ordner eintragen. „📋 Kopieren“ geht immer (dann Win+E, Strg+L, einfügen). Damit „📂 Öffnen“ den Ordner direkt im Explorer öffnet, richte einmalig pro Windows-PC das Link-Protokoll ein:")}</p>
+<p>{t("Bei jedem Druck kannst du einen lokalen Ordner oder eine Datei eintragen. „📋 Kopieren“ geht immer (dann Win+E, Strg+L, einfügen). Damit „📂 Öffnen“ direkt funktioniert, richte einmalig pro Windows-PC das Link-Protokoll ein:")}</p>
 <ol>
-<li>{t('<a href="tools/printlog-open.ps1" download>printlog-open.ps1</a> herunterladen.')}</li>
-<li>{t("Rechtsklick auf die Datei → „Mit PowerShell ausführen“ (unter Windows 11 ggf. über „Weitere Optionen anzeigen“). Es kopiert sich nach <code>%LOCALAPPDATA%\\printlog</code> und trägt das Protokoll <code>printlog-open</code> für deinen Benutzer ein, ohne Adminrechte.")}</li>
+<li>{t('<a href="tools/printlog-einrichten.cmd" download>printlog-einrichten.cmd</a> herunterladen und doppelklicken. Falls Windows „Der Computer wurde geschützt“ zeigt: „Weitere Informationen“ → „Trotzdem ausführen“.')}</li>
+<li>{t("Im Dialog deinen <b>Projektordner</b> wählen. 3D-Dateien darin (3MF, STL, STEP, OBJ) öffnen sich dann direkt im Standardprogramm, z. B. Bambu Studio. „Abbrechen“ heißt: Dateien nie direkt öffnen, nur im Explorer markieren.")}</li>
 <li>{t("Beim ersten Klick auf „📂 Öffnen“ fragt der Browser nach. Mit „Immer erlauben“ kommt die Frage nicht wieder.")}</li>
 </ol>
-<p class="muted">{t("Das Skript öffnet nur Ordner im Explorer (bei einer Datei den Ordner mit markierter Datei) und führt nichts aus. Pfade mit Leerzeichen und Umlauten sowie Netzwerkpfade (<code>\\\\server\\freigabe</code>) gehen.")}
-{t('Entfernen: <a href="tools/printlog-open-entfernen.reg" download>printlog-open-entfernen.reg</a> öffnen.')}</p>"""),
+<p class="muted">{t("Sicherheit: Ordner öffnen sich nur im Explorer. Eine Datei startet nur, wenn sie eine 3D-Endung hat <i>und</i> in deinem Projektordner liegt, sonst wird sie im Explorer markiert. Programme und Skripte startet ein Link nie. Den Projektordner legt nur dein PC fest, nicht PrintLog. Zum Ändern die Einrichtung erneut starten.")}
+{t("Pfade mit Leerzeichen und Umlauten sowie Netzwerkpfade (<code>\\\\server\\freigabe</code>) gehen. Die Einrichtung legt alles unter <code>%LOCALAPPDATA%\\printlog</code> ab, ohne Adminrechte.")}
+{t('Entfernen: <a href="tools/printlog-open-entfernen.reg" download>printlog-open-entfernen.reg</a> öffnen. Nur das Skript: <a href="tools/printlog-open.ps1" download>printlog-open.ps1</a>.')}</p>"""),
     ]
     tabs = "".join(f'<button type="button" data-tab="{k}" class="{"on" if i == 0 else ""}">{lbl}</button>'
                    for i, (k, lbl, _) in enumerate(panes))

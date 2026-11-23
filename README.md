@@ -182,8 +182,10 @@ Open **Settings**:
 
 - **Reverse proxy** (Nginx Proxy Manager, Traefik, Caddy …): point a hostname to `<docker-host>:8095` and enable WebSocket support.
 - **Home Assistant dashboard**: embed printlog with a *Webpage* card (`type: iframe`); use the HTTPS URL if HA itself runs on HTTPS.
-- **Windows folder links**: each print can store a local folder path. *Settings → Windows* has a small script that registers
-  a `printlog-open:` link handler so the folder opens in Explorer.
+- **Windows folder links**: each print can store a local folder or file path. *Settings → Windows* offers a double-click
+  setup (`printlog-einrichten.cmd`) that registers a `printlog-open:` link handler for the current user. Folders open in Explorer;
+  3D files (3MF, STL, STEP, OBJ) open in their default app only if they lie inside a project folder chosen on the PC during setup,
+  everything else is just highlighted in Explorer. A link never starts programs or scripts.
 
 ### Configuration
 
@@ -420,8 +422,10 @@ Unter **Einstellungen**:
 
 - **Reverse Proxy** (Nginx Proxy Manager, Traefik, Caddy …): einen Hostnamen auf `<docker-host>:8095` zeigen lassen, WebSocket-Unterstützung an.
 - **Home-Assistant-Dashboard**: printlog mit einer *Webseite*-Karte (`type: iframe`) einbetten; läuft HA über HTTPS, auch printlog über HTTPS aufrufen.
-- **Ordner-Links unter Windows**: Unter *Einstellungen → Windows* gibt es ein kleines Skript, das den Link-Typ `printlog-open:`
-  einrichtet, damit „📂 Öffnen“ den Ordner eines Drucks im Explorer öffnet.
+- **Ordner-Links unter Windows**: Pro Druck lässt sich ein lokaler Ordner oder eine Datei hinterlegen. Unter *Einstellungen → Windows*
+  gibt es eine Einrichtung per Doppelklick (`printlog-einrichten.cmd`), die den Link-Typ `printlog-open:` für den eigenen Benutzer einträgt.
+  Ordner öffnen sich im Explorer. 3D-Dateien (3MF, STL, STEP, OBJ) öffnen sich im Standardprogramm, aber nur innerhalb des
+  Projektordners, den man bei der Einrichtung am PC wählt; alles andere wird nur im Explorer markiert. Programme oder Skripte startet ein Link nie.
 
 ### Konfiguration
 
