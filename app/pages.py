@@ -1,0 +1,1632 @@
+"""Seiten: Drucke (Tabelle/Galerie), Druckdetails, Kunden, Einstellungen."""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import time
+from datetime import datetime
+from urllib.parse import quote
+from typing import Any
+
+from .costing import KNOWN_TYPES, hourly_rate, material_notes, parse_materials
+from .db import Store, code_label
+from .ui import (
+    e,
+    parse_num,
+    fmt_dur,
+    fmt_input,
+    fmt_num,
+    fmt_ts,
+    layout,
+    opt,
+    printer_names,
+)
+
+FILTER_KEYS = ("q", "printer", "month", "day", "status", "material", "customer", "view", "group", "todo")
+# Nur Darstellung, kein Datenbankfilter
+VIEW_KEYS = ("view", "group", "todo")
+
+# Filter „Offenes“: ein Auswahlfeld für Zahlung und Übergabe
+TODO_OPTIONS = {
+    "unbezahlt": ("💶 nicht bezahlt", {"paid": "offen"}),
+    "anbezahlt": ("💶 teilweise bezahlt", {"paid": "teilweise"}),
+    "bezahlt": ("✓ bezahlt", {"paid": "bezahlt"}),
+    "verschenkt": ("🎁 verschenkt", {"paid": "verschenkt"}),
+    "abholen": ("📦 nicht (ganz) übergeben", {"handover": "offen"}),
+    "teilweise": ("📦 teilweise übergeben", {"handover": "teilweise"}),
+    "uebergeben": ("✓ übergeben", {"handover": "übergeben"}),
+}
+
+
+def db_filters(f: dict[str, str | None]) -> dict[str, str | None]:
+    """URL-Filter → Datenbankfilter (Darstellungsschalter raus, „Offenes“ übersetzt)."""
+    q: dict[str, str | None] = {k: v for k, v in f.items() if k not in VIEW_KEYS}
+    todo = TODO_OPTIONS.get(f.get("todo") or "")
+    if todo:
+        q.update(todo[1])
+    return q
+
+
+def _status_of(job: dict[str, Any]) -> str:
+    if job["state"] == "running":
+        return "läuft"
+    if job["state"] == "closing":
+        return "kühlt ab"
+    return job["status"] or "–"
+
+
+def _color(c: str | None) -> str:
+    if c and c.startswith("#") and len(c) in (7, 9):
+        return e(c[:7])
+    return "var(--muted)"
+
+
+def _short(name: str | None) -> str:
+    if not name:
+        return "?"
+    return name.removeprefix("Bambu ").removeprefix("Generic ")
+
+
+def _chips(job: dict[str, Any]) -> str:
+    materials = parse_materials(job.get("materials"))
+    chips = "".join(
+        f'<span><span class="dot" style="background:{_color(m["color"])}"></span>'
+        f'{e(_short(m["name"]))} {fmt_num(m["grams"], 1, "g")}</span>'
+        for m in materials
+    )
+    return f'<div class="chips">{chips}</div>' if chips else ""
+
+
+def _per_piece(job: dict[str, Any]) -> str:
+    q = job.get("quantity")
+    if q and q > 1 and job.get("cost_total") is not None:
+        return f'{fmt_num(job["cost_total"] / q, 2, "€")}/Stk.'
+    return ""
+
+
+def margins(store: Store) -> list[tuple[str, float]]:
+    """Allgemeine Margen aus den Einstellungen, z. B. [("Privat", 30.0), ("Gewerbe", 60.0)]."""
+    cfg = store.settings()
+    out = []
+    for i in (1, 2):
+        pct = parse_num(cfg.get(f"margin{i}_pct"))
+        if pct is not None:
+            out.append((cfg.get(f"margin{i}_name") or f"Marge {i}", pct))
+    return out
+
+
+def _price(job: dict[str, Any], pct: float) -> float | None:
+    if job.get("cost_total") is None:
+        return None
+    return job["cost_total"] * (1 + pct / 100)
+
+
+def _price_cell(job: dict[str, Any], pct: float) -> str:
+    price = _price(job, pct)
+    q = job.get("quantity")
+    per = f'<div class="note">{fmt_num(price / q, 2, "€")}/Stk.</div>' if price is not None and q and q > 1 else ""
+    return f'<td class="n">{fmt_num(price, 2, "€")}{per}</td>'
+
+
+def _customer_price(job: dict[str, Any]) -> str:
+    pct = job.get("customer_margin")
+    price = _price(job, pct) if pct is not None else None
+    if price is None:
+        return ""
+    return (f'<div class="note" title="Marge von {e(job.get("customer_name") or "")}">'
+            f'Kunde +{fmt_input(pct)} %: <b>{fmt_num(price, 2, "€")}</b></div>')
+
+
+def _project(job: dict[str, Any]) -> str:
+    url, title = job.get("project_url"), job.get("project_title")
+    if not url and not title:
+        return ""
+    label = e(title or "Projekt")
+    if url and url.startswith(("http://", "https://")):
+        return f'<div class="note">🔗 <a href="{e(url)}" target="_blank" rel="noopener">{label}</a></div>'
+    return f'<div class="note">🔗 {label}</div>'
+
+
+def local_link(path: str) -> str:
+    """Link für das Protokoll printlog-open (Registry-Eintrag aus den Einstellungen)."""
+    return "printlog-open:" + quote(path, safe="")
+
+
+def _local_path(job: dict[str, Any]) -> str:
+    path = job["local_path"]
+    return (f'<div class="lp"><code>{e(path)}</code> '
+            f'<button type="button" class="btn sm" data-copy="{e(path)}">📋 Kopieren</button> '
+            f'<a class="btn sm" href="{e(local_link(path))}" title="Braucht die einmalige Einrichtung unter Einstellungen">📂 Öffnen</a></div>')
+
+
+def _thumb(job: dict[str, Any], photo: str | None = None, cls: str = "t") -> str:
+    src = photo or job.get("image")
+    if not src:
+        return f'<div class="ph"></div>' if cls == "t" else '<div class="gimg ph"></div>'
+    return f'<img class="{cls}" loading="lazy" src="images/{e(src)}" alt="">'
+
+
+# ---- Drucke -------------------------------------------------------------------
+
+JOBS_CSS = """
+.selbtn.on{background:var(--accent);color:#111;border-color:var(--accent)}
+.selmode :is(.jr,.gcard,.mcard){position:relative;user-select:none}
+.selmode :is(.jr,.gcard,.mcard)::after{content:"";position:absolute;left:8px;top:8px;width:24px;height:24px;border-radius:50%;z-index:2;
+ border:2px solid var(--muted);background:var(--card);box-sizing:border-box;display:grid;place-items:center;font:700 15px/1 system-ui;color:#111}
+.selmode :is(.jr,.gcard,.mcard).picked{outline:2px solid var(--accent);outline-offset:-2px;background:color-mix(in srgb,var(--accent) 10%,var(--card))}
+.selmode :is(.jr,.gcard,.mcard).picked::after{content:"✓";background:var(--accent);border-color:var(--accent)}
+.selmode :is(.jr,.gcard,.mcard) :is(a,button){pointer-events:none}
+#selbar,#toast{position:fixed;left:50%;transform:translateX(-50%);bottom:16px;z-index:40;display:flex;align-items:center;gap:10px;
+ background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 14px;box-shadow:0 10px 30px rgba(0,0,0,.4);
+ width:min(640px,calc(100vw - 24px));box-sizing:border-box;flex-wrap:wrap}
+#selbar[hidden],#toast[hidden]{display:none}#selbar .sp{flex:1}#toast span{flex:1}
+#selbar .del{background:var(--bad);color:#fff;border-color:var(--bad);font-weight:700}#selbar .del:disabled{opacity:.4}
+@media(max-width:700px){#selbar{gap:6px;padding:8px 10px}#selbar .none{display:none}#selbar .sp{display:none}#selbar b{flex:1}}
+body.selmode{padding-bottom:90px}
+.gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px}
+.gcard{background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden;text-decoration:none;color:var(--fg);display:block}
+.gcard .gimg{width:100%;aspect-ratio:1;object-fit:contain;background:var(--bg);display:block}
+.gcard .gt{padding:8px 10px}.gcard .gt b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gcard .badge{font-size:11px;color:var(--muted)}
+.flt,.tail{display:contents}.ftoggle{display:none}.mlist{display:none}
+.mcard{display:grid;grid-template-columns:64px minmax(0,1fr) auto;gap:4px 12px;align-items:start;
+background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px;text-decoration:none;color:var(--fg)}
+.mcard:active{border-color:var(--accent)}
+.mcard .t,.mcard .ph{width:64px;height:64px;cursor:default;grid-row:span 2}
+.mcard .mt{font-weight:600;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.mcard .mp{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mcard .mr{text-align:right;white-space:nowrap}.mcard .mr b{display:block;font-size:16px;font-variant-numeric:tabular-nums}
+.mcard .mr .s{font-size:12px}
+.mcb{display:flex;flex-direction:column;align-items:flex-end;gap:4px;margin-top:4px}.mcb .bdg{font-size:12px;padding:2px 8px}
+.mcard .mm{grid-column:2/4;font-size:12px;color:var(--muted)}.mcard .mm .chips{margin-top:0}
+.mcard .meta{display:flex;flex-wrap:wrap;gap:0 6px}.mcard .meta span+span:before{content:"·";margin-right:6px}
+.jk{grid-template-columns:1.4fr repeat(5,minmax(0,1fr));gap:12px}
+.jk .kpi{border-radius:14px;padding:12px 16px}.jk .kpi span{display:block;font-size:13px;font-weight:600}
+.jk .kpi b{font-size:24px;letter-spacing:-.01em}.jk .kpi small{display:block;color:var(--muted);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.jk .kpi.main{border-color:var(--accent);background:linear-gradient(135deg,color-mix(in srgb,var(--accent) 16%,transparent),transparent)}
+.jk .kpi.main b{font-size:30px}
+.jt{background:var(--card);border:1px solid var(--line);border-radius:16px;font-size:15px}
+.jr:last-child{border-radius:0 0 16px 16px}
+@media (min-width:701px){form.f select,form.f input.search,form.f .gbtn{height:40px}form.f .seg a{padding:9px 14px}}
+.jh,.jr{display:grid;grid-template-columns:64px minmax(220px,1fr) 150px 92px 132px 250px 160px;gap:16px;align-items:center;padding:0 18px;min-width:1100px}
+.jh{height:42px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700;border-bottom:1px solid var(--line)}
+.jr{padding-top:14px;padding-bottom:14px;border-bottom:1px solid var(--line);cursor:pointer;-webkit-tap-highlight-color:transparent}
+.jr:last-child{border-bottom:0}
+@media (hover:hover){.jr:hover{background:color-mix(in srgb,var(--fg) 3%,transparent)}}
+.jr.run{background:linear-gradient(90deg,color-mix(in srgb,var(--run) 10%,transparent),transparent 45%)}
+.jr.scrap .jn{text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--bad) 60%,transparent)}
+.jr.scrap .t,.jr.scrap .ph,.jr.scrap .bar{opacity:.55}.jr.scrap .jn,.jr.scrap .jc b,.jr.scrap .cb>b,.jr.scrap .jp b{color:var(--muted)}
+.jr .t,.jr .ph{width:64px;height:64px;border-radius:12px;border:1px solid var(--line);object-fit:contain;cursor:pointer}
+.jn{font-size:17px;font-weight:700;line-height:1.25;color:var(--fg);text-decoration:none;overflow-wrap:anywhere}
+.jr .chips{margin-top:4px;font-size:13px;gap:2px 12px}
+.tags{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:7px}
+.tag{display:inline-flex;align-items:center;gap:5px;padding:2px 10px;border-radius:999px;background:var(--bg);border:1px solid var(--line);font-size:13px;font-weight:600;white-space:nowrap;color:var(--fg);text-decoration:none;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+a.tag{color:var(--accent)}
+.tnote{font-size:13px;color:var(--muted)}.tnote.warn{color:var(--warn)}.tnote.bad{color:var(--bad)}
+.jc b{display:block;font-weight:600;white-space:nowrap}.jc span{display:block;font-size:13px;color:var(--muted);white-space:nowrap}
+.jc.r{text-align:right;font-variant-numeric:tabular-nums}
+.jh .r{text-align:right}
+.cb{all:unset;box-sizing:border-box;display:block;width:100%;text-align:right;cursor:pointer;position:relative;padding:4px 0;-webkit-tap-highlight-color:transparent}
+.cb>b{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums}
+.cb .pp{display:block;font-size:12px;color:var(--muted)}
+.bar{display:flex;gap:2px;height:7px;margin-top:6px;border-radius:4px;overflow:hidden}
+.bar i{display:block;border-radius:2px;min-width:3px}
+.c-str{background:var(--s4)}.c-fil{background:var(--s3)}.c-dru{background:var(--s7)}
+.pop{display:none;position:absolute;right:-8px;top:calc(100% + 6px);z-index:15;min-width:250px;text-align:left;cursor:default;
+ background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 14px;box-shadow:0 8px 28px rgba(0,0,0,.35);font-size:14px}
+.cb.open .pop{display:block}.cb.up .pop{top:auto;bottom:calc(100% + 6px)}
+@media (hover:hover){.cb:hover .pop{display:block}}
+.pop>div{display:grid;grid-template-columns:12px 1fr auto;gap:8px;align-items:center;padding:4px 0}
+.pop>div i{width:10px;height:10px;border-radius:3px}
+.pop>div b{font-variant-numeric:tabular-nums;font-weight:600;text-align:right}
+.pop small{grid-column:2/-1;margin-top:-4px;font-size:12px;color:var(--muted)}
+.pop .sum{border-top:1px solid var(--line);margin-top:4px;padding-top:8px}.pop .sum b{font-weight:700}
+.jp{display:grid;grid-template-columns:minmax(0,1fr) auto 64px;gap:3px 10px;align-items:baseline;font-size:14px}
+.jp>*{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.jp b{text-align:right;font-variant-numeric:tabular-nums;font-size:15px}
+.jp small{font-size:12px;color:var(--muted);text-align:right}
+.jp .pct{font-size:12px;color:var(--muted)}
+.jp .cu{color:var(--accent)}.jp .fp{color:var(--fg);font-weight:800}
+.js{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+.bdg{display:inline-flex;align-items:center;gap:6px;padding:3px 11px;border-radius:999px;font-size:13px;font-weight:700;white-space:nowrap;
+ border:1px solid color-mix(in srgb,currentColor 35%,transparent);background:color-mix(in srgb,currentColor 10%,transparent)}
+.bdg:before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+.bdg.st-ok{color:var(--ok)}.bdg.st-bad{color:var(--bad)}.bdg.st-warn{color:var(--warn)}.bdg.st-run{color:var(--run)}.bdg.st-none{color:var(--muted)}.bdg.st-gift{color:#b07cf0}
+.jday{display:flex;align-items:baseline;gap:10px;padding:16px 18px 8px;border-bottom:1px solid var(--line);min-width:1100px;
+ background:color-mix(in srgb,var(--bg) 55%,var(--card))}
+.jday b{font-size:17px}.jday span{color:var(--muted);font-size:14px}
+.mday{display:flex;gap:8px;align-items:baseline;margin:10px 2px 0}.mday b{font-size:15px}.mday span{color:var(--muted);font-size:13px}
+.mday:first-child{margin-top:0}
+.gbtn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:8px;padding:6px 12px;font-weight:600;color:var(--muted);background:var(--card);cursor:pointer}
+.gbtn.on{color:var(--accent);border-color:var(--accent)}
+.legend2{display:flex;gap:14px;font-size:12px;color:var(--muted);margin:8px 4px 0}
+.legend2 i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+@media (max-width:1150px){.jt{overflow-x:auto}.jh,.jr,.jday{min-width:880px}
+ .jh,.jr{grid-template-columns:56px minmax(200px,1fr) 130px 124px 230px 150px;gap:12px;padding:0 14px}
+ .jh>:nth-child(4),.jr>:nth-child(4){display:none}.jr .t,.jr .ph{width:56px;height:56px}}
+@media (max-width:1300px){.jk{grid-template-columns:repeat(3,minmax(0,1fr))}.jk .kpi.main{grid-column:span 1}}
+@media (min-width:1301px) and (max-width:1500px){.jk .kpi b{font-size:22px}.jk .kpi.main b{font-size:27px}}
+@media (max-width:700px){
+.jk{grid-template-columns:repeat(3,minmax(0,1fr))}.jk .kpi small{display:none}.jk .kpi b,.jk .kpi.main b{font-size:15px}.jk .kpi span{font-size:11px}.jk .kpi{padding:7px 9px;border-radius:10px}
+.legend2{display:none}
+.jt{display:none}.mlist{display:grid;gap:8px}
+form.f{display:grid;grid-template-columns:1fr auto;gap:8px}
+form.f input.search{max-width:none;min-width:0}
+.ftoggle{display:inline-block}
+.flt{display:none;grid-column:1/-1;grid-template-columns:1fr 1fr;gap:8px}.flt select{width:100%;min-width:0}
+form.f.open .flt{display:grid}
+form.f .tail{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center}
+}
+"""
+
+JOBS_JS = """
+const form=document.querySelector('form.f');
+let timer=null,ctrl=null;
+async function refresh(){
+  const params=new URLSearchParams(new FormData(form));
+  for(const [k,v] of [...params]) if(!v) params.delete(k);
+  history.replaceState(null,'',params.toString()?'?'+params:'./');
+  params.set('partial','1');
+  if(ctrl) ctrl.abort(); ctrl=new AbortController();
+  try{const r=await fetch('./?'+params,{signal:ctrl.signal});
+    document.getElementById('results').innerHTML=await r.text();bind();}catch(_){}
+}
+form.querySelectorAll('select').forEach(s=>s.onchange=refresh);
+form.querySelector('input[name=q]').addEventListener('input',()=>{clearTimeout(timer);timer=setTimeout(refresh,200)});
+// Enter auf einer Projekt-ID (z. B. "pl-7k3q" oder "7K3Q") öffnet den Druck direkt
+const CODE_RE=/^\\s*(pl[-\\s]?)?[2-9a-hj-km-np-z]{4}\\s*$/i;
+form.onsubmit=ev=>{ev.preventDefault();const v=form.querySelector('input[name=q]').value;
+  if(CODE_RE.test(v)){fetch('go?json=1&q='+encodeURIComponent(v)).then(r=>r.json()).then(d=>{if(d.id)location.href='job?id='+d.id;else refresh()}).catch(refresh)}
+  else refresh()};
+const ft=form.querySelector('.ftoggle');
+function fcount(){const n=[...form.querySelectorAll('.flt select')].filter(s=>s.value).length;ft.textContent='Filter'+(n?' ('+n+')':'')}
+ft.onclick=()=>form.classList.toggle('open');form.querySelectorAll('.flt select').forEach(s=>s.addEventListener('change',fcount));fcount();
+if(matchMedia('(min-width:701px)').matches)form.querySelector('input[name=q]').focus();
+document.querySelectorAll('.seg a[data-view]').forEach(a=>a.onclick=ev=>{ev.preventDefault();
+  form.querySelector('input[name=view]').value=a.dataset.view;
+  document.querySelectorAll('.seg a').forEach(x=>x.classList.toggle('on',x===a));refresh()});
+function bind(){
+  bindAct(refresh);
+  document.querySelectorAll('.jr[data-href]').forEach(r=>r.onclick=ev=>{
+    if(ev.target.closest('a,button,input,select,label'))return;location.href=r.dataset.href});
+  markPicked();
+  document.querySelectorAll('.cb').forEach(b=>b.onclick=ev=>{ev.stopPropagation();
+    const o=b.classList.contains('open');document.querySelectorAll('.cb.open').forEach(x=>x.classList.remove('open'));
+    if(!o){b.classList.add('open');b.classList.remove('up');
+      if(b.querySelector('.pop').getBoundingClientRect().bottom>innerHeight-8)b.classList.add('up')}});
+  document.querySelectorAll('.cb').forEach(b=>b.onmouseenter=()=>{b.classList.remove('up');
+    const r=b.getBoundingClientRect();if(r.bottom+260>innerHeight&&r.top>280)b.classList.add('up')});
+}
+document.addEventListener('click',ev=>{if(!ev.target.closest('.cb'))document.querySelectorAll('.cb.open').forEach(x=>x.classList.remove('open'))});
+const gb=form.querySelector('.gbtn');
+if(gb)gb.onclick=()=>{const gi=form.querySelector('input[name=group]');gi.value=gi.value?'':'day';
+  gb.classList.toggle('on',!!gi.value);document.cookie='pl_group='+(gi.value||'none')+';path=/;max-age=31536000;SameSite=Lax';refresh()};
+// Mehrfachauswahl: Zeilen/Karten antippen, dann gesammelt in den Papierkorb
+const picked=new Set(),sb=document.getElementById('selbar'),selBtn=form.querySelector('.selbtn'),toast=document.getElementById('toast');
+const ITEMS='.jr[data-href],.gcard,.mcard';
+function idOf(el){const m=(el.dataset.href||el.getAttribute('href')||'').match(/id=(\\d+)/);return m?m[1]:null}
+function markPicked(){document.querySelectorAll(ITEMS).forEach(el=>el.classList.toggle('picked',picked.has(idOf(el))));
+  sb.querySelector('.n').textContent=picked.size;sb.querySelector('.del').disabled=!picked.size}
+function setSel(on){document.body.classList.toggle('selmode',on);selBtn.classList.toggle('on',on);sb.hidden=!on;if(!on)picked.clear();markPicked()}
+selBtn.onclick=()=>setSel(!document.body.classList.contains('selmode'));
+document.addEventListener('click',ev=>{if(!document.body.classList.contains('selmode'))return;
+  const el=ev.target.closest(ITEMS);if(!el)return;ev.preventDefault();ev.stopPropagation();
+  const id=idOf(el);if(!id)return;picked.has(id)?picked.delete(id):picked.add(id);markPicked()},true);
+sb.querySelector('.all').onclick=()=>{document.querySelectorAll(ITEMS).forEach(el=>{const id=idOf(el);if(id&&el.offsetParent)picked.add(id)});markPicked()};
+sb.querySelector('.none').onclick=()=>{picked.clear();markPicked()};
+sb.querySelector('.cancel').onclick=()=>setSel(false);
+let toastTimer=null;
+sb.querySelector('.del').onclick=async()=>{const n=picked.size;if(!n)return;
+  if(!confirm(n+(n==1?' Druck':' Drucke')+' in den Papierkorb legen? Du kannst sie dort wiederherstellen.'))return;
+  const fd=new FormData();fd.append('ids',[...picked].join(','));
+  const r=await fetch('api/jobs/delete',{method:'POST',body:fd});if(!r.ok)return;const ids=(await r.json()).ids;
+  setSel(false);await refresh();
+  toast.querySelector('span').textContent=ids.length+(ids.length==1?' Druck':' Drucke')+' im Papierkorb.';toast.hidden=false;
+  clearTimeout(toastTimer);toastTimer=setTimeout(()=>toast.hidden=true,10000);
+  toast.querySelector('button').onclick=async()=>{const f2=new FormData();f2.append('ids',ids.join(','));f2.append('json','1');
+    await fetch('trash/restore',{method:'POST',body:f2});toast.hidden=true;refresh()}};
+bind();
+"""
+
+
+def page_jobs(store: Store, f: dict[str, str | None], connected: bool) -> str:
+    names = printer_names(store)
+    customers = store.customers()
+    view = f.get("view") or "table"
+
+    printer_opts = opt("", "Alle Drucker", f["printer"]) + "".join(
+        opt(k, v, f["printer"]) for k, v in names.items()
+    )
+    month_opts = opt("", "Alle Monate", f["month"]) + "".join(
+        opt(m, datetime.strptime(m, "%Y-%m").strftime("%m/%Y"), f["month"]) for m in store.months()
+    )
+    status_opts = opt("", "Alle Status", f["status"]) + "".join(
+        opt(s, s, f["status"]) for s in ("fertig", "abgebrochen", "unvollständig")
+    ) + opt("ausschuss", "nur Ausschuss", f["status"]) + opt("gut", "ohne Ausschuss", f["status"])
+    mat_opts = opt("", "Alle Materialien", f["material"]) + "".join(
+        opt(m, m, f["material"]) for m in store.material_types()
+    )
+    cust_opts = opt("", "Alle Kunden", f["customer"]) + opt("none", "ohne Kunde", f["customer"]) + "".join(
+        opt(str(c["id"]), c["name"], f["customer"]) for c in customers
+    )
+    todo_opts = opt("", "Zahlung/Übergabe", f.get("todo")) + "".join(
+        opt(k, label, f.get("todo")) for k, (label, _) in TODO_OPTIONS.items()
+    )
+    dot = "var(--ok)" if connected else "var(--bad)"
+    conn = "HA verbunden" if connected else "keine Verbindung zu HA"
+    day_hidden = f'<input type="hidden" name="day" value="{e(f["day"])}">' if f.get("day") else ""
+    export_q = "&".join(f"{k}={e(v)}" for k, v in f.items() if v and k not in ("view", "group"))
+
+    body = f"""<form class="f" method="get" autocomplete="off">
+<input class="search" type="search" name="q" value="{e(f["q"] or "")}" placeholder="Suchen: Name, Material, Kunde, Projekt-ID …">
+<button type="button" class="ftoggle">Filter</button>
+<div class="flt"><select name="printer">{printer_opts}</select><select name="month">{month_opts}</select>
+<select name="status">{status_opts}</select><select name="material">{mat_opts}</select>
+<select name="customer">{cust_opts}</select><select name="todo">{todo_opts}</select></div>{day_hidden}
+<input type="hidden" name="view" value="{e(view)}"><input type="hidden" name="group" value="{e(f.get("group") or "")}">
+<div class="tail"><span class="seg"><a href="#" data-view="table" class="{"on" if view != "gallery" else ""}">Tabelle</a><a href="#" data-view="gallery" class="{"on" if view == "gallery" else ""}">Galerie</a></span>
+<button type="button" class="gbtn{" on" if f.get("group") else ""}" title="Liste nach Tagen gruppieren">📅 Nach Tagen</button>
+<button type="button" class="selbtn" title="Mehrere Drucke auswählen, z. B. zum Löschen">☑ Auswählen</button>
+<a href="export.csv?{export_q}" class="muted" style="font-size:13px">CSV</a>
+<span class="muted" style="font-size:13px"><span class="dot" style="background:{dot};border:0"></span>{conn}</span></div>
+</form>
+<div id="results">{results(store, f)}</div>
+<div id="selbar" hidden><b><span class="n">0</span> ausgewählt</b><button type="button" class="all">Alle</button>
+<button type="button" class="none">Keine</button><span class="sp"></span><button type="button" class="cancel">Abbrechen</button>
+<button type="button" class="btn danger del" disabled>🗑 Löschen</button></div>
+<div id="toast" hidden><span></span><button type="button">Rückgängig</button></div>"""
+    return layout("Printlog", "jobs", f"<style>{JOBS_CSS}{ACT_CSS}</style>" + body, ACT_JS + JOBS_JS)
+
+
+def results(store: Store, f: dict[str, str | None]) -> str:
+    """Der Teil der Seite, den die Live-Suche austauscht."""
+    q = db_filters(f)
+    jobs = store.list_jobs(**q)
+    summary = store.summary(**q)
+    mat_sum = store.material_summary(**q)
+    names = printer_names(store)
+    t = summary["total"]
+
+    n = t["n"] or 0
+    kpis = [
+        ("Gesamtkosten", fmt_num(t["cost_total"], 2, "€"),
+         f'{n} Druck{"e" if n != 1 else ""}' + (f' · Ø {fmt_num(t["cost_total"] / n, 2, "€")}' if n else ""), True),
+        ("⚡ Strom", fmt_num(t["cost"], 2, "€"), fmt_num(t["kwh"], 2, "kWh"), False),
+        ("🧵 Filament", fmt_num(t["cost_filament"], 2, "€"), fmt_num((t["weight"] or 0) / 1000, 2, "kg"), False),
+        ("🖨 Drucker", fmt_num(t["cost_printer"], 2, "€"), "Abschr. + Wartung", False),
+        ("Drucke", str(n), " ", False),
+        ("Ausschuss", fmt_num(t["scrap_cost"], 2, "€"), f'{t["scrap_n"]} Druck{"e" if t["scrap_n"] != 1 else ""}', False),
+    ]
+    kpi_html = "".join(
+        f'<div class="kpi{" main" if main else ""}"><span class="muted">{e(k)}</span><b class="{"" if k == "Drucke" else "calc"}">{e(v)}</b><small class="calc">{e(sub)}</small></div>'
+        for k, v, sub, main in kpis
+    )
+    per_printer = " · ".join(
+        f'{e(names.get(p["printer"], p["printer"]))}: <b>{fmt_num(p["cost_total"] or p["cost"], 2, "€")}</b>'
+        for p in summary["per_printer"]
+    )
+    per_mat = " · ".join(
+        f'{e(m["mtype"])}: <b>{fmt_num((m["grams"] or 0) / 1000, 2, "kg")}</b>' for m in mat_sum
+    )
+    day_note = ""
+    if f.get("day"):
+        d = datetime.strptime(f["day"], "%Y-%m-%d").strftime("%d.%m.%Y")
+        day_note = f'<span>Tag: <b>{d}</b> · <a href="./">alle Tage</a></span>'
+    mini = f'<div class="mini">{day_note}<span class="calc">{per_printer}</span><span class="muted">{per_mat}</span></div>'
+
+    banner = ""
+    if jobs and not store.printer_rates_set() and not store.material_prices():
+        banner = ('<div class="banner">Noch keine Drucker- oder Filamentpreise hinterlegt. '
+                  '<a href="settings">Zu den Einstellungen</a></div>')
+
+    photos = store.first_photos([j["id"] for j in jobs])
+    if f.get("view") == "gallery":
+        cards = "".join(_gallery_card(j, names, photos.get(j["id"])) for j in jobs)
+        listing = f'<div class="gallery">{cards}</div>' if cards else '<p class="muted">Keine Drucke gefunden.</p>'
+    else:
+        mg = margins(store)
+        grouped = bool(f.get("group"))
+        rows, cards = [], []
+        for label, day_jobs in _by_day(jobs) if grouped else [(None, jobs)]:
+            if label:
+                rows.append(f'<div class="jday"><b>{label[0]}</b><span>{label[1]}</span></div>')
+                cards.append(f'<div class="mday"><b>{label[0]}</b><span>{label[1]}</span></div>')
+            rows += [_job_row(j, names, mg, grouped) for j in day_jobs]
+            cards += [_mobile_card(j, names, photos.get(j["id"])) for j in day_jobs]
+        empty = '<p class="muted" style="padding:14px 18px;margin:0">Keine Drucke gefunden.</p>'
+        listing = f"""<div class="jt"><div class="jh"><div></div><div>Auftrag · Material · Kunde</div><div>Drucker · Start</div>
+<div class="r">Verbrauch</div><div class="r">Kosten</div><div>Verkaufspreise</div><div class="r">Status</div></div>
+{"".join(rows) or empty}</div>
+<div class="legend2 calc"><span><i class="c-str"></i>Strom</span><span><i class="c-fil"></i>Filament</span><span><i class="c-dru"></i>Drucker</span>
+<span>· Balken antippen für die Aufschlüsselung</span></div>
+<div class="mlist">{"".join(cards) or empty}</div>"""
+    return f'{banner}<div class="kpis jk">{kpi_html}</div>{mini}{listing}'
+
+
+WEEKDAYS = ("Mo.", "Di.", "Mi.", "Do.", "Fr.", "Sa.", "So.")
+WEEKDAYS_LONG = ("Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag")
+
+
+def _by_day(jobs: list[dict[str, Any]]) -> list[tuple[tuple[str, str] | None, list[dict[str, Any]]]]:
+    """Drucke nach Starttag gruppieren (Reihenfolge bleibt, neueste zuerst)."""
+    today = datetime.now().date()
+    groups: list[tuple[tuple[str, str] | None, list[dict[str, Any]]]] = []
+    last = object()
+    for j in jobs:
+        d = datetime.fromtimestamp(j["start_ts"]).date() if j.get("start_ts") else None
+        if d != last:
+            if d is None:
+                label = ("Ohne Datum", "")
+            else:
+                diff = (today - d).days
+                short = f"{WEEKDAYS[d.weekday()]}, {d.day}.{d.month}.{'' if d.year == today.year else d.year}"
+                name = {0: "Heute", 1: "Gestern"}.get(diff) or (WEEKDAYS_LONG[d.weekday()] if 0 < diff < 7 else short)
+                label = (name, short if name != short else "")
+            groups.append((label, []))
+            last = d
+        groups[-1][1].append(j)
+    return groups
+
+
+def _bar_parts(j: dict[str, Any]) -> list[tuple[str, str, float, str]]:
+    grams = j["filament_g"] if j.get("filament_g") is not None else j["weight_g"]
+    parts = [
+        ("Strom", "c-str", j.get("cost"), fmt_num(j.get("kwh"), 3, "kWh") if j.get("kwh") is not None else "kein Zählerstand"),
+        ("Filament", "c-fil", j.get("cost_filament"), fmt_num(grams, 1, "g")),
+        ("Drucker", "c-dru", j.get("cost_printer"), "Abschreibung + Wartung"),
+    ]
+    return parts
+
+
+def _cost_box(j: dict[str, Any]) -> str:
+    total = j.get("cost_total")
+    if total is None:
+        return '<div class="jc r"><b>–</b></div>'
+    parts = _bar_parts(j)
+    bar = "".join(f'<i class="{c}" style="flex:{v:.4f}"></i>' for _, c, v, _ in parts if v)
+    q = j.get("quantity")
+    per = f'<span class="pp">{_per_piece(j)}</span>' if q and q > 1 else ""
+    rows = "".join(
+        f'<div><i class="{c}"></i><span>{n}</span><b>{fmt_num(v, 2, "€")}</b><small>{e(sub)}</small></div>'
+        for n, c, v, sub in parts
+    )
+    rows += f'<div class="sum"><i></i><span>Gesamt</span><b>{fmt_num(total, 2, "€")}</b>'
+    rows += (f'<small>{_per_piece(j)} bei {q} Stück</small>' if q and q > 1 else "") + "</div>"
+    return (f'<button type="button" class="cb" aria-label="Kosten aufschlüsseln"><b>{fmt_num(total, 2, "€")}</b>{per}'
+            f'<span class="bar">{bar}</span><span class="pop">{rows}</span></button>')
+
+
+def _prices(j: dict[str, Any], mg: list[tuple[str, float]]) -> str:
+    q = j.get("quantity") or 1
+    items: list[tuple[str, float, bool]] = []
+    if j.get("customer_margin") is not None:
+        items.append((f'👤 {j.get("customer_name") or "Kunde"}', j["customer_margin"], True))
+    items += [(n, p, False) for n, p in mg]
+    out = ""
+    if j.get("final_price") is not None:
+        fp = j["final_price"]
+        per = f'{fmt_num(fp / q, 2)}/Stk.' if q > 1 else ""
+        out += f'<span class="fp">Endpreis</span><b class="fp">{fmt_num(fp, 2, "€")}</b><small>{per}</small>'
+    for name, pct, cu in items:
+        price = _price(j, pct)
+        cls = ' class="cu"' if cu else ""
+        per = f'{fmt_num(price / q, 2)}/Stk.' if price is not None and q > 1 else ""
+        # Ohne Endpreis ist der Kundenpreis das, was der Kunde zahlt: bleibt im Diskret-Modus sichtbar.
+        shown = cu and j.get("final_price") is None
+        c2 = (' class="cu"' if shown else ' class="cu calc"') if cu else ' class="calc"'
+        out += (f'<span{c2}>{e(name)} <span class="pct calc">+{fmt_input(pct)} %</span></span>'
+                f'<b{c2}>{fmt_num(price, 2, "€")}</b><small class="{"" if shown else "calc"}">{per}</small>')
+    return f'<div class="jp">{out}</div>' if out else '<div class="jp muted">–</div>'
+
+
+def _status_badges(j: dict[str, Any]) -> str:
+    status = _status_of(j)
+    tone = _STATUS_TONE.get(status.split()[0], "none")
+    out = f'<span class="bdg st-{tone}">{e(status)}</span>'
+    if j.get("is_scrap") and j["status"] != "abgebrochen":
+        out += '<span class="bdg st-bad">Ausschuss</span>'
+    return out + customer_badges(j)
+
+
+def amount_due(j: dict[str, Any]) -> float | None:
+    """Was der Kunde zahlen soll: Endpreis, sonst Kosten + Kundenmarge."""
+    if j.get("final_price") is not None:
+        return j["final_price"]
+    return _price(j, j.get("customer_margin") or 0)
+
+
+def _acts(title: str, items: list[tuple[str, str, dict[str, str] | None]]) -> str:
+    """Menü für ein Badge: (Text, URL, POST-Daten oder None für einen Link)."""
+    return f' data-title="{e(title)}" data-acts="{e(json.dumps(items))}"'
+
+
+def customer_badges(j: dict[str, Any], cls: str = "bdg") -> str:
+    """Zahlung und Übergabe als antippbare Badges (nur Drucke mit Kunde, kein Ausschuss)."""
+    if j.get("gift") and not j.get("customer_id") and not j.get("is_scrap"):
+        return f'<span class="{cls} st-gift">🎁 verschenkt</span>'
+    if not j.get("customer_id") or j.get("is_scrap"):
+        return ""
+    jid = j["id"]
+    out = ""
+    due = amount_due(j)
+    if j.get("gift"):
+        items = [("Doch berechnen", f"api/jobs/{jid}", {"gift": "0"}), ("Abrechnung ansehen …", f"job?id={jid}#ab", None)]
+        out += f'<button type="button" class="{cls} st-gift act"{_acts("Verschenkt, keine Zahlung nötig", items)}>🎁 verschenkt</button>'
+    elif due is not None:
+        paid = j.get("paid") or 0
+        rest = max(0.0, due - paid)
+        url = f"api/jobs/{jid}/pay"
+        detail = (f"Betrag eingeben …", f"job?id={jid}#ab", None)
+        if rest < 0.005:
+            label, tone = "bezahlt", "ok"
+            items = [("Zurücksetzen (nicht bezahlt)", url, {"reset": "1"}), ("Zahlungen ansehen …", f"job?id={jid}#ab", None)]
+        else:
+            label, tone = ((f"{fmt_num(paid, 2)}/{fmt_num(due, 2, '€')}", "run") if paid > 0 else ("nicht bezahlt", "warn"))
+            items = [(f"Alles bezahlt ({fmt_num(rest, 2, '€')})", url, {"rest": "1"}), detail]
+            if paid > 0:
+                items.append(("Zurücksetzen", url, {"reset": "1"}))
+            else:
+                items.append(("🎁 Verschenkt", f"api/jobs/{jid}", {"gift": "1"}))
+        title = f"{fmt_num(paid, 2, '€')} von {fmt_num(due, 2, '€')} bezahlt"
+        out += f'<button type="button" class="{cls} st-{tone} act"{_acts(title, items)}>💶 {label}</button>'
+    if j.get("state") == "done":
+        n, d = j.get("quantity") or 1, min(j.get("delivered") or 0, j.get("quantity") or 1)
+        url = f"api/jobs/{jid}/handover"
+        label, tone = (("übergeben", "ok") if d >= n else
+                       (f"{d}/{n} übergeben", "run") if d else ("nicht übergeben", "warn"))
+        items = []
+        if d < n:
+            items.append((f"Alles übergeben ({n - d} Stück)" if n > 1 else "Übergeben", url, {"qty": "rest"}))
+            if n - d > 1:
+                items.append(("1 Stück übergeben", url, {"qty": "1"}))
+                items.append(("Andere Anzahl …", f"job?id={jid}#ab", None))
+        if d:
+            items.append(("Zurücksetzen (nicht übergeben)", url, {"reset": "1"}))
+        out += f'<button type="button" class="{cls} st-{tone} act"{_acts(f"{d} von {n} Stück übergeben", items)}>📦 {label}</button>'
+    return out
+
+
+# Menü an Badges (Zahlung/Übergabe); nach Erfolg wird done() aufgerufen
+ACT_JS = """
+let actMenu=null;
+function closeAct(){if(actMenu){actMenu.remove();actMenu=null}}
+function bindAct(done){
+ document.querySelectorAll('button.act[data-acts]').forEach(b=>b.onclick=ev=>{ev.stopPropagation();ev.preventDefault();
+   const open=actMenu&&actMenu.dataset.for===b.dataset.acts;closeAct();if(open)return;
+   const m=document.createElement('div');m.className='actmenu';m.dataset.for=b.dataset.acts;
+   const t=document.createElement('b');t.textContent=b.dataset.title;m.appendChild(t);
+   JSON.parse(b.dataset.acts).forEach(([label,url,data])=>{const x=document.createElement(data?'button':'a');x.textContent=label;
+     if(data){x.type='button';x.onclick=async e2=>{e2.stopPropagation();const fd=new FormData();for(const k in data)fd.append(k,data[k]);
+       x.disabled=true;const r=await fetch(url,{method:'POST',body:fd});closeAct();if(r.ok)done()}}
+     else x.href=url;m.appendChild(x)});
+   document.body.appendChild(m);const rc=b.getBoundingClientRect();
+   let top=scrollY+rc.bottom+6;if(rc.bottom+m.offsetHeight+10>innerHeight&&rc.top>m.offsetHeight+10)top=scrollY+rc.top-m.offsetHeight-6;
+   m.style.top=top+'px';m.style.left=Math.max(8,Math.min(scrollX+rc.right-m.offsetWidth,scrollX+innerWidth-m.offsetWidth-8))+'px';
+   actMenu=m});
+}
+document.addEventListener('click',ev=>{if(actMenu&&!actMenu.contains(ev.target))closeAct()});
+"""
+
+ACT_CSS = """
+button.bdg.act:before{display:none}
+button.bdg.act{cursor:pointer;font:inherit;font-size:13px;font-weight:700;-webkit-tap-highlight-color:transparent}
+button.bdg.act:hover{filter:brightness(1.15)}
+.actmenu{position:absolute;z-index:30;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:8px;
+ box-shadow:0 8px 28px rgba(0,0,0,.35);display:grid;gap:6px;min-width:230px;font-size:14px}
+.actmenu b{padding:4px 6px 2px;font-size:13px;color:var(--muted)}
+.actmenu a{display:block;padding:10px 12px;border-radius:9px;border:1px solid var(--line);font-weight:600;text-decoration:none}
+.actmenu button{text-align:left;padding:10px 12px;border-radius:9px;border:1px solid var(--line);background:var(--bg);font-weight:600;cursor:pointer}
+"""
+
+
+def _pid(j: dict[str, Any], cls: str = "pid") -> str:
+    """Kurze Projekt-ID als kleines Schild, z. B. PL-7K3Q."""
+    return f'<span class="{cls}">{e(code_label(j.get("code")))}</span>' if j.get("code") else ""
+
+
+def _job_row(j: dict[str, Any], names: dict[str, str], mg: list[tuple[str, float]], grouped: bool = False) -> str:
+    href = f'job?id={j["id"]}'
+    grams = j["filament_g"] if j.get("filament_g") is not None else j["weight_g"]
+    tags = []
+    if j.get("customer_name"):
+        tags.append(f'<span class="tag">👤 {e(j["customer_name"])}</span>')
+    q = j.get("quantity")
+    if q and q > 1:
+        tags.append(f'<span class="tag">{q} Stück</span>')
+    url, title = j.get("project_url"), j.get("project_title")
+    if url and url.startswith(("http://", "https://")):
+        tags.append(f'<a class="tag" href="{e(url)}" target="_blank" rel="noopener">🔗 {e(title or "Projekt")}</a>')
+    elif title:
+        tags.append(f'<span class="tag">🔗 {e(title)}</span>')
+    if j.get("local_path"):
+        tags.append('<span class="tag" title="Lokaler Ordner hinterlegt">📂</span>')
+    if j["status"] == "abgebrochen" and j["progress"] is not None:
+        tags.append(f'<span class="tnote bad">bei {int(j["progress"])} % abgebrochen</span>')
+    if j.get("note"):
+        tags.append(f'<span class="tnote warn">{e(j["note"])}</span>')
+    if j.get("job_note"):
+        tags.append(f'<span class="tnote">📝 {e(j["job_note"])}</span>')
+    tag_html = f'<div class="tags">{"".join(tags)}</div>' if tags else ""
+    if j.get("start_ts"):
+        st = datetime.fromtimestamp(j["start_ts"])
+        when = st.strftime("%H:%M") if grouped else f"{st.day}.{st.month}. {st:%H:%M}"
+    else:
+        when = "–"
+    dur = fmt_dur(j["start_ts"], j["end_ts"])
+    cls = "jr"
+    if j["state"] in ("running", "closing"):
+        cls += " run"
+    if j.get("is_scrap"):
+        cls += " scrap"
+    return (
+        f'<div class="{cls}" data-href="{href}">{_thumb(j)}'
+        f'<div><a class="jn" href="{href}">{e(j["task_name"] or "–")}</a>{_pid(j)}{_chips(j)}{tag_html}</div>'
+        f'<div class="jc"><b>{e(names.get(j["printer"], j["printer_name"] or j["printer"]))}</b>'
+        f'<span>{when}{" · " + dur if dur != "–" else ""}</span></div>'
+        f'<div class="jc r"><b>{fmt_num(grams, 1, "g")}</b><span>{fmt_num(j["kwh"], 3, "kWh")}</span></div>'
+        f'<div class="calc">{_cost_box(j)}</div>{_prices(j, mg)}<div class="js">{_status_badges(j)}</div></div>'
+    )
+
+
+def _mobile_card(j: dict[str, Any], names: dict[str, str], photo: str | None) -> str:
+    """Karte für schmale Bildschirme statt der breiten Tabelle; Tippen öffnet die Details."""
+    status = _status_of(j)
+    grams = j["filament_g"] if j.get("filament_g") is not None else j["weight_g"]
+    extra = ""
+    if j["status"] == "abgebrochen" and j["progress"] is not None:
+        extra = f'<div class="note">bei {int(j["progress"])} %</div>'
+    scrap = '<div class="s s-abgebrochen">Ausschuss</div>' if j.get("is_scrap") and j["status"] != "abgebrochen" else ""
+    q = j.get("quantity")
+    meta = [e(names.get(j["printer"], j["printer_name"] or j["printer"])), fmt_ts(j["start_ts"])]
+    if j["end_ts"]:
+        meta.append(fmt_dur(j["start_ts"], j["end_ts"]))
+    chips = _chips(j)
+    if not chips and grams is not None:
+        meta.append(fmt_num(grams, 1, "g"))
+    if q and q > 1:
+        meta.append(f"{q} Stk.")
+    if j.get("customer_name"):
+        meta.append(e(j["customer_name"]))
+    if j.get("code"):
+        meta.append(_pid(j))
+    sub = j.get("project_title") or j.get("job_note")
+    per = f'<div class="note">{_per_piece(j)}</div>' if _per_piece(j) else ""
+    return (
+        f'<a class="mcard" href="job?id={j["id"]}">{_thumb(j, photo)}'
+        f'<div><div class="mt">{e(j["task_name"] or "–")}</div>'
+        + (f'<div class="mp">{e(sub)}</div>' if sub else "")
+        + f'</div><div class="mr"><b class="calc">{fmt_num(j.get("cost_total"), 2, "€")}</b><span class="calc">{per}</span>'
+        f'<div class="s s-{e(status.split()[0])}">{e(status)}</div>{extra}{scrap}'
+        f'<div class="mcb">{customer_badges(j)}</div></div>'
+        f'<div class="mm">{chips}<div class="meta">{"".join(f"<span>{m}</span>" for m in meta)}</div></div></a>'
+    )
+
+
+def _gallery_card(j: dict[str, Any], names: dict[str, str], photo: str | None) -> str:
+    status = _status_of(j)
+    cust = f' · {e(j["customer_name"])}' if j.get("customer_name") else ""
+    badge = (" · 📷" if photo else "") + (" · 🔗" if j.get("project_url") else "") + (" · 📂" if j.get("local_path") else "")
+    return (
+        f'<a class="gcard" href="job?id={j["id"]}">{_thumb(j, photo, "gimg")}'
+        f'<div class="gt"><b>{e(j["task_name"] or "–")}</b>'
+        + (f'<span class="badge" style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{e(j["project_title"])}</span>' if j.get("project_title") else "")
+        + f'<span class="badge">{e(names.get(j["printer"], j["printer"]))} · {fmt_ts(j["start_ts"])}{cust}{badge}{" · " + _pid(j) if j.get("code") else ""}</span><br>'
+        f'<span class="badge"><span class="s s-{e(status.split()[0])}">{e(status)}</span> · '
+        f'<span class="calc">{fmt_num(j.get("cost_total"), 2, "€")}</span></span></div></a>'
+    )
+
+
+# ---- Druckdetails -------------------------------------------------------------
+
+DETAIL_CSS = """
+.jd{max-width:1700px;margin:0 auto;font-size:16px;line-height:1.45}
+.jtop{display:flex;justify-content:space-between;align-items:center;gap:10px}.jtop .jdel{margin:0}
+.jact{display:flex;gap:8px;align-items:center;margin:0 0 10px}
+.actmenu.share button{display:grid;gap:1px}.actmenu.share small{font-weight:500;color:var(--muted);font-size:12px}
+.actmenu.share .chk{display:flex;align-items:center;gap:8px;padding:8px 6px 2px;font-size:13px;font-weight:600;cursor:pointer}
+.actmenu.share .chk input{width:18px;height:18px;margin:0}
+.actmenu.share .hint{padding:2px 6px;color:var(--muted);font-size:12px}
+.jd .back{display:inline-flex;font-weight:600;padding:4px 0 10px;text-decoration:none}
+.jd h3{margin:0 0 10px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700}
+.hero{display:grid;grid-template-columns:220px minmax(0,1fr) minmax(280px,360px);gap:22px;align-items:start;
+ background:var(--card);border:1px solid var(--line);border-radius:20px;padding:18px}
+.hero .big{width:100%;aspect-ratio:1;object-fit:contain;background:var(--bg);border-radius:14px;border:1px solid var(--line);cursor:zoom-in;display:block}
+.hero .noimg{display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:14px;cursor:default}
+.jtitle{font-size:28px;line-height:1.15;margin:2px 0 10px;letter-spacing:-.01em;overflow-wrap:anywhere}
+.badges{display:flex;flex-wrap:wrap;gap:8px}
+.bdg{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:999px;background:var(--bg);
+ border:1px solid var(--line);font-size:14px;font-weight:600;white-space:nowrap}
+.bdg.st:before{content:"";width:8px;height:8px;border-radius:50%;background:currentColor}
+.bdg.st-ok{color:var(--ok)}.bdg.st-bad{color:var(--bad)}.bdg.st-warn{color:var(--warn)}.bdg.st-run{color:var(--run)}.bdg.st-gift{color:#b07cf0}
+.kps{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:16px}
+.kp{background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:12px 14px;min-width:0}
+.kp span{display:block;font-size:13px;color:var(--muted);font-weight:600}
+.kp b{display:block;font-size:24px;font-variant-numeric:tabular-nums;margin-top:2px;white-space:nowrap}
+.kp small{display:block;color:var(--muted);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kp.main{border-color:var(--accent);background:linear-gradient(135deg,color-mix(in srgb,var(--accent) 16%,transparent),transparent)}
+.kp.main b{color:var(--accent);font-size:32px}
+.prices{background:var(--bg);border:1px solid var(--line);border-radius:16px;padding:14px 16px}
+.pr{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}
+.pr:last-child{border-bottom:0}.pr b{font-size:20px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.pr .tag{font-size:13px;color:var(--muted);white-space:nowrap}
+.tabs{display:flex;gap:6px;margin:18px 0 14px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:5px;width:max-content;max-width:100%}
+.tabs button{border:0;background:none;padding:10px 22px;border-radius:10px;color:var(--muted);font-weight:700;font-size:15px}
+.tabs button.on{background:var(--accent);color:var(--bg)}
+.pane{display:none}.pane.on{display:block}
+.ovg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;align-items:stretch}
+.box{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px 18px;min-width:0}
+.box+.box{margin-top:16px}.ovg .box+.box{margin-top:0}
+.ssum{display:none}.sec>.sh{margin:0 0 10px}
+.strip{display:flex;flex-wrap:wrap;align-items:center;gap:12px 18px;background:var(--card);border:1px solid var(--line);border-radius:16px;
+ padding:12px 18px;margin-bottom:16px}
+.strip .sa span{display:block;font-size:13px;color:var(--muted)}.strip .sa b{font-size:22px;font-variant-numeric:tabular-nums;margin-right:6px}
+.strip .sa small{font-size:13px;color:var(--muted)}.strip .btn.sm{margin-left:auto;min-height:40px;padding:0 14px;font-weight:600}
+.dealg{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-bottom:16px;align-items:stretch}
+.dealg .box+.box{margin-top:0}
+.deal{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:8px}
+.deal span{display:block;font-size:13px;color:var(--muted)}.deal b{display:block;font-size:20px;font-variant-numeric:tabular-nums}
+.deal small{color:var(--muted);font-size:13px}
+.ho{display:grid;grid-template-columns:80px auto 1fr auto;gap:10px;align-items:center;padding:6px 0;border-top:1px solid var(--line);font-size:14px}
+.ho form{margin:0}
+.hof{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:center}.hof .btn{height:44px}.hof input{height:44px;border-radius:10px;background:var(--bg);font-size:15px}
+.hof .amt{width:96px;text-align:right}.fpl{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;color:var(--muted)}
+.fpl input{width:120px;text-align:right}.hof input[name=note]{flex:1 1 140px;min-width:0}
+.facts{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:12px 16px}
+.facts span{display:block;font-size:13px;color:var(--muted)}.facts b{font-size:17px;font-weight:600;font-variant-numeric:tabular-nums}
+.mbar{display:flex;height:12px;border-radius:6px;overflow:hidden;margin:2px 0 10px;border:1px solid var(--line)}
+.mrow{display:flex;align-items:center;gap:10px;padding:6px 0;font-size:15px}
+.mrow .dot{width:16px;height:16px;margin:0;flex:none}
+.mrow .mnote{display:block;font-size:13px;color:var(--muted)}
+.fields .mfields{display:grid;gap:8px}.fields .mfields>span{font-size:13px;font-weight:600;color:var(--muted)}
+.fields label.mf{display:grid;grid-template-columns:16px minmax(110px,220px) minmax(0,1fr);gap:10px;align-items:center;font-weight:500;color:var(--fg)}
+.fields .mf .dot{width:16px;height:16px;margin:0}.fields .mf .mn{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media (max-width:760px){.fields label.mf{grid-template-columns:16px minmax(0,1fr)}.fields .mf input{grid-column:1/-1}}
+.mrow .g{margin-left:auto;font-variant-numeric:tabular-nums;font-weight:600;white-space:nowrap}
+.slot{font-size:12px;color:var(--muted);border:1px solid var(--line);border-radius:6px;padding:0 6px;white-space:nowrap}
+.jd .note{font-size:14px}
+.fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 16px}
+.fields label{display:grid;gap:6px;font-size:13px;font-weight:600;color:var(--muted)}.fields .full{grid-column:1/-1}
+.fields input,.fields select,.fields textarea{height:48px;padding:0 14px;border-radius:10px;font-size:16px;background:var(--bg);width:100%}
+.fields textarea{height:auto;min-height:96px;padding:12px 14px;resize:vertical}
+.fields .act{grid-column:1/-1;display:flex;justify-content:flex-end}
+.jd button.primary{height:48px;padding:0 24px;border-radius:12px;font-weight:700;font-size:15px}
+.photos{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px}
+.pane .photos.lg{grid-template-columns:repeat(auto-fill,minmax(200px,1fr))}
+.photos figure{margin:0;position:relative}.photos img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:12px;cursor:zoom-in;display:block}
+.photos form{position:absolute;top:6px;right:6px}.photos button{background:rgba(0,0,0,.6);color:#fff;border:0;border-radius:8px;padding:4px 10px;font-size:16px}
+.up{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:44px;border:1px solid var(--line);border-radius:12px;
+ padding:0 16px;background:var(--bg);color:var(--fg);cursor:pointer;font-weight:600;font-size:15px;position:relative}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--bg)}
+.btn.sm{min-height:34px;padding:0 10px;font-size:13px;font-weight:500;text-decoration:none;color:inherit}
+.btn input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.jdel{display:flex;justify-content:flex-end;margin-top:14px}.btn.danger{color:var(--bad);background:transparent}
+.lp{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:4px}.lp code{word-break:break-all;font-size:13px}
+@media (min-width:1300px){.hero{grid-template-columns:260px minmax(0,1fr) minmax(300px,400px)}.kps{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media (max-width:1100px){.hero{grid-template-columns:200px minmax(0,1fr)}.prices{grid-column:1/-1}.ovg{grid-template-columns:1fr 1fr}}
+@media (max-width:760px){.jd{font-size:15px}.hero{grid-template-columns:1fr;padding:12px;gap:14px}
+ .hero .big{aspect-ratio:auto;height:240px}.jtitle{font-size:22px}
+ .kps{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.kps .main{grid-column:1/-1}.kp{padding:10px}.kp b{font-size:18px}.kp.main b{font-size:28px}
+ .ovg,.fields,.dealg{grid-template-columns:1fr}.tabs{width:100%}.tabs button{flex:1;padding:10px 6px}
+ .hero{grid-template-columns:84px minmax(0,1fr);gap:10px 12px}.hero>div:first-child{grid-row:1}
+ .hero .big{width:84px;height:84px;aspect-ratio:1;border-radius:12px}.hero .noimg{font-size:0}
+ .hero>div:nth-child(2){display:contents}.jtitle{grid-column:2;grid-row:1;align-self:center;font-size:19px;margin:0}
+ .hero .badges,.hero .kps,.hero .prices{grid-column:1/-1}.badges{gap:6px}.bdg{font-size:13px;padding:3px 10px}
+ .kps{margin-top:0;grid-template-columns:repeat(2,minmax(0,1fr))}.kps .main{grid-column:auto}.kp.main b{font-size:24px}
+ .top nav{gap:4px 12px}
+ .tabs{position:sticky;top:0;z-index:6;margin:12px 0;box-shadow:0 6px 14px rgba(0,0,0,.25)}
+ .ovg,.dealg{gap:10px}.dealg{margin-bottom:10px}
+ .strip{display:grid;grid-template-columns:minmax(0,1fr) auto;padding:12px 14px;margin-bottom:10px;gap:10px}
+ .strip .btn.sm{margin-left:0;grid-row:1;grid-column:2}.strip .badges{grid-column:1/-1}
+ .tabs button{padding:10px 4px;font-size:14px}
+ .sec{padding:0}.sec .sh{display:flex;align-items:center;gap:10px;margin:0;padding:15px 16px;cursor:pointer;min-height:52px;
+  -webkit-tap-highlight-color:transparent;user-select:none}
+ .sec .sh:after{content:"";width:8px;height:8px;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);
+  transform:rotate(45deg);margin:-4px 2px 0 0;transition:transform .15s;flex:none}
+ .sec.open .sh:after{transform:rotate(-135deg);margin-top:4px}
+ .sec .ssum{display:block;margin-left:auto;text-transform:none;letter-spacing:0;font-size:14px;font-weight:600;color:var(--fg);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;text-align:right}
+ .sec.open .ssum{display:none}.sec .sb{display:none;padding:0 16px 16px}.sec.open .sb{display:block}
+ .hero .prices.sec .sh{padding:13px 14px}}
+"""
+
+DETAIL_JS = """
+document.querySelectorAll('[data-copy]').forEach(b=>b.onclick=async()=>{
+  const t=b.dataset.copy,old=b.textContent;let ok=false;
+  try{await navigator.clipboard.writeText(t);ok=true}catch(_){}
+  if(!ok){const a=document.createElement('textarea');a.value=t;a.style.position='fixed';a.style.opacity='0';
+    document.body.appendChild(a);a.select();try{ok=document.execCommand('copy')}catch(_){}a.remove()}
+  b.textContent=ok?'✓ Kopiert':'Strg+C';if(!ok)prompt('Kopieren:',t);
+  setTimeout(()=>b.textContent=old,1500)});
+document.querySelectorAll('img.big,.photos img').forEach(i=>i.onclick=()=>z(i.src));
+document.querySelectorAll('.photos form').forEach(f=>f.onsubmit=()=>confirm('Foto löschen?'));
+bindAct(()=>location.reload());
+(function(){let st={};try{st=JSON.parse(localStorage.getItem('pl_secs')||'{}')}catch(_){}
+ const secs=[...document.querySelectorAll('.sec')];const has=k=>secs.some(x=>x.dataset.sec===k);
+ secs.forEach(x=>{const k=x.dataset.sec;const def=has('pay')?k==='pay':k==='druck';
+   x.classList.toggle('open',k in st?st[k]:def);
+   x.querySelector('.sh').onclick=()=>{if(!matchMedia('(max-width:760px)').matches)return;
+     const o=x.classList.toggle('open');st[k]=o;try{localStorage.setItem('pl_secs',JSON.stringify(st))}catch(_){}}});})();
+document.querySelectorAll('.ho form').forEach(f=>f.onsubmit=()=>confirm('Eintrag löschen?'));
+document.querySelectorAll('form.jdel').forEach(f=>f.onsubmit=()=>confirm('Diesen Druck in den Papierkorb legen? Du kannst ihn unter Einstellungen → Papierkorb wiederherstellen.'));
+document.querySelectorAll('.up input[type=file]').forEach(inp=>inp.onchange=()=>{
+  if(!inp.files.length) return;
+  const f=inp.form;f.querySelectorAll('input[type=file]').forEach(o=>{if(o!==inp)o.disabled=true});
+  f.querySelector('.up-status').textContent='Lade hoch …';f.submit();});
+function tab(n,push){if(!document.querySelector('.pane[data-pane="'+n+'"]'))return;
+  document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===n));
+  document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('on',p.dataset.pane===n));
+  if(push)history.replaceState(null,'','#'+n)}
+document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>tab(b.dataset.tab,true));
+document.querySelectorAll('[data-goto]').forEach(a=>a.onclick=ev=>{ev.preventDefault();tab(a.dataset.goto,true);scrollTo({top:0})});
+if(location.hash)tab(location.hash.slice(1),false);
+addEventListener('hashchange',()=>{closeAct();tab(location.hash.slice(1),false);scrollTo({top:0})});
+"""
+
+DETAIL_TABS = {
+    "ov": "Übersicht",
+    "ed_missing": "Bearbeiten, solange Kunde oder Stückzahl fehlen",
+    "ed": "Immer Bearbeiten",
+}
+
+_STATUS_TONE = {"fertig": "ok", "abgebrochen": "bad", "unvollständig": "warn", "läuft": "run", "kühlt": "run"}
+
+
+def _upload_form(job_id: int) -> str:
+    return (f'<form method="post" action="api/jobs/{job_id}/photos" enctype="multipart/form-data" class="up">'
+            '<label class="btn primary">📷 Foto aufnehmen<input type="file" name="photo" accept="image/*" capture="environment"></label>'
+            '<label class="btn">🖼 Aus Galerie oder Dateien<input type="file" name="photo" accept="image/*" multiple></label>'
+            '<span class="muted up-status" style="font-size:13px">Das Foto wird nach der Auswahl automatisch hochgeladen.</span></form>')
+
+
+def _photo_tiles(photos: list[dict[str, Any]]) -> str:
+    return "".join(
+        f'<figure><img src="images/{e(p["file"])}" loading="lazy" alt="">'
+        f'<form method="post" action="api/photos/{p["id"]}/delete"><button title="Foto löschen">×</button></form></figure>'
+        for p in photos
+    )
+
+
+def _sec(key: str, title: str, summary: str, body: str, cls: str = "box") -> str:
+    """Box, die sich auf dem Handy einklappen lässt; zugeklappt steht die Zusammenfassung in der Kopfzeile."""
+    return (f'<div class="{cls} sec" data-sec="{key}"><h3 class="sh"><span>{title}</span>'
+            f'<span class="ssum">{summary}</span></h3><div class="sb">{body}</div></div>')
+
+
+def _deal_box(job: dict[str, Any], handovers: list[dict[str, Any]], payments: list[dict[str, Any]]) -> str:
+    """Box „Preis, Zahlung & Übergabe“ auf der Detailseite (nur mit Kunde)."""
+    if not job.get("customer_id"):
+        return ""
+    if job.get("is_scrap"):
+        return '<div class="dealg"><div class="box"><h3>Zahlung &amp; Übergabe</h3><p class="muted" style="margin:0">Ausschuss wird nicht berechnet.</p></div></div>'
+    jid = job["id"]
+    n = job.get("quantity") or 1
+    d = job.get("delivered") or 0
+    due = amount_due(job)
+    paid = job.get("paid") or 0
+    rest = max(0.0, (due or 0) - paid)
+    today = datetime.now().strftime("%Y-%m-%d")
+    suggest = _price(job, job.get("customer_margin") or 0)
+    src = "Endpreis" if job.get("final_price") is not None else f'Vorschlag: Kosten + {fmt_input(job.get("customer_margin") or 0)} % Kundenmarge'
+
+    def entry(ts: float, what: str, note: str | None, url: str, title: str) -> str:
+        return (f'<div class="ho"><span>{datetime.fromtimestamp(ts).strftime("%d.%m.%y")}</span><b>{what}</b>'
+                f'<span class="muted">{e(note or "")}</span>'
+                f'<form method="post" action="{url}"><button class="del" title="{title}">×</button></form></div>')
+
+    pay_rows = "".join(entry(p["ts"], fmt_num(p["amount"], 2, "€"), p["note"], f'api/payments/{p["id"]}/delete', "Zahlung löschen")
+                       for p in payments)
+    ho_rows = "".join(entry(h["ts"], f'{h["qty"]} Stück', h["note"], f'api/handovers/{h["id"]}/delete', "Übergabe löschen")
+                      for h in handovers)
+    price_form = (f'<form class="hof" method="post" action="api/jobs/{jid}?redirect=ab">'
+                  f'<label class="fpl">Endpreis €<input name="final_price" inputmode="decimal" value="{fmt_input(job.get("final_price"))}" '
+                  f'placeholder="{fmt_input(round(suggest, 2)) if suggest is not None else ""}"></label>'
+                  f'<button class="btn">Speichern</button></form>')
+    pay_form = ""
+    if due is not None and rest >= 0.005:
+        pay_form = (f'<form class="hof" method="post" action="api/jobs/{jid}/pay?redirect=1">'
+                    f'<input name="amount" inputmode="decimal" value="{fmt_input(round(rest, 2))}" title="Betrag €" class="amt">'
+                    f'<input name="date" type="date" value="{today}"><input name="note" placeholder="Notiz (optional)">'
+                    f'<button class="btn primary">Zahlung eintragen</button></form>')
+    ho_form = ""
+    if job.get("state") == "done" and d < n:
+        ho_form = (f'<form class="hof" method="post" action="api/jobs/{jid}/handover?redirect=1">'
+                   f'<input name="qty" type="number" min="1" max="{n - d}" value="{n - d}" inputmode="numeric" title="Stück" class="amt">'
+                   f'<input name="date" type="date" value="{today}"><input name="note" placeholder="Notiz (optional)">'
+                   f'<button class="btn primary">Übergabe eintragen</button></form>')
+    pay_state = ("bezahlt" if due is not None and rest < 0.005 else
+                 f"{fmt_num(paid, 2, '€')} bezahlt, {fmt_num(rest, 2, '€')} offen" if due is not None else "Preis fehlt noch")
+    pay_sum = ("bezahlt" if due is not None and rest < 0.005 else
+               f"{fmt_num(paid, 2)}/{fmt_num(due, 2, '€')}" if paid > 0 and due is not None else
+               f"{fmt_num(due, 2, '€')} offen" if due is not None else "Preis fehlt")
+    gift_form = (f'<form class="hof" method="post" action="api/jobs/{jid}?redirect=ab"><input type="hidden" name="gift" value="{0 if job.get("gift") else 1}">'
+                 f'<button class="btn">{"Doch berechnen" if job.get("gift") else "🎁 Als verschenkt markieren"}</button>'
+                 f'<span class="muted">{"Zählt weiter in Kosten und Statistik." if not job.get("gift") else ""}</span></form>')
+    if job.get("gift"):
+        pay_body = (f'<div class="deal"><div><span>{e(job.get("customer_name") or "Kunde")}</span><b>🎁 verschenkt</b>'
+                    f'<small>keine Zahlung nötig, zählt weiter in Kosten und Statistik</small></div></div>{pay_rows}{gift_form}')
+    else:
+        pay_body = ""
+    pay_body = pay_body or (f'<div class="deal"><div><span>{e(job.get("customer_name") or "Kunde")} zahlt</span><b>{fmt_num(due, 2, "€")}</b>'
+            f'<small class="calc">{e(src)}</small></div><div><span>Stand</span><b>{fmt_num(paid, 2, "€")}</b><small>{pay_state}</small></div></div>'
+            f'{price_form}{pay_rows}{pay_form}{gift_form}')
+    ho_body = (f'<div class="deal"><div><span>Übergeben</span><b>{min(d, n)} von {n} Stück</b>'
+               f'<small>{"alles übergeben" if d >= n else f"noch {n - d} offen"}</small></div></div>{ho_rows}{ho_form}')
+    ho_sum = "alles übergeben" if d >= n else f"{min(d, n)} von {n} Stück"
+    return (f'<div class="dealg"><div class="box"><h3>Preis &amp; Zahlung</h3>{pay_body}</div>'
+            f'<div class="box"><h3>Übergabe</h3>{ho_body}</div></div>')
+
+
+def _deal_strip(job: dict[str, Any]) -> str:
+    """Kompakte Zeile in der Übersicht: Betrag + antippbare Badges, Details im Tab „Abrechnung“."""
+    if not job.get("customer_id") or job.get("is_scrap"):
+        return ""
+    due = amount_due(job)
+    src = "Endpreis" if job.get("final_price") is not None else "Vorschlag"
+    head = (f'<span>{e(job.get("customer_name") or "Kunde")}</span><b>nichts</b><small>verschenkt</small>' if job.get("gift") else
+            f'<span>{e(job.get("customer_name") or "Kunde")} zahlt</span><b>{fmt_num(due, 2, "€")}</b><small class="calc">{src}</small>')
+    return (f'<div class="strip"><div class="sa">{head}</div>'
+            f'<div class="badges">{customer_badges(job, "bdg st")}</div>'
+            f'<a href="#ab" data-goto="ab" class="btn sm">Abrechnung →</a></div>')
+
+
+def _share_button(job: dict[str, Any]) -> str:
+    """Knopf „Teilen“: Bon-Bild für Kunden, Bon intern, PDF (Liste für SHARE_JS)."""
+    from .export import file_name
+
+    jid = job["id"]
+    items = [
+        ("🧾 Bild für Kunden", "Foto, Stückzahl, Preis, Zahlungsstand", f"export/{jid}/bon-kunde.png",
+         file_name(job, "kunde", "png"), "image/png", 0),
+        ("🧾 Bild intern", "zusätzlich Kosten, Margen und Gewinn", f"export/{jid}/bon-intern.png",
+         file_name(job, "intern", "png"), "image/png", 1),
+        ("📄 PDF", "volle Aufschlüsselung zum Ablegen", f"export/{jid}/kosten.pdf",
+         file_name(job, "kosten", "pdf"), "application/pdf", 1),
+    ]
+    return (f'<button type="button" class="btn sm" id="share" data-exports="{e(json.dumps(items))}" '
+            f'title="Als Bild oder PDF teilen bzw. speichern">📤 Teilen</button>')
+
+
+# Teilen: am Handy/Tablet über das Teilen-Menü des Systems (z. B. WhatsApp), sonst Download.
+SHARE_JS = """
+(function(){const b=document.getElementById('share');if(!b)return;
+ const items=JSON.parse(b.dataset.exports);const touch=matchMedia('(pointer:coarse)').matches;
+ function save(blob,name){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;
+   document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},5000)}
+ async function share(file){await navigator.share({files:[file],title:file.name})}
+ async function run(x,it,st){const [label,desc,u,name,type]=it;const url=u+(st?'':'?status=0');x.disabled=true;x.querySelector('small').textContent='wird erstellt …';
+   try{const r=await fetch(url);if(!r.ok)throw new Error(r.status);const blob=await r.blob();
+     const file=new File([blob],name,{type});
+     if(touch&&navigator.canShare&&navigator.canShare({files:[file]})){
+       try{await share(file);closeAct();return}
+       catch(err){if(err.name==='AbortError'){closeAct();return}
+         if(err.name==='NotAllowedError'){x.disabled=false;x.querySelector('small').textContent='fertig, nochmal tippen zum Teilen';
+           x.onclick=async ev=>{ev.stopPropagation();try{await share(file)}catch(_){}closeAct()};return}}}
+     save(blob,name);closeAct()}
+   catch(err){x.disabled=false;x.querySelector('small').textContent='Fehler, bitte nochmal tippen'}}
+ b.onclick=ev=>{ev.stopPropagation();const open=actMenu&&actMenu.dataset.for==='share';closeAct();if(open)return;
+   const m=document.createElement('div');m.className='actmenu share';m.dataset.for='share';
+   const t=document.createElement('b');t.textContent=touch?'Teilen':'Herunterladen';m.appendChild(t);
+   const priv=document.documentElement.classList.contains('priv');
+   const cl=document.createElement('label');cl.className='chk';const cb=document.createElement('input');cb.type='checkbox';
+   let keep='1';try{keep=localStorage.getItem('pl_share_status')||'1'}catch(_){}cb.checked=keep==='1';
+   cb.onchange=()=>{try{localStorage.setItem('pl_share_status',cb.checked?'1':'0')}catch(_){}};
+   cl.onclick=e3=>e3.stopPropagation();cl.append(cb,document.createTextNode(' Bezahlt/Übergeben mit drauf'));
+   items.forEach(it=>{if(it[5]&&priv)return;const x=document.createElement('button');x.type='button';
+     const l=document.createElement('span');l.textContent=it[0];const s=document.createElement('small');s.textContent=it[1];
+     x.append(l,s);x.onclick=e2=>{e2.stopPropagation();run(x,it,cb.checked)};m.appendChild(x)});
+   m.appendChild(cl);
+   if(priv){const n=document.createElement('small');n.className='hint';n.textContent='Diskret-Modus: interne Varianten ausgeblendet';m.appendChild(n)}
+   document.body.appendChild(m);const rc=b.getBoundingClientRect();
+   m.style.top=(scrollY+rc.bottom+6)+'px';
+   m.style.left=Math.max(8,Math.min(scrollX+rc.right-m.offsetWidth,scrollX+innerWidth-m.offsetWidth-8))+'px';actMenu=m}})();
+"""
+
+
+def page_job(store: Store, job: dict[str, Any], saved: str | None) -> str:
+    names = printer_names(store)
+    customers = store.customers()
+    photos = store.photos(job["id"])
+    status = _status_of(job)
+    qty = job.get("quantity") or 0
+    total = job.get("cost_total")
+    big = (f'<img class="big" src="images/{e(job["image"])}" alt="Vorschau">' if job.get("image")
+           else '<div class="big noimg">kein Vorschaubild</div>')
+    grams = job["filament_g"] if job.get("filament_g") is not None else job["weight_g"]
+
+    # Kopfbereich: Badges, Kennzahlen, Verkaufspreise
+    tone = _STATUS_TONE.get(status.split()[0], "")
+    extra = f' bei {int(job["progress"])} %' if job["status"] == "abgebrochen" and job["progress"] is not None else ""
+    badges = f'<span class="bdg st st-{tone}">{e(status)}{extra}</span>'
+    if job.get("code"):
+        badges += (f'<button type="button" class="bdg pidb" data-copy="{e(code_label(job["code"]))}" '
+                   f'title="Projekt-ID: tippe sie in die Suche, um den Druck wiederzufinden. Klick kopiert.">'
+                   f'# {e(code_label(job["code"]))}</button>')
+    if job.get("is_scrap"):
+        badges += '<span class="bdg st st-bad">Ausschuss</span>'
+    badges += f'<span class="bdg">🖨 {e(names.get(job["printer"], job["printer"]))}</span>'
+    if job.get("customer_name"):
+        badges += f'<span class="bdg">👤 {e(job["customer_name"])}</span>'
+    if qty > 1:
+        badges += f'<span class="bdg">{qty} Stück</span>'
+    per = ("wird nach dem Druck berechnet" if total is None
+           else f'{fmt_num(total / qty, 2, "€")} pro Stück' if qty > 1 else "für den ganzen Druck")
+    kpis = (f'<div class="kp main"><span>Gesamtkosten</span><b>{fmt_num(total, 2, "€")}</b><small>{per}</small></div>'
+            f'<div class="kp"><span>⚡ Strom</span><b>{fmt_num(job["cost"], 2, "€")}</b><small>{fmt_num(job["kwh"], 3, "kWh")}</small></div>'
+            f'<div class="kp"><span>🧵 Filament</span><b>{fmt_num(job.get("cost_filament"), 2, "€")}</b><small>{fmt_num(grams, 1, "g")}</small></div>'
+            f'<div class="kp"><span>🖨 Drucker</span><b>{fmt_num(job.get("cost_printer"), 2, "€")}</b><small>Abschr. + Wartung</small></div>')
+    mg = list(margins(store))
+    if job.get("customer_margin") is not None:
+        mg.insert(0, (f'Kunde {job.get("customer_name") or ""}'.strip(), job["customer_margin"]))
+    price_rows = ""
+    for n, p in mg:
+        price = _price(job, p)
+        each = (f' <span class="tag">{fmt_num(price / qty, 2, "€")}/Stk.</span>'
+                if price is not None and qty > 1 else "")
+        price_rows += (f'<div class="pr"><div>{e(n)} <span class="tag">+{e(fmt_input(p))} %</span></div>'
+                       f'<div><b>{fmt_num(price, 2, "€")}</b>{each}</div></div>')
+    if not price_rows:
+        price_rows = '<p class="muted" style="margin:6px 0 0">Keine Margen eingestellt (Einstellungen).</p>'
+
+    # Übersicht
+    materials = parse_materials(job.get("materials"))
+    mat_total = sum(m["grams"] or 0 for m in materials)
+    mat_bar = ('<div class="mbar">' + "".join(
+        f'<div style="flex:{m["grams"]};background:{_color(m["color"])}"></div>' for m in materials if m["grams"]
+    ) + "</div>") if mat_total > 0 else ""
+    mnotes = material_notes(job)
+    mat_rows = "".join(
+        f'<div class="mrow"><span class="dot" style="background:{_color(m["color"])}"></span>'
+        f'<span>{e(m["name"] or "?")} <span class="muted" style="font-size:13px">{e(m["type"] or "")}</span>'
+        + (f'<span class="mnote">{e(mnotes[i])}</span>' if i in mnotes else "") + '</span>'
+        + (f'<span class="slot">{e(m["slot"])}</span>' if m["slot"] else "")
+        + f'<span class="g">{fmt_num(m["grams"], 1, "g")}</span></div>'
+        for i, m in enumerate(materials)
+    ) or '<span class="muted">keine Angaben</span>'
+    types = list(dict.fromkeys(_short(m["name"]) for m in materials if m["name"]))
+    mat_sum = (", ".join(types[:2]) + (" …" if len(types) > 2 else "") + " · " if types else "") + fmt_num(grams, 1, "g")
+    dur = fmt_dur(job["start_ts"], job["end_ts"])
+    druck_sum = (datetime.fromtimestamp(job["start_ts"]).strftime("%d.%m. %H:%M") if job["start_ts"] else "–") + (f" · {dur}" if dur != "–" else "")
+    price_sum = " · ".join(re.sub(r"<[^>]+>", "", x) for x in re.findall(r"<b>([^<]*)</b>", price_rows)[:3])
+    facts = (f'<div><span>Start</span><b>{fmt_ts(job["start_ts"])}</b></div>'
+             f'<div><span>Ende</span><b>{fmt_ts(job["end_ts"])}</b></div>'
+             f'<div><span>Dauer</span><b>{fmt_dur(job["start_ts"], job["end_ts"])}</b></div>'
+             f'<div><span>Energie</span><b>{fmt_num(job["kwh"], 3, "kWh")}</b></div>'
+             f'<div><span>Filament</span><b>{fmt_num(grams, 1, "g")}</b></div>')
+    side = ""
+    if job.get("project_url") or job.get("project_title"):
+        side += f'<h3 style="margin-top:16px">Projekt</h3>{_project(job)}'
+    if job.get("local_path"):
+        side += f'<h3 style="margin-top:16px">Ordner</h3>{_local_path(job)}'
+    if job.get("job_note"):
+        side += f'<h3 style="margin-top:16px">Notiz</h3><div style="white-space:pre-wrap">{e(job["job_note"])}</div>'
+    if job.get("note"):
+        side += f'<h3 style="margin-top:16px">Hinweis</h3><div class="muted">{e(job["note"])}</div>'
+    preview = photos[:5]
+    photo_box = (f'<div class="photos">{_photo_tiles(preview)}</div>' if preview
+                 else '<p class="muted" style="margin:0 0 10px">Noch keine eigenen Fotos.</p>')
+    more = (f'<p style="margin:10px 0 0"><a href="#ph" data-goto="ph">Alle {len(photos)} Fotos ansehen →</a></p>'
+            if len(photos) > len(preview) else "")
+
+    # Bearbeiten
+    mat_fields = ""
+    if materials:
+        mat_fields = ('<div class="full mfields"><span>Filament-Notizen (z. B. genauer Farbname, erscheint auf Bon und PDF)</span>'
+                      + "".join(f'<label class="mf"><span class="dot" style="background:{_color(m["color"])}"></span>'
+                                f'<span class="mn">{e((m["slot"] + " · ") if m["slot"] else "")}{e(_short(m["name"]))}</span>'
+                                f'<input name="mnote__{i}" value="{e(mnotes.get(i, ""))}" maxlength="120" placeholder="z. B. Ivory White"></label>'
+                                for i, m in enumerate(materials)) + '</div>')
+    cur = str(job.get("customer_id") or "")
+    cust_opts = opt("", "– kein Kunde –", cur) + "".join(opt(str(c["id"]), c["name"], cur) for c in customers)
+    sv = "" if job.get("scrap") is None else str(job["scrap"])
+    scrap_opts = (opt("", f'automatisch ({"ja, abgebrochen" if job["status"] == "abgebrochen" else "nein"})', sv)
+                  + opt("1", "ja, Ausschuss", sv) + opt("0", "nein, verwendbar", sv))
+
+    # Start-Tab laut Einstellung; nach dem Speichern immer die Übersicht.
+    mode = store.settings().get("detail_tab") or "ov"
+    missing = not (job.get("customer_id") and job.get("quantity"))
+    start = "ed" if not saved and (mode == "ed" or (mode == "ed_missing" and missing)) else "ov"
+
+    def on(t: str) -> str:
+        return " on" if t == start else ""
+
+    ab_tab = ab_pane = ""
+    if job.get("customer_id"):
+        ab_tab = f'<button type="button" data-tab="ab" class="{on("ab").strip()}">Abrechnung</button>'
+        ab_pane = (f'<section class="pane{on("ab")}" data-pane="ab">'
+                   f'{_deal_box(job, store.handovers(job["id"]), store.payments(job["id"]))}</section>')
+    banner = '<div class="banner">Gespeichert.</div>' if saved else ""
+    body = f"""<div class="jd">{banner}<div class="jtop"><a class="back" href="./">← alle Drucke</a>
+<div class="jact">{_share_button(job)}<form class="jdel" method="post" action="api/jobs/{job["id"]}/delete"><button class="btn sm danger" title="Diesen Druck löschen">🗑 Löschen</button></form></div></div>
+<section class="hero"><div>{big}</div>
+<div><h2 class="jtitle">{e(job["task_name"] or "–")}</h2><div class="badges">{badges}</div><div class="kps calc">{kpis}</div></div>
+{_sec("prices", "Verkaufspreise", price_sum, price_rows, "prices calc")}</section>
+<div class="tabs" role="tablist"><button type="button" data-tab="ov" class="{on("ov").strip()}">Übersicht</button>
+{ab_tab}<button type="button" data-tab="ed" class="{on("ed").strip()}">Bearbeiten</button>
+<button type="button" data-tab="ph" class="{on("ph").strip()}">Fotos ({len(photos)})</button></div>
+<section class="pane{on("ov")}" data-pane="ov">{_deal_strip(job)}<div class="ovg">
+{_sec("druck", "Druck", druck_sum, f'<div class="facts">{facts}</div>{side}')}
+{_sec("mat", "Material", mat_sum, mat_bar + mat_rows)}
+{_sec("fotos", "Eigene Fotos", f"{len(photos)} Foto{'' if len(photos) == 1 else 's'}", _upload_form(job["id"]) + photo_box + more)}
+</div></section>
+{ab_pane}<section class="pane{on("ed")}" data-pane="ed"><div class="box">
+<form class="fields" method="post" action="api/jobs/{job["id"]}?redirect=1">
+<label class="full">Name<input name="task_name" value="{e(job["task_name"] or "")}"></label>
+<label>Kunde<select name="customer_id">{cust_opts}</select></label>
+<label>Stückzahl auf der Platte<input name="quantity" type="number" min="1" inputmode="numeric" value="{job.get("quantity") or ""}" placeholder="1"></label>
+<label>Ausschuss<select name="scrap">{scrap_opts}</select></label>
+<label>Abrechnung<select name="gift">{opt("0", "berechnen", "1" if job.get("gift") else "0")}{opt("1", "🎁 verschenkt (keine Zahlung)", "1" if job.get("gift") else "0")}</select></label>
+<label>Projekttitel<input name="project_title" value="{e(job.get("project_title") or "")}" placeholder="wird beim Speichern aus dem Link geholt, wenn leer"></label>
+<label class="full">Projektlink (MakerWorld, Printables …)<input name="project_url" type="url" value="{e(job.get("project_url") or "")}" placeholder="https://makerworld.com/…"></label>
+<label class="full">Lokaler Ordner (Windows-Pfad)<input name="local_path" value="{e(job.get("local_path") or "")}" placeholder="z. B. D:\\3D-Druck\\Projekte\\Halter" spellcheck="false"></label>
+{mat_fields}<label class="full">Notiz<textarea name="job_note" rows="3">{e(job.get("job_note") or "")}</textarea></label>
+<div class="act"><button class="primary">Speichern</button></div>
+</form></div>
+<form class="jdel" method="post" action="api/jobs/{job["id"]}/delete"><button class="btn danger">🗑 Druck löschen</button></form></section>
+<section class="pane{on("ph")}" data-pane="ph"><div class="box">{_upload_form(job["id"])}
+{f'<div class="photos lg">{_photo_tiles(photos)}</div>' if photos else '<p class="muted">Noch keine eigenen Fotos.</p>'}</div></section>
+</div>"""
+    return layout(job["task_name"] or "Druck", "jobs", f"<style>{DETAIL_CSS}{ACT_CSS}</style>" + body, ACT_JS + DETAIL_JS + SHARE_JS)
+
+
+# ---- Kunden -------------------------------------------------------------------
+
+GIFT_PERIODS = {"": "Gesamter Zeitraum", "monat": "Dieser Monat", "vormonat": "Letzter Monat",
+                "jahr": "Dieses Jahr", "vorjahr": "Letztes Jahr", "frei": "Frei wählen …"}
+
+
+def gift_period(period: str | None, von: str | None, bis: str | None) -> tuple[float | None, float | None, str | None]:
+    """Zeitraum → (ab, bis exklusiv, Monat für den Listenfilter oder None)."""
+    now = datetime.now()
+    m0 = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    if period == "monat":
+        nxt = (m0.replace(year=m0.year + 1, month=1) if m0.month == 12 else m0.replace(month=m0.month + 1))
+        return m0.timestamp(), nxt.timestamp(), m0.strftime("%Y-%m")
+    if period == "vormonat":
+        prev = m0.replace(year=m0.year - 1, month=12) if m0.month == 1 else m0.replace(month=m0.month - 1)
+        return prev.timestamp(), m0.timestamp(), prev.strftime("%Y-%m")
+    if period in ("jahr", "vorjahr"):
+        y = now.year - (period == "vorjahr")
+        return datetime(y, 1, 1).timestamp(), datetime(y + 1, 1, 1).timestamp(), None
+    if period == "frei":
+        def day(v: str | None, plus: int = 0) -> float | None:
+            try:
+                return datetime.strptime(v or "", "%Y-%m-%d").timestamp() + plus * 86400
+            except ValueError:
+                return None
+        return day(von), day(bis, 1), None
+    return None, None, None
+
+
+def page_customers(store: Store, saved: str | None, show: str | None = None,
+                   period: str | None = None, von: str | None = None, bis: str | None = None) -> str:
+    all_customers = store.customers()
+    period = period if period in GIFT_PERIODS else ""
+    since, until, month = gift_period(period, von, bis)
+    gifts = store.gifts_by_customer(since, until)
+    gq = f"&todo=verschenkt" + (f"&month={month}" if month else "")
+
+    def gift_tag(c: dict[str, Any]) -> str:
+        g = gifts.get(c["id"])
+        if not g:
+            return "–"
+        return (f'<a class="otag gift" href="./?customer={c["id"]}{gq}" title="Kosten {fmt_num(g["cost"], 2, "€")}">'
+                f'🎁 {g["n"]} · {fmt_num(g["value"], 2, "€")}</a>')
+
+    customers = [c for c in all_customers if not show or (show == "offen" and (c["open_n"] or c["undelivered_n"]))
+                 or (show == "verschenkt" and c["id"] in gifts)]
+    rows = "".join(
+        f"""<tr><td><form method="post" action="customers" class="edit" style="margin:0">
+<input type="hidden" name="id" value="{c["id"]}">
+<input name="name" value="{e(c["name"])}" required style="width:180px">
+<input name="contact" value="{e(c["contact"] or "")}" placeholder="Kontakt" style="width:200px">
+<input name="note" value="{e(c["note"] or "")}" placeholder="Notiz" style="width:220px">
+<input name="margin_pct" class="num calc" style="width:90px" value="{fmt_input(c.get("margin_pct"))}" inputmode="decimal" placeholder="Marge %" title="Eigene Marge in %, hat Vorrang">
+<button>Speichern</button></form></td>
+<td class="n" data-l="Drucke">{c["n"]}</td>
+<td class="n" data-l="Offen">{_open_tags(c)}</td>
+<td class="n" data-l="Bezahlt">{fmt_num(c["paid_amount"], 2, "€") if c["paid_amount"] else "–"}</td>
+<td class="n" data-l="Verschenkt">{gift_tag(c)}</td>
+<td class="n calc" data-l="Kosten">{fmt_num(c["cost_total"], 2, "€")}</td>
+<td class="n" data-l="Letzter Druck">{fmt_ts(c["last_ts"]) if c["last_ts"] else "–"}</td>
+<td><a href="./?customer={c["id"]}">Drucke</a></td>
+<td><form method="post" action="customers/{c["id"]}/delete" class="d"><button class="del" title="Kunde löschen">×</button></form></td></tr>"""
+        for c in customers
+    ) or ('<tr><td colspan="9" class="muted">' + ("Im Zeitraum nichts verschenkt." if show == "verschenkt" else
+          "Keine offenen Beträge oder Übergaben." if show else "Noch keine Kunden angelegt.") + '</td></tr>')
+    open_total = sum(c["open_amount"] or 0 for c in all_customers)
+    undelivered = sum(c["undelivered_n"] or 0 for c in all_customers)
+    banner = '<div class="banner">Gespeichert.</div>' if saved else ""
+    pq = "".join(f"&{k}={e(v)}" for k, v in (("period", period), ("von", von), ("bis", bis)) if v and (k == "period" or period == "frei"))
+    seg = (f'<span class="seg"><a href="customers?{pq[1:]}" class="{"" if show else "on"}">Alle</a>'
+           f'<a href="customers?show=offen{pq}" class="{"on" if show == "offen" else ""}">Nur mit Offenem</a>'
+           f'<a href="customers?show=verschenkt{pq}" class="{"on" if show == "verschenkt" else ""}">Mit Verschenktem</a></span>')
+    g_n = sum(g["n"] for g in gifts.values())
+    g_val = sum(g["value"] for g in gifts.values())
+    g_cost = sum(g["cost"] for g in gifts.values())
+    per_opts = "".join(opt(k, v, period) for k, v in GIFT_PERIODS.items())
+    free = (f'<input type="date" name="von" value="{e(von or "")}"><input type="date" name="bis" value="{e(bis or "")}">'
+            if period == "frei" else "")
+    gift_form = (f'<form class="gper" method="get" action="customers">{f"<input type=hidden name=show value={e(show)}>" if show else ""}'
+                 f'<span class="otag gift">🎁 verschenkt <b>{g_n}</b> Druck{"e" if g_n != 1 else ""} · Wert <b>{fmt_num(g_val, 2, "€")}</b>'
+                 f'<span class="calc">· Kosten {fmt_num(g_cost, 2, "€")}</span></span>'
+                 f'<select name="period" onchange="this.form.submit()">{per_opts}</select>{free}'
+                 f'{"<button>Anzeigen</button>" if period == "frei" else ""}</form>')
+    summary = (f'<div class="osum"><span class="otag warn">💶 offen <b>{fmt_num(open_total, 2, "€")}</b></span>'
+               f'<span class="otag run">📦 nicht übergeben <b>{undelivered}</b> Druck{"e" if undelivered != 1 else ""}</span>{seg}</div>'
+               f'<div class="osum">{gift_form}</div>')
+    body = f"""<style>.osum{{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:0 0 12px}}
+.otag{{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:999px;font-weight:600;font-size:13px;white-space:nowrap;text-decoration:none;
+ border:1px solid color-mix(in srgb,currentColor 35%,transparent);background:color-mix(in srgb,currentColor 10%,transparent)}}
+.otag.warn{{color:var(--warn)}}.otag.run{{color:var(--run)}}.otag.ok{{color:var(--ok)}}.otag.gift{{color:#b07cf0}}
+.gper{{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0}}.gper select,.gper input{{width:auto}}td .otag{{margin:2px 0 2px 4px}}</style>
+{banner}<h2 style="margin-top:0">Neuer Kunde</h2>
+<form method="post" action="customers" class="f">
+<input name="name" placeholder="Name" required><input name="contact" placeholder="Kontakt (optional)">
+<input name="note" placeholder="Notiz (optional)"><input name="margin_pct" class="num" inputmode="decimal" placeholder="Marge % (optional)" style="width:150px"><button class="primary">Anlegen</button></form>
+<h2>Kunden</h2>{summary}
+<div class="wrap"><table class="stack"><thead><tr><th>Name · Kontakt · Notiz</th><th class="n">Drucke</th><th class="n">Offen</th><th class="n">Bezahlt</th><th class="n">Verschenkt</th>
+<th class="n calc">Kosten</th><th class="n">Letzter Druck</th><th></th><th></th></tr></thead><tbody>{rows}</tbody></table></div>
+<p class="muted">Offen = Endpreis (oder Kosten + Kundenmarge) minus eingetragene Zahlungen, ohne Ausschuss und ohne Verschenktes. Ein Klick auf ein Schild zeigt die passenden Drucke.</p>
+<p class="muted">Verschenkt: Anzahl und Wert (Endpreis bzw. Kosten + Kundenmarge) der verschenkten Drucke im gewählten Zeitraum, nach Druckstart. Die Kosten stehen im Tooltip.</p>
+<p class="muted">Die Marge eines Kunden gilt für alle seine Drucke und wird zusätzlich zu den allgemeinen Margen angezeigt.</p>
+<p class="muted">Drucke weist du auf der Detailseite eines Drucks (Tab „Bearbeiten“) einem Kunden zu. Beim Löschen eines Kunden bleiben seine Drucke erhalten, nur ohne Kunde.</p>"""
+    script = "document.querySelectorAll('form.d').forEach(f=>f.onsubmit=()=>confirm('Kunde löschen? Die Drucke bleiben erhalten.'));"
+    return layout("Kunden", "customers", body, script)
+
+
+def _open_tags(c: dict[str, Any]) -> str:
+    out = ""
+    if c["open_n"]:
+        out += (f'<a class="otag warn" href="./?customer={c["id"]}&todo=unbezahlt">💶 {fmt_num(c["open_amount"], 2, "€")}'
+                f' · {c["open_n"]} Druck{"e" if c["open_n"] != 1 else ""}</a>')
+    if c["undelivered_n"]:
+        out += (f'<a class="otag run" href="./?customer={c["id"]}&todo=abholen">📦 {c["undelivered_n"]} nicht übergeben</a>')
+    if not out and c["n"]:
+        out = '<span class="otag ok">✓ alles erledigt</span>'
+    return out or "–"
+
+
+# ---- Papierkorb ---------------------------------------------------------------
+
+def page_trash(store: Store, days: int, done: str | None) -> str:
+    names = printer_names(store)
+    jobs = store.trashed()
+    now = time.time()
+    rows = ""
+    for j in jobs:
+        left = max(0, int((j["deleted_ts"] + days * 86400 - now) // 86400))
+        rows += (f'<tr><td data-l="Druck"><b>{e(j.get("task_name") or "–")}</b></td>'
+                 f'<td data-l="Drucker">{e(names.get(j["printer"], j.get("printer_name") or j["printer"]))}</td>'
+                 f'<td data-l="Start">{fmt_ts(j.get("start_ts"))}</td>'
+                 f'<td class="n calc" data-l="Kosten">{fmt_num(j.get("cost_total"), 2, "€")}</td>'
+                 f'<td data-l="Gelöscht">{fmt_ts(j["deleted_ts"])}</td>'
+                 f'<td data-l="Endgültig">{"heute" if left == 0 else "morgen" if left == 1 else f"in {left} Tagen"}</td>'
+                 f'<td><form method="post" action="trash/restore" style="margin:0"><input type="hidden" name="ids" value="{j["id"]}">'
+                 f'<button class="btn sm">↩ Wiederherstellen</button></form></td>'
+                 f'<td><form method="post" action="trash/purge" class="pg" style="margin:0"><input type="hidden" name="ids" value="{j["id"]}">'
+                 f'<button class="del" title="Endgültig löschen">×</button></form></td></tr>')
+    if not rows:
+        rows = '<tr><td colspan="8" class="muted">Der Papierkorb ist leer.</td></tr>'
+    msg = ""
+    if done and done[1:].isdigit():
+        n = int(done[1:])
+        msg = (f'<div class="banner">{n} Druck{"e" if n != 1 else ""} '
+               f'{"wiederhergestellt" if done[0] == "r" else "endgültig gelöscht"}.</div>')
+    ids = ",".join(str(j["id"]) for j in jobs)
+    actions = (f'<div class="osum" style="display:flex;gap:10px;flex-wrap:wrap;margin:0 0 12px">'
+               f'<form method="post" action="trash/restore" style="margin:0"><input type="hidden" name="ids" value="{ids}"><button class="btn">↩ Alle wiederherstellen</button></form>'
+               f'<form method="post" action="trash/purge" class="pg all" style="margin:0"><input type="hidden" name="all" value="1"><button class="btn danger">Papierkorb leeren</button></form></div>'
+               if jobs else "")
+    body = f"""{msg}<p><a href="settings">← Einstellungen</a></p><h2 style="margin-top:0">Papierkorb</h2>
+<p class="muted">Gelöschte Drucke bleiben {days} Tage hier (ändern unter Einstellungen) und werden danach samt Fotos, Zahlungen und Übergaben endgültig gelöscht.</p>
+{actions}<div class="wrap"><table class="stack"><thead><tr><th>Druck</th><th>Drucker</th><th>Start</th><th class="n calc">Kosten</th><th>Gelöscht</th><th>Endgültig weg</th><th></th><th></th></tr></thead>
+<tbody>{rows}</tbody></table></div>"""
+    script = ("document.querySelectorAll('form.pg').forEach(f=>f.onsubmit=()=>confirm(f.classList.contains('all')?"
+              "'Papierkorb leeren? Alle Drucke darin werden endgültig gelöscht.':'Diesen Druck endgültig löschen?'));")
+    return layout("Papierkorb", "settings", body, script)
+
+
+# ---- Einstellungen ------------------------------------------------------------
+
+def page_settings(store: Store, saved: str | None, logo: str | None = None,
+                  live: dict[str, Any] | None = None, printer_msg: str | None = None) -> str:
+    names = printer_names(store)
+    rates = store.printer_rates()
+    prices = store.material_prices()
+    logged = store.printed_hours_last_year()
+
+    def field(key: str, name: str, r: dict[str, Any], placeholder: str, label: str) -> str:
+        return (f'<td class="n" data-l="{e(label)}"><input class="num" name="{name}__{e(key)}" value="{fmt_input(r.get(name))}" '
+                f'inputmode="decimal" placeholder="{e(placeholder)}"></td>')
+
+    printer_rows = []
+    for key, name in names.items():
+        r = rates.get(key, {})
+        rate = hourly_rate(r)
+        hint = f"bisher {fmt_num(logged[key], 0 if logged[key] >= 10 else 1)} h" if logged.get(key) else "z. B. 800"
+        printer_rows.append(
+            f"<tr><td>{e(name)}</td>"
+            + field(key, "purchase_eur", r, "z. B. 1299", "Anschaffung €")
+            + field(key, "life_hours", r, "z. B. 5000", "Lebensdauer h")
+            + field(key, "maint_per_year", r, "z. B. 60", "Wartung €/Jahr")
+            + field(key, "hours_per_year", r, hint, "Druckstunden/Jahr")
+            + field(key, "extra_per_hour", r, "z. B. 0,05", "Verschleiß €/h")
+            + f'<td class="n" data-l="= pro Stunde">{fmt_num(rate, 3, "€/h")}</td></tr>'
+        )
+
+    types = sorted(set(KNOWN_TYPES) | set(store.material_types())
+                   | {k for k, v in prices.items() if v["kind"] == "type"})
+    type_rows = "".join(
+        f'<tr><td>{e(t)}</td><td class="n"><input class="num" name="type__{e(t)}" '
+        f'value="{fmt_input(prices.get(t, {}).get("eur_per_kg"))}" inputmode="decimal" placeholder="€/kg"></td></tr>'
+        for t in types
+    )
+    seen = {m["name"]: m["type"] for m in store.material_names()}
+    for k, v in prices.items():
+        if v["kind"] == "name":
+            seen.setdefault(k, None)
+    name_rows = "".join(
+        f'<tr><td>{e(n)} <span class="muted">{e(t or "")}</span></td><td class="n"><input class="num" name="name__{e(n)}" '
+        f'value="{fmt_input(prices.get(n, {}).get("eur_per_kg"))}" inputmode="decimal" placeholder="wie Typ"></td></tr>'
+        for n, t in sorted(seen.items())
+    ) or '<tr><td colspan="2" class="muted">Erscheint, sobald Drucke mit Materialangaben erfasst sind.</td></tr>'
+
+    banner = f'<div class="banner">Gespeichert. {e(saved)} Drucke wurden neu berechnet.</div>' if saved else ""
+    cfg = store.settings()
+    margin_rows = "".join(
+        f'<tr><td><input name="margin{i}_name" value="{e(cfg.get(f"margin{i}_name") or "")}" placeholder="{ph}" style="width:100%"></td>'
+        f'<td class="n"><input class="num" name="margin{i}_pct" value="{e(cfg.get(f"margin{i}_pct") or "")}" inputmode="decimal" placeholder="%"></td></tr>'
+        for i, ph in ((1, "z. B. Privat"), (2, "z. B. Gewerbe"))
+    )
+    from datetime import datetime
+
+    from .backup import BACKUP_DIR, INTERVALS, WEEKDAYS, describe, enabled, next_run, schedule
+    last = (cfg.get("backup_last") or "").split("|", 2)
+    interval, weekday, hour = schedule(cfg)
+
+    def options(items: list[tuple[str, str]], current: str) -> str:
+        return "".join(f'<option value="{e(v)}"{" selected" if v == current else ""}>{e(t)}</option>' for v, t in items)
+
+    backup_form = (
+        '<div class="wrap"><table><tbody>'
+        f'<tr><td>Intervall</td><td><select name="backup_interval">{options(list(INTERVALS.items()), interval)}</select></td></tr>'
+        f'<tr><td>Wochentag <span class="muted">(nur wöchentlich)</span></td><td><select name="backup_weekday">'
+        f'{options([(str(i), d) for i, d in enumerate(WEEKDAYS)], str(weekday))}</select></td></tr>'
+        f'<tr><td>Uhrzeit</td><td><select name="backup_hour">'
+        f'{options([(str(h), f"{h:02d}:00") for h in range(24)], str(hour))}</select></td></tr>'
+        '</tbody></table></div>'
+    )
+    if enabled():
+        state = ("noch keins" if len(last) < 3 else
+                 f'{fmt_ts(float(last[0]))}: {"✓ " + e(last[2]) if last[1] == "ok" else "⚠ " + e(last[2])}')
+        nxt = next_run(cfg, datetime.now())
+        backup_html = (f'<h2>Backup</h2><p>{e(describe(cfg))} nach <code>{e(BACKUP_DIR)}</code>. '
+                       f'Nächstes Backup: {fmt_ts(nxt.timestamp())}. Letztes Backup: {state}</p>'
+                       f'{backup_form}'
+                       '<p><button type="submit" formaction="backup" formmethod="post">Jetzt sichern</button></p>')
+    else:
+        backup_html = ('<h2>Backup</h2><p class="muted">Aus. Zum Einschalten im Stack einen Netzwerkordner als '
+                       '<code>/backup</code> einhängen und <code>BACKUP_DIR=/backup</code> setzen (siehe README). '
+                       'Den Zeitplan kannst du schon vorab festlegen.</p>'
+                       f'{backup_form}')
+    custom_logo = cfg.get("bon_logo")
+    logo_src = f"images/{e(custom_logo)}" if custom_logo else "static/logo-bon.png"
+    logo_note = {"ok": "Neues Logo gespeichert.", "reset": "Bon nutzt wieder das App-Logo.",
+                 "bad": "Das Bild ließ sich nicht lesen. Bitte PNG, JPG oder WebP nehmen."}.get(logo or "", "")
+    logo_html = f"""<h2 style="margin-top:0">Logo auf Bon und PDF</h2>
+<p class="muted">Steht oben auf dem Bon-Bild und im Kopf der PDF-Kostenaufstellung. Ohne eigenes Logo gilt das App-Logo.
+Am besten ein PNG mit durchsichtigem Hintergrund, mindestens 600 px breit.</p>
+{f'<div class="banner">{e(logo_note)}</div>' if logo_note else ""}
+<div class="logobox"><div class="paper"><img src="{logo_src}" alt="Bon-Logo"><span>3 D - D R U C K</span></div>
+<div class="logoctl"><b>{"Eigenes Logo" if custom_logo else "App-Logo (Standard)"}</b>
+<label class="btn file">🖼 {"Anderes Logo wählen" if custom_logo else "Eigenes Logo hochladen"}<input type="file" name="bon_logo" accept="image/png,image/jpeg,image/webp"></label>
+<label class="chk"><input type="checkbox" name="bon_logo_white" value="1"> Weißen Hintergrund durchsichtig machen</label>
+<span class="muted logofile"></span>
+{'<button type="submit" name="bon_logo_reset" value="1" class="lnk">Zurück zum App-Logo</button>' if custom_logo else ""}
+</div></div>"""
+
+    printers_html = _printers_pane(store, live, printer_msg)
+
+    def pane(key: str, label: str, html: str) -> tuple[str, str, str]:
+        return key, label, html
+
+    panes = [
+        pane("kosten", "Kosten", f"""<h2 style="margin-top:0">Drucker: Abschreibung, Wartung und Verschleiß</h2>
+<p class="muted">Kosten pro Druckstunde = Anschaffung ÷ Lebensdauer in Druckstunden + Wartung pro Jahr ÷ Druckstunden pro Jahr + Verschleiß pro Stunde. Leere Felder zählen nicht. „bisher“ zeigt die erfassten Druckstunden der letzten 12 Monate.</p>
+<div class="wrap"><table class="stack"><thead><tr><th>Drucker</th><th class="n">Anschaffung €</th><th class="n">Lebensdauer h</th>
+<th class="n">Wartung €/Jahr</th><th class="n">Druckstunden/Jahr</th><th class="n">Verschleiß €/h</th><th class="n">= pro Stunde</th></tr></thead>
+<tbody>{"".join(printer_rows)}</tbody></table></div>
+<p class="muted">Der Strompreis kommt aus Home Assistant ({e(os.environ.get("PRICE_ENTITY", "input_number.strompreis"))}) bzw. aus der HA-Automation und wird pro Druck zum Druckende festgehalten.</p>"""),
+        pane("drucker", "Drucker", printers_html),
+        pane("filament", "Filament", f"""<h2 style="margin-top:0">Filamentpreise nach Typ</h2>
+<p class="muted">Standardpreis pro Kilogramm, gilt für alle Filamente dieses Typs.</p>
+<div class="wrap"><table><thead><tr><th>Typ</th><th class="n">€/kg</th></tr></thead><tbody>{type_rows}</tbody></table></div>
+<h2>Filamentpreise nach Sorte (optional)</h2>
+<p class="muted">Überschreibt den Typpreis für eine bestimmte Sorte, z. B. „Bambu PLA Matte“. Leer lassen = Typpreis.</p>
+<div class="wrap"><table><thead><tr><th>Sorte</th><th class="n">€/kg</th></tr></thead><tbody>{name_rows}</tbody></table></div>"""),
+        pane("margen", "Margen", f"""<h2 style="margin-top:0">Margen</h2>
+<p class="muted">Bis zu zwei allgemeine Aufschläge auf die Gesamtkosten. Jede Marge bekommt in der Tabelle eine eigene Spalte mit Verkaufspreis (und Preis pro Stück). Eine Marge pro Kunde stellst du unter „Kunden“ ein.</p>
+<div class="wrap"><table><thead><tr><th>Name</th><th class="n">Aufschlag %</th></tr></thead><tbody>{margin_rows}</tbody></table></div>"""),
+        pane("bon", "Bon &amp; PDF", logo_html),
+        pane("ansicht", "Ansicht", f"""<h2 style="margin-top:0">Detailseite</h2>
+<p class="muted">Welcher Tab beim Öffnen eines Drucks aktiv ist. Nach dem Speichern zeigt die Seite immer die Übersicht.</p>
+<p><label>Start-Tab <select name="detail_tab">{"".join(opt(k, v, cfg.get("detail_tab") or "ov") for k, v in DETAIL_TABS.items())}</select></label></p>
+<h2>Papierkorb</h2>
+<p class="muted">Gelöschte Drucke landen erst im Papierkorb und lassen sich dort wiederherstellen. Nach dieser Zeit werden sie samt Fotos endgültig gelöscht.</p>
+<p><label>Aufbewahren <input class="num" name="trash_days" inputmode="numeric" style="width:80px" value="{e(cfg.get("trash_days") or "30")}"> Tage</label>
+· <a href="trash">Papierkorb öffnen ({store.trash_count()})</a></p>"""),
+        pane("backup", "Backup", backup_html.replace("<h2>Backup</h2>", '<h2 style="margin-top:0">Backup</h2>', 1)),
+        pane("windows", "Windows", """<h2 style="margin-top:0">Ordner-Links (Windows)</h2>
+<p>Bei jedem Druck kannst du einen lokalen Ordner eintragen. „📋 Kopieren“ geht immer (dann Win+E, Strg+L, einfügen).
+Damit „📂 Öffnen“ den Ordner direkt im Explorer öffnet, richte einmalig pro Windows-PC das Link-Protokoll ein:</p>
+<ol>
+<li><a href="tools/printlog-open.ps1" download>printlog-open.ps1</a> herunterladen.</li>
+<li>Rechtsklick auf die Datei → „Mit PowerShell ausführen“ (unter Windows 11 ggf. über „Weitere Optionen anzeigen“). Es kopiert sich nach <code>%LOCALAPPDATA%\\printlog</code> und trägt das Protokoll <code>printlog-open</code> für deinen Benutzer ein, ohne Adminrechte.</li>
+<li>Beim ersten Klick auf „📂 Öffnen“ fragt der Browser nach. Mit „Immer erlauben“ kommt die Frage nicht wieder.</li>
+</ol>
+<p class="muted">Das Skript öffnet nur Ordner im Explorer (bei einer Datei den Ordner mit markierter Datei) und führt nichts aus. Pfade mit Leerzeichen und Umlauten sowie Netzwerkpfade (<code>\\\\server\\freigabe</code>) gehen.
+Entfernen: <a href="tools/printlog-open-entfernen.reg" download>printlog-open-entfernen.reg</a> öffnen.</p>"""),
+    ]
+    tabs = "".join(f'<button type="button" data-tab="{k}" class="{"on" if i == 0 else ""}">{lbl}</button>'
+                   for i, (k, lbl, _) in enumerate(panes))
+    panes_html = "".join(f'<section class="spane{" on" if i == 0 else ""}" data-pane="{k}">{h}</section>'
+                         for i, (k, _, h) in enumerate(panes))
+    body = f"""<style>{SETTINGS_CSS}</style>{banner}<form method="post" enctype="multipart/form-data" class="settings">
+<input type="hidden" name="tab" value="kosten">
+<div class="stabs" role="tablist">{tabs}</div>
+{panes_html}
+<div class="sbar"><button class="primary" type="submit">Speichern</button>
+<span class="muted">Preise gelten danach für alle Drucke (werden neu berechnet).</span></div>
+</form>"""
+    return layout("Einstellungen", "settings", body, SETTINGS_JS)
+
+
+SETTINGS_CSS = """
+.settings{max-width:1180px}
+.stabs{display:flex;gap:4px;margin:0 0 16px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:4px;
+  width:max-content;max-width:100%;overflow-x:auto;scrollbar-width:none}
+.stabs::-webkit-scrollbar{display:none}
+.stabs button{border:0;background:none;padding:8px 16px;border-radius:9px;color:var(--muted);font-weight:700;white-space:nowrap;flex:0 0 auto}
+.stabs button.on{background:var(--accent);color:#fff}
+.spane{display:none}.spane.on{display:block}
+.sbar{position:sticky;bottom:0;display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:18px;padding:12px 0;
+  background:linear-gradient(transparent,var(--bg) 30%)}
+.spane[data-pane=windows].on~.sbar{display:none}
+.logobox{display:flex;gap:18px;flex-wrap:wrap;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}
+.logobox .paper{background:#f4eee3;border-radius:8px;padding:18px 26px;display:flex;flex-direction:column;align-items:center;gap:8px;
+  min-width:260px;box-shadow:0 2px 10px rgba(0,0,0,.12)}
+.logobox .paper img{max-width:300px;max-height:85px;object-fit:contain}
+.logobox .paper span{font:11px ui-monospace,Menlo,Consolas,monospace;color:#80776a}
+.logoctl{display:flex;flex-direction:column;gap:10px;align-items:flex-start}
+.btn.file{display:inline-block;position:relative;overflow:hidden;cursor:pointer;border:1px solid var(--line);border-radius:8px;padding:8px 14px;font-weight:600}
+.btn.file input{position:absolute;inset:0;opacity:0;cursor:pointer}
+.chk{display:flex;gap:6px;align-items:center}
+.plist{display:flex;flex-direction:column;gap:12px}
+.pcard{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.phead{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:10px}
+.phead .pk{font-size:15px;font-weight:700;background:var(--bg);border:1px solid var(--line);border-radius:7px;padding:6px 10px}
+.phead .grow{flex:1 1 220px}
+.phead .prm{color:var(--bad);font-size:13px;padding-bottom:8px}
+.pcard label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted);font-weight:600}
+.pcard label.chk{flex-direction:row}
+.pcard input:not([type=checkbox]){width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px}
+.phead input:not([type=checkbox]){font-family:inherit;font-size:14px}
+.pkey{max-width:140px}
+.pgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px 14px}
+.pcard small{font-weight:400}
+.pcard details{margin-top:10px}
+.pcard summary{cursor:pointer;font-size:13px;color:var(--accent);font-weight:600;margin-bottom:8px}
+.pchk{font-size:12px;font-weight:600}.pchk.ok{color:var(--ok,#2e9e5b)}.pchk.bad{color:var(--bad)}
+.padd{margin-top:12px}.padd>summary{cursor:pointer;font-weight:700;color:var(--accent);margin-bottom:10px}
+button.lnk{border:0;background:none;padding:0;color:var(--bad);text-decoration:underline}
+@media (max-width:700px){
+ .stabs{position:sticky;top:0;z-index:5;width:auto;box-shadow:0 6px 14px rgba(0,0,0,.18)}
+ .stabs button{padding:8px 12px}
+ .logobox .paper{min-width:0;width:100%}
+ .sbar .muted{font-size:12px}
+}
+"""
+
+SETTINGS_JS = """
+const sf=document.querySelector('form.settings');
+function stab(n){if(!sf.querySelector('.spane[data-pane="'+n+'"]'))return;
+  sf.querySelectorAll('.stabs button').forEach(b=>{const on=b.dataset.tab===n;b.classList.toggle('on',on);if(on)b.scrollIntoView({block:'nearest',inline:'nearest'})});
+  sf.querySelectorAll('.spane').forEach(p=>p.classList.toggle('on',p.dataset.pane===n));
+  sf.querySelector('input[name=tab]').value=n}
+sf.querySelectorAll('.stabs button').forEach(b=>b.onclick=()=>{stab(b.dataset.tab);history.replaceState(null,'','#'+b.dataset.tab)});
+if(location.hash)stab(location.hash.slice(1));
+const lf=sf.querySelector('input[name=bon_logo]');
+if(lf)lf.onchange=()=>{const f=lf.files[0];if(!f)return;sf.querySelector('.logofile').textContent=f.name+' – wird beim Speichern übernommen';
+  const im=sf.querySelector('.logobox img');im.src=URL.createObjectURL(f)};
+"""
+
+
+def _printers_pane(store: Store, live: dict[str, Any] | None, msg: str | None) -> str:
+    """Einstellungen → Drucker: Zuordnung der HA-Entitäten pro Drucker."""
+    from . import printers as pcfg
+
+    def check(entity: str | None, unit: str = "") -> str:
+        if not entity:
+            return ""
+        if live is None:
+            return '<span class="pchk muted" title="Home Assistant nicht verbunden">?</span>'
+        state = live.get(entity)
+        if state is None:
+            return '<span class="pchk bad" title="Gibt es in Home Assistant nicht">⚠ nicht gefunden</span>'
+        val = str(state)
+        if unit and val not in ("unavailable", "unknown"):
+            val = f"{val} {unit}"
+        return f'<span class="pchk ok">✓ {e(val)}</span>'
+
+    def inp(name: str, value: Any, placeholder: str = "", cls: str = "", extra: str = "") -> str:
+        v = "" if value is None else (f"{value:g}" if isinstance(value, float) else str(value))
+        return (f'<input name="{name}" value="{e(v)}" placeholder="{e(placeholder)}" '
+                f'class="{cls}" autocomplete="off" spellcheck="false"{extra}>')
+
+    def card(c: dict[str, Any] | None) -> str:
+        new = c is None
+        c = c or {"key": "", "name": "", "status": "", "prefix": "", "ams": [], "ext": "", "energy": "", "fixed_w": None}
+        f = "prnew" if new else f"pr__{c['key']}"
+        status = c.get("status") or (pcfg.status_entity(c) if not new else "")
+        ams = ", ".join(c.get("ams") or [])
+        ams_check = "".join(check(f"sensor.{a}_tray_1") for a in (c.get("ams") or [])[:1])
+        head = (f'<div class="phead"><label>Kurzname {inp(f"{f}__key", "", "z. B. x1c", "pkey", " pattern=[a-z0-9_]{1,20}")}</label>'
+                f'<label class="grow">Name {inp(f"{f}__name", "", "z. B. X1C Werkstatt")}</label></div>'
+                if new else
+                f'<div class="phead"><code class="pk">{e(c["key"])}</code>'
+                f'<label class="grow">Name {inp(f"{f}__name", c.get("name"), c["key"])}</label>'
+                f'<label class="chk prm"><input type="checkbox" name="{f}__remove" value="1"> Entfernen</label></div>')
+        return f"""<div class="pcard{' pnew' if new else ''}">{head}
+<div class="pgrid">
+<label>Druckstatus-Sensor {inp(f"{f}__status", status, "sensor.…_print_status")}{check(status)}</label>
+<label>Energiezähler (kWh) {inp(f"{f}__energy", c.get("energy"), "leer = keine Steckdose")}{check(c.get("energy"), "kWh")}</label>
+<label>Feste Leistung (W) {inp(f"{f}__fixed_w", c.get("fixed_w"), "z. B. 120", "", ' inputmode="decimal"')}
+<small class="muted">Ohne Steckdose oder wenn sie ausfällt: kWh = Druckdauer × Leistung</small></label>
+</div>
+<details{' open' if new else ''}><summary>Filament und weitere Entitäten</summary><div class="pgrid">
+<label>AMS (Namensanfang, mit Komma) {inp(f"{f}__ams", ams, "z. B. x1c_ams_1")}{ams_check}</label>
+<label>Externe Spule {inp(f"{f}__ext", c.get("ext"), "sensor.…_external_spool")}{check(c.get("ext"))}</label>
+<label>Namensanfang der übrigen Entitäten {inp(f"{f}__prefix", c.get("prefix"), pcfg.prefix({"status": status}) or "aus dem Druckstatus")}
+<small class="muted">Für Auftrag, Gewicht, Fortschritt und Vorschaubild (sensor.&lt;anfang&gt;_task_name …). Leer = aus dem Druckstatus.</small></label>
+</div></details></div>"""
+
+    cfgs = pcfg.load(store)
+    note = f'<div class="banner">{e(msg)}</div>' if msg else ""
+    cards = "".join(card(c) for c in cfgs) or '<p class="muted">Noch kein Drucker eingerichtet.</p>'
+    return f"""<h2 style="margin-top:0">Drucker und Home Assistant</h2>
+<p class="muted">Welche Entitäten aus Home Assistant zu welchem Drucker gehören. printlog braucht sie, um nach einem Neustart
+verpasste Drucke nachzuholen und Material und Strom zuzuordnen. Mit dem Blueprint „printlog: Druck erfassen“ (siehe README)
+trägt die Automation ihre Entitäten beim nächsten Druck selbst ein und legt neue Drucker an. ✓ zeigt den aktuellen Wert aus Home Assistant.</p>
+{note}<div class="plist">{cards}</div>
+<details class="padd"><summary>＋ Drucker von Hand hinzufügen</summary>{card(None)}</details>"""
+
+
+def csv_rows(store: Store, f: dict[str, str | None]) -> list[list[Any]]:
+    names = printer_names(store)
+    header = ["ID", "Projekt-ID", "Auftrag", "Drucker", "Kunde", "Stück", "Start", "Ende", "Dauer h", "Status",
+              "Fortschritt %", "Filament g", "Material", "kWh", "Strom €", "Filament €", "Drucker €",
+              "Gesamt €", "Ausschuss", "Projekt", "Projektlink", "Ordner", "Notiz"]
+    mg = margins(store)
+    at = header.index("Gesamt €") + 1
+    header[at:at] = [f"{n} +{fmt_input(p)} % €" for n, p in mg]
+    header += ["Endpreis €", "Zu zahlen €", "Bezahlt €", "Übergeben Stück"]
+    out: list[list[Any]] = [header]
+    q = db_filters(f)
+    for j in store.list_jobs(limit=100000, **q):
+        mats = "; ".join(f'{m["name"] or "?"} {m["grams"]} g' for m in parse_materials(j.get("materials")))
+        dur = (j["end_ts"] - j["start_ts"]) / 3600 if j["start_ts"] and j["end_ts"] and j["end_ts"] > j["start_ts"] else None
+        grams = j["filament_g"] if j.get("filament_g") is not None else j["weight_g"]
+        out.append([
+            j["id"], code_label(j.get("code")), j["task_name"], names.get(j["printer"], j["printer"]), j.get("customer_name"),
+            j.get("quantity"), fmt_ts(j["start_ts"]), fmt_ts(j["end_ts"]),
+            round(dur, 2) if dur else None, _status_of(j), j["progress"], grams, mats, j["kwh"],
+            j["cost"], j.get("cost_filament"), j.get("cost_printer"), j.get("cost_total"), *[round(_price(j, p), 2) if _price(j, p) is not None else None for _, p in mg],
+            "ja" if j.get("is_scrap") else "nein", j.get("project_title"), j.get("project_url"), j.get("local_path"), j.get("job_note"),
+            j.get("final_price"), (0 if j.get("gift") else round(amount_due(j), 2)) if j.get("customer_id") and amount_due(j) is not None else None,
+            round(j.get("paid") or 0, 2), j.get("delivered") or 0,
+        ])
+    return out
+

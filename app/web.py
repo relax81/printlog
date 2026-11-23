@@ -1,0 +1,571 @@
+"""HTTP-Routen. Das HTML kommt aus pages.py und stats.py."""
+
+from __future__ import annotations
+
+import asyncio
+import csv
+import io
+import json
+import re
+import time
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+from urllib.parse import quote, urlencode
+
+from aiohttp import web
+
+from .costing import compute, parse_materials, recompute_all
+from .db import Store
+from .export import bon_png, collect, file_name, report_pdf
+from .media import save_logo, clean_local_path, fetch_title, shrink_photo, title_from_url
+from .pages import (
+    FILTER_KEYS,
+    VIEW_KEYS,
+    DETAIL_TABS,
+    _per_piece,
+    TODO_OPTIONS,
+    amount_due,
+    db_filters,
+    csv_rows,
+    page_customers,
+    page_job,
+    page_jobs,
+    page_settings,
+    page_trash,
+    results,
+)
+from .stats import page_calendar, page_stats
+from .ui import STATIC_DIR, parse_num, printer_names
+
+IMAGE_TYPES = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+    "image/heic": ".heic",
+    "image/heif": ".heif",
+}
+MAX_PHOTO_BYTES = 20 * 1024 * 1024
+TOOLS_DIR = Path(__file__).parent / "tools"
+TOOLS = ("printlog-open.ps1", "printlog-open-entfernen.reg")
+
+
+def _filters(request: web.Request) -> dict[str, str | None]:
+    f: dict[str, str | None] = {k: (request.query.get(k) or None) for k in FILTER_KEYS}
+    if f["customer"] and f["customer"] != "none" and not f["customer"].isdigit():
+        f["customer"] = None
+    if f["day"] and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", f["day"]):
+        f["day"] = None
+    if f["todo"] not in TODO_OPTIONS:
+        f["todo"] = None
+    if "group" not in request.query:
+        # Gruppierung nach Tagen merkt sich der Browser (Cookie vom Schalter auf der Seite)
+        f["group"] = "day" if request.cookies.get("pl_group") == "day" else None
+    elif f["group"] != "day":
+        f["group"] = None
+    return f
+
+
+def _db_filters(f: dict[str, str | None]) -> dict[str, str | None]:
+    return db_filters(f)
+
+
+def _day_ts(day: str) -> float | None:
+    """Datum aus einem Formular (JJJJ-MM-TT) als Zeitpunkt; heute = jetzt, sonst 12 Uhr."""
+    day = day.strip()
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
+        return None
+    d = datetime.strptime(day, "%Y-%m-%d")
+    now = datetime.now()
+    return (now if d.date() == now.date() else d.replace(hour=12)).timestamp()
+
+
+def trash_days(store: Store) -> int:
+    v = store.settings().get("trash_days")
+    return int(v) if v and v.isdigit() else 30
+
+
+def purge_expired(store: Store, image_dir: Path) -> int:
+    """Drucke, die länger als die eingestellten Tage im Papierkorb liegen, endgültig löschen."""
+    ids = store.expired_trash(time.time() - trash_days(store) * 86400)
+    for job_id in ids:
+        for name in store.purge_job(job_id):
+            (image_dir / name).unlink(missing_ok=True)
+    return len(ids)
+
+
+def _html(text: str) -> web.Response:
+    return web.Response(text=text, content_type="text/html")
+
+
+def _job_id(request: web.Request) -> int:
+    try:
+        return int(request.match_info.get("job_id") or request.query.get("id") or "")
+    except ValueError:
+        raise web.HTTPNotFound() from None
+
+
+async def _live_states(ha: Any, store: Store) -> dict[str, Any] | None:
+    """Aktuelle Zustände der eingerichteten Entitäten, None ohne HA-Verbindung."""
+    from . import printers as pcfg
+
+    if not getattr(ha, "connected", False):
+        return None
+    ids = sorted({x for c in pcfg.load(store) for x in pcfg.entities(c)})
+
+    async def one(entity: str) -> tuple[str, Any]:
+        try:
+            st = await ha.get_state(entity)
+        except Exception:  # noqa: BLE001
+            return entity, None
+        return entity, (st or {}).get("state") if st else None
+
+    try:
+        return dict(await asyncio.wait_for(asyncio.gather(*(one(i) for i in ids)), 5))
+    except asyncio.TimeoutError:
+        return None
+
+
+def _save_printers(store: Store, form: Any) -> str | None:
+    """Einstellungen → Drucker speichern. Gibt einen Hinweis zurück oder None."""
+    from . import printers as pcfg
+
+    if not any(k.startswith(("pr__", "prnew__")) for k in form):
+        return None
+    fields = ("name", "status", "energy", "fixed_w", "ams", "ext", "prefix")
+    out, msgs = [], []
+    for c in pcfg.load(store):
+        f = f"pr__{c['key']}"
+        if f"{f}__name" not in form:
+            out.append(c)  # nicht im Formular (z. B. gerade aus einem Event gelernt)
+            continue
+        if form.get(f"{f}__remove"):
+            msgs.append(f"Drucker {c['key']} entfernt (seine Drucke bleiben).")
+            continue
+        item = {"key": c["key"], **{k: str(form.get(f"{f}__{k}") or "").strip() for k in fields}}
+        item["fixed_w"] = parse_num(item["fixed_w"])
+        out.append(pcfg.normalize(item) or c)
+    key = str(form.get("prnew__key") or "").strip().lower()
+    if key:
+        if not pcfg.KEY_RE.fullmatch(key):
+            msgs.append(f"Kurzname „{key}“ geht nicht: nur a–z, 0–9 und _, höchstens 20 Zeichen.")
+        elif any(c["key"] == key for c in out):
+            msgs.append(f"Den Drucker „{key}“ gibt es schon.")
+        else:
+            item = {"key": key, **{k: str(form.get(f"prnew__{k}") or "").strip() for k in fields}}
+            item["fixed_w"] = parse_num(item["fixed_w"])
+            out.append(pcfg.normalize(item))
+            msgs.append(f"Drucker {key} angelegt.")
+    pcfg.save(store, out)
+    return " ".join(msgs) or None
+
+
+def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: Any) -> None:
+    routes = web.RouteTableDef()
+
+    # ---- Seiten ---------------------------------------------------------------
+
+    @routes.get("/")
+    async def index(request: web.Request) -> web.Response:
+        f = _filters(request)
+        if request.query.get("partial"):
+            return _html(results(store, f))
+        return _html(page_jobs(store, f, ha_state.connected))
+
+    @routes.get("/job")
+    async def job_page(request: web.Request) -> web.Response:
+        job = store.get(_job_id(request))
+        if not job:
+            raise web.HTTPNotFound(text="Druck nicht gefunden")
+        return _html(page_job(store, job, request.query.get("saved")))
+
+    @routes.get("/go")
+    async def go(request: web.Request) -> web.Response:
+        """Projekt-ID (z. B. PL-7K3Q, auch ohne Präfix, Groß/klein egal) → Detailseite des Drucks."""
+        q = request.query.get("q") or ""
+        job_id = store.find_code(q)
+        if request.query.get("json"):
+            return web.json_response({"id": job_id})
+        if job_id:
+            raise web.HTTPSeeOther(f"job?id={job_id}")
+        raise web.HTTPSeeOther("./?" + urlencode({"q": q}) if q else "./")
+
+    @routes.get("/export/{job_id:\\d+}/{kind}")
+    async def export(request: web.Request) -> web.Response:
+        """Bon-Bild (für Kunden / intern) oder PDF eines Drucks; ?dl=1 als Download, ?status=0 ohne Zahlung/Übergabe."""
+        job = store.get(_job_id(request))
+        if not job:
+            raise web.HTTPNotFound(text="Druck nicht gefunden")
+        kind = request.match_info["kind"]
+        data = collect(store, job, image_dir, status=request.query.get("status") != "0")
+        loop = asyncio.get_running_loop()
+        if kind in ("bon-kunde.png", "bon-intern.png"):
+            variant = kind[4:-4]
+            body = await loop.run_in_executor(None, bon_png, data, variant)
+            ctype, name = "image/png", file_name(job, variant, "png")
+        elif kind == "kosten.pdf":
+            body = await loop.run_in_executor(None, report_pdf, data)
+            ctype, name = "application/pdf", file_name(job, "kosten", "pdf")
+        else:
+            raise web.HTTPNotFound()
+        disp = "attachment" if request.query.get("dl") else "inline"
+        return web.Response(body=body, content_type=ctype, headers={
+            "Content-Disposition": f'{disp}; filename="{name}"', "Cache-Control": "no-store"})
+
+    @routes.get("/customers")
+    async def customers(request: web.Request) -> web.Response:
+        q = request.query
+        return _html(page_customers(store, q.get("saved"), q.get("show"), q.get("period"), q.get("von"), q.get("bis")))
+
+    @routes.post("/customers")
+    async def save_customer(request: web.Request) -> web.Response:
+        form = await request.post()
+        name = str(form.get("name") or "").strip()
+        if not name:
+            raise web.HTTPSeeOther("customers")
+        cid = str(form.get("id") or "")
+        store.save_customer(
+            int(cid) if cid.isdigit() else None,
+            name,
+            str(form.get("contact") or "").strip() or None,
+            str(form.get("note") or "").strip() or None,
+            parse_num(form.get("margin_pct")),
+        )
+        raise web.HTTPSeeOther("customers?saved=1")
+
+    @routes.post("/customers/{cid:\\d+}/delete")
+    async def delete_customer(request: web.Request) -> web.Response:
+        store.delete_customer(int(request.match_info["cid"]))
+        raise web.HTTPSeeOther("../../customers?saved=1")
+
+    @routes.get("/settings")
+    async def settings(request: web.Request) -> web.Response:
+        live = await _live_states(ha_state, store)
+        return _html(page_settings(store, request.query.get("saved"), request.query.get("logo"),
+                                   live, request.query.get("pmsg")))
+
+    @routes.post("/settings")
+    async def save_settings(request: web.Request) -> web.Response:
+        form = await request.post()
+        pmsg = _save_printers(store, form)
+        for printer in printer_names(store):
+            store.set_printer_rate(
+                printer, **{fld: parse_num(form.get(f"{fld}__{printer}")) for fld in Store.RATE_FIELDS}
+            )
+        for key, value in form.items():
+            if key.startswith("type__"):
+                store.set_material_price(key[6:], "type", parse_num(value))
+            elif key.startswith("name__"):
+                store.set_material_price(key[6:], "name", parse_num(value))
+        for i in (1, 2):
+            store.set_setting(f"margin{i}_name", str(form.get(f"margin{i}_name") or "").strip() or None)
+            pct = parse_num(form.get(f"margin{i}_pct"))
+            store.set_setting(f"margin{i}_pct", None if pct is None else f"{pct:g}")
+        days = str(form.get("trash_days") or "").strip()
+        if days.isdigit() and 1 <= int(days) <= 3650:
+            store.set_setting("trash_days", days)
+        if form.get("detail_tab") in DETAIL_TABS:
+            store.set_setting("detail_tab", str(form["detail_tab"]))
+        for key in ("backup_interval", "backup_weekday", "backup_hour"):
+            if key in form:
+                store.set_setting(key, str(form.get(key) or "").strip() or None)
+        logo_msg = ""
+        old_logo = store.settings().get("bon_logo")
+        upload = form.get("bon_logo")
+        if form.get("bon_logo_reset"):
+            store.set_setting("bon_logo", None)
+            logo_msg = "&logo=reset"
+        elif upload is not None and getattr(upload, "filename", None):
+            raw = upload.file.read(MAX_PHOTO_BYTES + 1)
+            name = None
+            if 0 < len(raw) <= MAX_PHOTO_BYTES:
+                name = await asyncio.get_running_loop().run_in_executor(
+                    None, save_logo, raw, image_dir, bool(form.get("bon_logo_white")))
+            if name:
+                store.set_setting("bon_logo", name)
+                logo_msg = "&logo=ok"
+            else:
+                logo_msg = "&logo=bad"
+        new_logo = store.settings().get("bon_logo")
+        if old_logo and old_logo != new_logo:
+            (image_dir / old_logo).unlink(missing_ok=True)
+        n = recompute_all(store)
+        tab = str(form.get("tab") or "")
+        anchor = f"#{tab}" if re.fullmatch(r"[a-z]{1,12}", tab) else ""
+        pmsg_q = f"&pmsg={quote(pmsg)}" if pmsg else ""
+        raise web.HTTPSeeOther(f"settings?saved={n}{logo_msg}{pmsg_q}{anchor}")
+
+    @routes.post("/backup")
+    async def backup(request: web.Request) -> web.Response:
+        from .backup import backup_now, enabled
+
+        if enabled():
+            await backup_now(store, image_dir)
+        raise web.HTTPSeeOther("settings")
+
+    @routes.get("/stats")
+    async def stats(request: web.Request) -> web.Response:
+        return _html(page_stats(store, request.query.get("period", "month")))
+
+    @routes.get("/calendar")
+    async def calendar(request: web.Request) -> web.Response:
+        return _html(page_calendar(store, request.query.get("month")))
+
+    @routes.get("/export.csv")
+    async def export_csv(request: web.Request) -> web.Response:
+        buf = io.StringIO()
+        writer = csv.writer(buf, delimiter=";")
+        for row in csv_rows(store, _filters(request)):
+            writer.writerow(
+                [str(v).replace(".", ",") if isinstance(v, float) else ("" if v is None else v) for v in row]
+            )
+        return web.Response(
+            body=("﻿" + buf.getvalue()).encode("utf-8"),
+            content_type="text/csv",
+            charset="utf-8",
+            headers={
+                "Content-Disposition": f'attachment; filename="druckkosten_{time.strftime("%Y-%m-%d")}.csv"'
+            },
+        )
+
+    # ---- API ------------------------------------------------------------------
+
+    @routes.get("/api/jobs")
+    async def api_jobs(request: web.Request) -> web.Response:
+        f = _db_filters(_filters(request))
+        limit = min(int(request.query.get("limit", 500)), 5000)
+        offset = int(request.query.get("offset", 0))
+        jobs = store.list_jobs(limit=limit, offset=offset, **f)
+        photos = store.photo_counts([j["id"] for j in jobs])
+        for j in jobs:
+            j["materials"] = parse_materials(j.get("materials"))
+            j["photos"] = photos.get(j["id"], 0)
+        return web.json_response(jobs)
+
+    @routes.get("/api/summary")
+    async def api_summary(request: web.Request) -> web.Response:
+        return web.json_response(store.summary(**_db_filters(_filters(request))))
+
+    @routes.post("/api/jobs/{job_id:\\d+}")
+    async def api_update(request: web.Request) -> web.Response:
+        job_id = _job_id(request)
+        job = store.get(job_id)
+        if not job:
+            raise web.HTTPNotFound()
+        form = await request.post()
+        fields: dict[str, Any] = {}
+        if "task_name" in form:
+            fields["task_name"] = str(form["task_name"]).strip() or job["task_name"]
+        if "customer_id" in form:
+            cid = str(form["customer_id"])
+            fields["customer_id"] = int(cid) if cid.isdigit() else None
+        if "quantity" in form:
+            q = str(form["quantity"]).strip()
+            fields["quantity"] = int(q) if q.isdigit() and int(q) > 0 else None
+        if "job_note" in form:
+            fields["job_note"] = str(form["job_note"]).strip() or None
+        if "scrap" in form:
+            sv = str(form["scrap"])
+            fields["scrap"] = int(sv) if sv in ("0", "1") else None
+        if "project_url" in form:
+            url = str(form["project_url"]).strip() or None
+            title = str(form.get("project_title") or "").strip() or None
+            if url and not title:
+                title = await fetch_title(app.get("session"), url) or title_from_url(url)
+            fields["project_url"] = url
+            fields["project_title"] = title
+        elif "project_title" in form:
+            fields["project_title"] = str(form["project_title"]).strip() or None
+        if "local_path" in form:
+            fields["local_path"] = clean_local_path(str(form["local_path"]))
+        if "final_price" in form:
+            fields["final_price"] = parse_num(form["final_price"])
+        if any(str(k).startswith("mnote__") for k in form):
+            notes = {k[7:]: str(v).strip()[:120] for k, v in form.items()
+                     if k.startswith("mnote__") and k[7:].isdigit() and str(v).strip()}
+            fields["material_notes"] = json.dumps(notes, ensure_ascii=False) if notes else None
+        if "gift" in form:
+            fields["gift"] = 1 if str(form["gift"]) == "1" else None
+        if fields:
+            store.update(job_id, **fields)
+        if request.query.get("redirect"):
+            tab = "#ab" if request.query.get("redirect") == "ab" else ""
+            raise web.HTTPSeeOther(f"../../job?id={job_id}&saved=1{tab}")
+        job = store.get(job_id) or job
+        return web.json_response({"ok": True, "per_piece": _per_piece(job)})
+
+    @routes.post("/api/jobs/{job_id:\\d+}/handover")
+    async def api_handover(request: web.Request) -> web.Response:
+        """Übergabe eintragen: qty = Zahl oder "rest"; reset=1 löscht alle Übergaben."""
+        job_id = _job_id(request)
+        job = store.get(job_id)
+        if not job:
+            raise web.HTTPNotFound()
+        form = await request.post()
+        if str(form.get("reset") or "") == "1":
+            store.clear_handovers(job_id)
+        else:
+            rest = max(0, (job.get("quantity") or 1) - (job.get("delivered") or 0))
+            raw = str(form.get("qty") or "rest").strip()
+            qty = rest if raw == "rest" else (int(raw) if raw.isdigit() else 0)
+            ts = _day_ts(str(form.get("date") or ""))
+            if qty > 0:
+                store.add_handover(job_id, qty, ts, str(form.get("note") or "").strip() or None)
+        if request.query.get("redirect"):
+            raise web.HTTPSeeOther(f"../../../job?id={job_id}#ab")
+        job = store.get(job_id) or job
+        return web.json_response({"ok": True, "delivered": job.get("delivered"), "quantity": job.get("quantity") or 1})
+
+    @routes.post("/api/jobs/{job_id:\\d+}/pay")
+    async def api_pay(request: web.Request) -> web.Response:
+        """Zahlung eintragen: rest=1 bucht den offenen Rest, amount=Betrag; reset=1 löscht alle Zahlungen."""
+        job_id = _job_id(request)
+        job = store.get(job_id)
+        if not job:
+            raise web.HTTPNotFound()
+        form = await request.post()
+        if str(form.get("reset") or "") == "1":
+            store.clear_payments(job_id)
+        else:
+            due = amount_due(job)
+            amount = (max(0.0, (due or 0) - (job.get("paid") or 0)) if str(form.get("rest") or "") == "1"
+                      else parse_num(form.get("amount")))
+            if amount and amount > 0:
+                store.add_payment(job_id, amount, _day_ts(str(form.get("date") or "")),
+                                  str(form.get("note") or "").strip() or None)
+        if request.query.get("redirect"):
+            raise web.HTTPSeeOther(f"../../../job?id={job_id}#ab")
+        return web.json_response({"ok": True})
+
+    @routes.post("/api/payments/{pid:\\d+}/delete")
+    async def api_payment_delete(request: web.Request) -> web.Response:
+        job_id = store.delete_payment(int(request.match_info["pid"]))
+        raise web.HTTPSeeOther(f"../../../job?id={job_id}#ab" if job_id else "../../../")
+
+    @routes.post("/api/handovers/{hid:\\d+}/delete")
+    async def api_handover_delete(request: web.Request) -> web.Response:
+        job_id = store.delete_handover(int(request.match_info["hid"]))
+        raise web.HTTPSeeOther(f"../../../job?id={job_id}#ab" if job_id else "../../../")
+
+    @routes.post("/api/jobs/{job_id:\\d+}/recompute")
+    async def api_recompute(request: web.Request) -> web.Response:
+        job = store.get(_job_id(request))
+        if not job:
+            raise web.HTTPNotFound()
+        store.update(job["id"], **compute(job, store))
+        return web.json_response(store.get(job["id"]))
+
+    @routes.post("/api/jobs/{job_id:\\d+}/photos")
+    async def api_photos(request: web.Request) -> web.Response:
+        job_id = _job_id(request)
+        if not store.get(job_id):
+            raise web.HTTPNotFound()
+        reader = await request.multipart()
+        n = 0
+        while (part := await reader.next()) is not None:
+            if getattr(part, "name", None) != "photo" or not getattr(part, "filename", None):
+                continue
+            ctype = (part.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+            ext = IMAGE_TYPES.get(ctype)
+            if not ext:
+                suffix = Path(part.filename).suffix.lower()
+                ext = ".jpg" if suffix == ".jpeg" else (suffix if suffix in IMAGE_TYPES.values() else None)
+            if not ext:
+                continue
+            name = f"photo_{job_id}_{int(time.time())}_{n}{ext}"
+            target = image_dir / name
+            size = 0
+            with target.open("wb") as fh:
+                while chunk := await part.read_chunk(256 * 1024):
+                    size += len(chunk)
+                    if size > MAX_PHOTO_BYTES:
+                        break
+                    fh.write(chunk)
+            if size == 0 or size > MAX_PHOTO_BYTES:
+                target.unlink(missing_ok=True)
+                continue
+            target = await asyncio.get_running_loop().run_in_executor(None, shrink_photo, target)
+            name = target.name
+            store.add_photo(job_id, name)
+            n += 1
+        raise web.HTTPSeeOther(f"../../../job?id={job_id}&saved=photo{n}")
+
+    @routes.post("/api/photos/{pid:\\d+}/delete")
+    async def api_photo_delete(request: web.Request) -> web.Response:
+        photo = store.delete_photo(int(request.match_info["pid"]))
+        if not photo:
+            raise web.HTTPSeeOther("../../../")
+        (image_dir / photo["file"]).unlink(missing_ok=True)
+        raise web.HTTPSeeOther(f"../../../job?id={photo['job_id']}")
+
+    @routes.post("/api/jobs/{job_id:\\d+}/delete")
+    async def api_delete(request: web.Request) -> web.Response:
+        """In den Papierkorb (wiederherstellbar)."""
+        store.trash_job(_job_id(request))
+        ref = request.headers.get("Referer") or ""
+        raise web.HTTPSeeOther("../../../" if (not ref or "/job" in ref) else ref)
+
+    def _ids(form: Any) -> list[int]:
+        return [int(x) for x in re.split(r"[,\s]+", str(form.get("ids") or "")) if x.isdigit()]
+
+    @routes.post("/api/jobs/delete")
+    async def api_delete_many(request: web.Request) -> web.Response:
+        ids = [i for i in _ids(await request.post()) if store.trash_job(i)]
+        return web.json_response({"ok": True, "ids": ids})
+
+    @routes.get("/trash")
+    async def trash_page(request: web.Request) -> web.Response:
+        purge_expired(store, image_dir)
+        return _html(page_trash(store, trash_days(store), request.query.get("done")))
+
+    @routes.post("/trash/restore")
+    async def trash_restore(request: web.Request) -> web.Response:
+        form = await request.post()
+        n = sum(store.restore_job(i) for i in _ids(form))
+        if form.get("json"):
+            return web.json_response({"ok": True, "n": n})
+        raise web.HTTPSeeOther(f"../trash?done=r{n}")
+
+    @routes.post("/trash/purge")
+    async def trash_purge(request: web.Request) -> web.Response:
+        form = await request.post()
+        ids = [j["id"] for j in store.trashed()] if form.get("all") else _ids(form)
+        for job_id in ids:
+            for name in store.purge_job(job_id):
+                (image_dir / name).unlink(missing_ok=True)
+        raise web.HTTPSeeOther(f"../trash?done=p{len(ids)}")
+
+    @routes.get("/tools/{name}")
+    async def tool_download(request: web.Request) -> web.Response:
+        # Hilfsdateien für Ordner-Links unter Windows (Einstellungen).
+        name = request.match_info["name"]
+        if name not in TOOLS:
+            raise web.HTTPNotFound()
+        text = (TOOLS_DIR / name).read_text(encoding="utf-8").replace("\r\n", "\n").replace("\n", "\r\n")
+        # PowerShell 5 liest Skripte ohne BOM als ANSI, regedit erwartet UTF-16.
+        body = text.encode("utf-16") if name.endswith(".reg") else text.encode("utf-8-sig")
+        return web.Response(body=body, content_type="application/octet-stream",
+                            headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+    @routes.get("/manifest.webmanifest")
+    async def manifest(_req: web.Request) -> web.StreamResponse:
+        return web.FileResponse(
+            STATIC_DIR / "manifest.webmanifest",
+            headers={"Content-Type": "application/manifest+json"},
+        )
+
+    @routes.get("/favicon.ico")
+    async def favicon(_req: web.Request) -> web.StreamResponse:
+        return web.FileResponse(STATIC_DIR / "favicon-32.png", headers={"Content-Type": "image/png"})
+
+    @routes.get("/health")
+    async def health(request: web.Request) -> web.Response:
+        return web.json_response(
+            {"ha_connected": ha_state.connected, "last_event": ha_state.last_event},
+            status=200 if ha_state.connected else 503,
+        )
+
+    app.add_routes(routes)
+    app.router.add_static("/images/", image_dir, show_index=False)
+    app.router.add_static("/static/", STATIC_DIR, show_index=False)
