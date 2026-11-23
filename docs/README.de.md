@@ -58,7 +58,7 @@ Das Material kommt pro Slot aus den `print_weight`-Attributen und den AMS-Slot-S
 * **Ausschuss**: Abgebrochene Drucke zählen automatisch als Ausschuss. Auf der Detailseite (Tab „Bearbeiten“) lässt sich das pro Druck ändern. Filter „nur Ausschuss“ und Kennzahl mit Kosten.
 * **Margen**: Zwei allgemeine Aufschläge (Einstellungen) als eigene Spalten, dazu optional eine Marge pro Kunde.
 * **Projektlink**: MakerWorld-/Printables-Link pro Druck. Bleibt der Titel leer, wird er aus der Seite gelesen (oder aus dem Link gebildet). Titel und Link sind durchsuchbar.
-* **Lokaler Ordner**: Windows-Pfad pro Druck (z. B. für Projekte, die nur auf dem PC liegen), mit „Kopieren“ und „Öffnen“. „Öffnen“ nutzt das Link-Protokoll `printlog-open:`, das einmalig pro PC mit `app/tools/printlog-open.ps1` eingerichtet wird (Download und Anleitung unter Einstellungen). Das Skript öffnet nur Ordner im Explorer, nie etwas anderes. Durchsuchbar und im CSV-Export.
+* **Lokaler Ordner**: Windows-Pfad pro Druck (Ordner oder Datei, z. B. für Projekte, die nur auf dem PC liegen), mit „Kopieren“ und „Öffnen“. „Öffnen“ nutzt das Link-Protokoll `printlog-open:`, das einmalig pro PC per Doppelklick auf `printlog-einrichten.cmd` eingerichtet wird (Download und Anleitung unter Einstellungen → Windows). Ordner öffnen sich im Explorer. 3D-Dateien (3MF, STL, STEP, OBJ) öffnen sich im Standardprogramm, aber nur innerhalb des Projektordners, den man bei der Einrichtung am PC wählt. Alles andere wird nur im Explorer markiert, Programme oder Skripte startet ein Link nie. Durchsuchbar und im CSV-Export.
 * Eigene Fotos werden beim Hochladen gedreht (EXIF) und auf höchstens 2560 px verkleinert (JPEG, Qualität 85).
 
 ## Drucker und Home Assistant
