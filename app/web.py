@@ -48,7 +48,19 @@ IMAGE_TYPES = {
 }
 MAX_PHOTO_BYTES = 20 * 1024 * 1024
 TOOLS_DIR = Path(__file__).parent / "tools"
-TOOLS = ("printlog-open.ps1", "printlog-open-entfernen.reg")
+TOOLS = ("printlog-open.ps1", "printlog-open-entfernen.reg", "printlog-einrichten.cmd")
+
+# Einrichtung per Doppelklick: Die .cmd trägt das PowerShell-Skript hinter einer Marke in sich,
+# schreibt es nach %LOCALAPPDATA%\printlog und startet es dort mit ExecutionPolicy Bypass.
+SETUP_CMD = r"""@echo off
+setlocal
+rem PrintLog: Ordner-Links einrichten (Link-Protokoll printlog-open, nur fuer deinen Benutzer).
+set "PL_SELF=%~f0"
+"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "$t=[IO.File]::ReadAllText($env:PL_SELF,[Text.Encoding]::UTF8); $i=$t.IndexOf('#PRINTLOG'+'-PS1#'); if($i -lt 0){exit 1}; $d=Join-Path $env:LOCALAPPDATA 'printlog'; New-Item -ItemType Directory -Force -Path $d | Out-Null; $f=Join-Path $d 'printlog-open.ps1'; [IO.File]::WriteAllText($f,$t.Substring($i),(New-Object Text.UTF8Encoding $true)); & $f"
+if errorlevel 1 pause
+exit /b
+#PRINTLOG-PS1#
+"""
 
 
 def _filters(request: web.Request) -> dict[str, str | None]:
@@ -542,9 +554,19 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
         name = request.match_info["name"]
         if name not in TOOLS:
             raise web.HTTPNotFound()
-        text = (TOOLS_DIR / name).read_text(encoding="utf-8").replace("\r\n", "\n").replace("\n", "\r\n")
-        # PowerShell 5 liest Skripte ohne BOM als ANSI, regedit erwartet UTF-16.
-        body = text.encode("utf-16") if name.endswith(".reg") else text.encode("utf-8-sig")
+        if name.endswith(".cmd"):
+            text = SETUP_CMD + (TOOLS_DIR / "printlog-open.ps1").read_text(encoding="utf-8")
+        else:
+            text = (TOOLS_DIR / name).read_text(encoding="utf-8")
+        text = text.replace("\r\n", "\n").replace("\n", "\r\n")
+        # PowerShell 5 liest Skripte ohne BOM als ANSI, regedit erwartet UTF-16,
+        # cmd verträgt keine BOM (das Skript darin schreibt die .ps1 selbst mit BOM).
+        if name.endswith(".reg"):
+            body = text.encode("utf-16")
+        elif name.endswith(".cmd"):
+            body = text.encode("utf-8")
+        else:
+            body = text.encode("utf-8-sig")
         return web.Response(body=body, content_type="application/octet-stream",
                             headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
