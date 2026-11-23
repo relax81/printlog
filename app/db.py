@@ -149,6 +149,7 @@ class Store:
         "gift": "INTEGER",            # 1 = verschenkt: zählt in Kosten/Statistik, wird aber nicht berechnet
         "material_notes": "TEXT",     # JSON {"0": "Ivory White", …}: eigene Notiz je Material-Zeile (Index in materials)
         "code": "TEXT",               # kurze Projekt-ID ohne Präfix, z. B. "7K3Q" (Anzeige "PL-7K3Q")
+        "printer_start_ts": "REAL",   # Startzeit laut Drucker: erkennt Fortsetzen nach Pause als gleichen Druck
     }
 
     # Übergebene Stück (Summe der Übergaben, auch Teilabholungen) und Soll-Stückzahl
@@ -365,6 +366,16 @@ class Store:
         ).fetchone()
         return dict(row) if row else None
 
+    def job_during(self, printer: str, ts: float) -> dict[str, Any] | None:
+        """Job dieses Druckers, der zum Zeitpunkt ``ts`` lief (Start ≤ ts ≤ Ende bzw. noch offen)."""
+        row = self._conn.execute(
+            "SELECT * FROM jobs WHERE printer = ? AND start_ts <= ? "
+            "AND (end_ts IS NULL AND state = 'running' OR end_ts >= ?) "
+            "ORDER BY id DESC LIMIT 1",
+            (printer, ts, ts),
+        ).fetchone()
+        return dict(row) if row else None
+
     def job_near(self, printer: str, column: str, ts: float, tolerance_s: float) -> dict[str, Any] | None:
         """Job dieses Druckers, dessen start_ts/end_ts nahe an ``ts`` liegt."""
         if column not in ("start_ts", "end_ts"):
@@ -385,6 +396,15 @@ class Store:
     def unfinished_jobs(self) -> list[dict[str, Any]]:
         rows = self._conn.execute(
             "SELECT * FROM jobs WHERE state IN ('running', 'closing') ORDER BY id"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def missing_start_jobs(self, since_ts: float) -> list[dict[str, Any]]:
+        """Abgeschlossene Drucke, bei denen nur der Startwert des Zählers fehlt (Druckstart nicht empfangen)."""
+        rows = self._conn.execute(
+            "SELECT * FROM jobs WHERE state = 'done' AND start_kwh IS NULL AND end_kwh IS NOT NULL "
+            "AND start_ts >= ? AND note LIKE '%Druckstart nicht empfangen%' ORDER BY id",
+            (since_ts,),
         ).fetchall()
         return [dict(r) for r in rows]
 

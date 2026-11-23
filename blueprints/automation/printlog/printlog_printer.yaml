@@ -153,7 +153,8 @@ triggers:
     entity_id: !input print_status
     id: start
     to: running
-    not_from: [running, pause, unavailable, unknown, offline]
+    # Also after a pause: printlog uses printer_start_time to tell whether it is the same print.
+    not_from: [running, unavailable, unknown, offline]
   - trigger: state
     entity_id: !input print_status
     id: stop
