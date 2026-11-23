@@ -12,9 +12,12 @@ from typing import Any
 
 from .costing import KNOWN_TYPES, hourly_rate, material_notes, parse_materials
 from .db import Store, code_label
+from .i18n import LANGS, N_, is_en as lang_en, note as t_note, t, tn
 from .ui import (
+    bon_tagline,
     e,
     parse_num,
+    fmt_date,
     fmt_dur,
     fmt_input,
     fmt_num,
@@ -30,13 +33,13 @@ VIEW_KEYS = ("view", "group", "todo")
 
 # Filter „Offenes“: ein Auswahlfeld für Zahlung und Übergabe
 TODO_OPTIONS = {
-    "unbezahlt": ("💶 nicht bezahlt", {"paid": "offen"}),
-    "anbezahlt": ("💶 teilweise bezahlt", {"paid": "teilweise"}),
-    "bezahlt": ("✓ bezahlt", {"paid": "bezahlt"}),
-    "verschenkt": ("🎁 verschenkt", {"paid": "verschenkt"}),
-    "abholen": ("📦 nicht (ganz) übergeben", {"handover": "offen"}),
-    "teilweise": ("📦 teilweise übergeben", {"handover": "teilweise"}),
-    "uebergeben": ("✓ übergeben", {"handover": "übergeben"}),
+    "unbezahlt": (N_("💶 nicht bezahlt"), {"paid": "offen"}),
+    "anbezahlt": (N_("💶 teilweise bezahlt"), {"paid": "teilweise"}),
+    "bezahlt": (N_("✓ bezahlt"), {"paid": "bezahlt"}),
+    "verschenkt": (N_("🎁 verschenkt"), {"paid": "verschenkt"}),
+    "abholen": (N_("📦 nicht (ganz) übergeben"), {"handover": "offen"}),
+    "teilweise": (N_("📦 teilweise übergeben"), {"handover": "teilweise"}),
+    "uebergeben": (N_("✓ übergeben"), {"handover": "übergeben"}),
 }
 
 
@@ -47,6 +50,11 @@ def db_filters(f: dict[str, str | None]) -> dict[str, str | None]:
     if todo:
         q.update(todo[1])
     return q
+
+
+# Status steht deutsch in der Datenbank (und dient als CSS-Klasse), angezeigt wird t(status).
+SLOT_LABELS = (N_("aktiv"),)  # Slot ohne AMS-Angabe (aktives Fach), sonst z. B. "AMS 1 Tray 2"
+STATUS_LABELS = (N_("fertig"), N_("abgebrochen"), N_("unvollständig"), N_("läuft"), N_("kühlt ab"))
 
 
 def _status_of(job: dict[str, Any]) -> str:
@@ -82,7 +90,7 @@ def _chips(job: dict[str, Any]) -> str:
 def _per_piece(job: dict[str, Any]) -> str:
     q = job.get("quantity")
     if q and q > 1 and job.get("cost_total") is not None:
-        return f'{fmt_num(job["cost_total"] / q, 2, "€")}/Stk.'
+        return t("{v}/Stk.", v=fmt_num(job["cost_total"] / q, 2, "€"))
     return ""
 
 
@@ -93,7 +101,7 @@ def margins(store: Store) -> list[tuple[str, float]]:
     for i in (1, 2):
         pct = parse_num(cfg.get(f"margin{i}_pct"))
         if pct is not None:
-            out.append((cfg.get(f"margin{i}_name") or f"Marge {i}", pct))
+            out.append((cfg.get(f"margin{i}_name") or t("Marge {i}", i=i), pct))
     return out
 
 
@@ -106,7 +114,7 @@ def _price(job: dict[str, Any], pct: float) -> float | None:
 def _price_cell(job: dict[str, Any], pct: float) -> str:
     price = _price(job, pct)
     q = job.get("quantity")
-    per = f'<div class="note">{fmt_num(price / q, 2, "€")}/Stk.</div>' if price is not None and q and q > 1 else ""
+    per = f'<div class="note">{t("{v}/Stk.", v=fmt_num(price / q, 2, "€"))}</div>' if price is not None and q and q > 1 else ""
     return f'<td class="n">{fmt_num(price, 2, "€")}{per}</td>'
 
 
@@ -115,15 +123,15 @@ def _customer_price(job: dict[str, Any]) -> str:
     price = _price(job, pct) if pct is not None else None
     if price is None:
         return ""
-    return (f'<div class="note" title="Marge von {e(job.get("customer_name") or "")}">'
-            f'Kunde +{fmt_input(pct)} %: <b>{fmt_num(price, 2, "€")}</b></div>')
+    return (f'<div class="note" title="{e(t("Marge von {name}", name=job.get("customer_name") or ""))}">'
+            f'{t("Kunde")} +{fmt_input(pct)} %: <b>{fmt_num(price, 2, "€")}</b></div>')
 
 
 def _project(job: dict[str, Any]) -> str:
     url, title = job.get("project_url"), job.get("project_title")
     if not url and not title:
         return ""
-    label = e(title or "Projekt")
+    label = e(title or t("Projekt"))
     if url and url.startswith(("http://", "https://")):
         return f'<div class="note">🔗 <a href="{e(url)}" target="_blank" rel="noopener">{label}</a></div>'
     return f'<div class="note">🔗 {label}</div>'
@@ -137,8 +145,8 @@ def local_link(path: str) -> str:
 def _local_path(job: dict[str, Any]) -> str:
     path = job["local_path"]
     return (f'<div class="lp"><code>{e(path)}</code> '
-            f'<button type="button" class="btn sm" data-copy="{e(path)}">📋 Kopieren</button> '
-            f'<a class="btn sm" href="{e(local_link(path))}" title="Braucht die einmalige Einrichtung unter Einstellungen">📂 Öffnen</a></div>')
+            f'<button type="button" class="btn sm" data-copy="{e(path)}">{t("📋 Kopieren")}</button> '
+            f'<a class="btn sm" href="{e(local_link(path))}" title="{e(t("Braucht die einmalige Einrichtung unter Einstellungen"))}">{t("📂 Öffnen")}</a></div>')
 
 
 def _thumb(job: dict[str, Any], photo: str | None = None, cls: str = "t") -> str:
@@ -281,7 +289,7 @@ form.onsubmit=ev=>{ev.preventDefault();const v=form.querySelector('input[name=q]
   if(CODE_RE.test(v)){fetch('go?json=1&q='+encodeURIComponent(v)).then(r=>r.json()).then(d=>{if(d.id)location.href='job?id='+d.id;else refresh()}).catch(refresh)}
   else refresh()};
 const ft=form.querySelector('.ftoggle');
-function fcount(){const n=[...form.querySelectorAll('.flt select')].filter(s=>s.value).length;ft.textContent='Filter'+(n?' ('+n+')':'')}
+function fcount(){const n=[...form.querySelectorAll('.flt select')].filter(s=>s.value).length;ft.textContent=_t("Filter")+(n?' ('+n+')':'')}
 ft.onclick=()=>form.classList.toggle('open');form.querySelectorAll('.flt select').forEach(s=>s.addEventListener('change',fcount));fcount();
 if(matchMedia('(min-width:701px)').matches)form.querySelector('input[name=q]').focus();
 document.querySelectorAll('.seg a[data-view]').forEach(a=>a.onclick=ev=>{ev.preventDefault();
@@ -319,11 +327,11 @@ sb.querySelector('.none').onclick=()=>{picked.clear();markPicked()};
 sb.querySelector('.cancel').onclick=()=>setSel(false);
 let toastTimer=null;
 sb.querySelector('.del').onclick=async()=>{const n=picked.size;if(!n)return;
-  if(!confirm(n+(n==1?' Druck':' Drucke')+' in den Papierkorb legen? Du kannst sie dort wiederherstellen.'))return;
+  if(!confirm((n==1?_t("1 Druck in den Papierkorb legen? Du kannst ihn dort wiederherstellen."):_t("{n} Drucke in den Papierkorb legen? Du kannst sie dort wiederherstellen.").replace('{n}',n))))return;
   const fd=new FormData();fd.append('ids',[...picked].join(','));
   const r=await fetch('api/jobs/delete',{method:'POST',body:fd});if(!r.ok)return;const ids=(await r.json()).ids;
   setSel(false);await refresh();
-  toast.querySelector('span').textContent=ids.length+(ids.length==1?' Druck':' Drucke')+' im Papierkorb.';toast.hidden=false;
+  toast.querySelector('span').textContent=(ids.length==1?_t("1 Druck im Papierkorb."):_t("{n} Drucke im Papierkorb.").replace('{n}',ids.length));toast.hidden=false;
   clearTimeout(toastTimer);toastTimer=setTimeout(()=>toast.hidden=true,10000);
   toast.querySelector('button').onclick=async()=>{const f2=new FormData();f2.append('ids',ids.join(','));f2.append('json','1');
     await fetch('trash/restore',{method:'POST',body:f2});toast.hidden=true;refresh()}};
@@ -336,47 +344,47 @@ def page_jobs(store: Store, f: dict[str, str | None], connected: bool) -> str:
     customers = store.customers()
     view = f.get("view") or "table"
 
-    printer_opts = opt("", "Alle Drucker", f["printer"]) + "".join(
+    printer_opts = opt("", t("Alle Drucker"), f["printer"]) + "".join(
         opt(k, v, f["printer"]) for k, v in names.items()
     )
-    month_opts = opt("", "Alle Monate", f["month"]) + "".join(
-        opt(m, datetime.strptime(m, "%Y-%m").strftime("%m/%Y"), f["month"]) for m in store.months()
+    month_opts = opt("", t("Alle Monate"), f["month"]) + "".join(
+        opt(m, datetime.strptime(m, "%Y-%m").strftime(t("%m/%Y")), f["month"]) for m in store.months()
     )
-    status_opts = opt("", "Alle Status", f["status"]) + "".join(
-        opt(s, s, f["status"]) for s in ("fertig", "abgebrochen", "unvollständig")
-    ) + opt("ausschuss", "nur Ausschuss", f["status"]) + opt("gut", "ohne Ausschuss", f["status"])
-    mat_opts = opt("", "Alle Materialien", f["material"]) + "".join(
+    status_opts = opt("", t("Alle Status"), f["status"]) + "".join(
+        opt(s, t(s), f["status"]) for s in ("fertig", "abgebrochen", "unvollständig")
+    ) + opt("ausschuss", t("nur Ausschuss"), f["status"]) + opt("gut", t("ohne Ausschuss"), f["status"])
+    mat_opts = opt("", t("Alle Materialien"), f["material"]) + "".join(
         opt(m, m, f["material"]) for m in store.material_types()
     )
-    cust_opts = opt("", "Alle Kunden", f["customer"]) + opt("none", "ohne Kunde", f["customer"]) + "".join(
+    cust_opts = opt("", t("Alle Kunden"), f["customer"]) + opt("none", t("ohne Kunde"), f["customer"]) + "".join(
         opt(str(c["id"]), c["name"], f["customer"]) for c in customers
     )
-    todo_opts = opt("", "Zahlung/Übergabe", f.get("todo")) + "".join(
-        opt(k, label, f.get("todo")) for k, (label, _) in TODO_OPTIONS.items()
+    todo_opts = opt("", t("Zahlung/Übergabe"), f.get("todo")) + "".join(
+        opt(k, t(label), f.get("todo")) for k, (label, _) in TODO_OPTIONS.items()
     )
     dot = "var(--ok)" if connected else "var(--bad)"
-    conn = "HA verbunden" if connected else "keine Verbindung zu HA"
+    conn = t("HA verbunden") if connected else t("keine Verbindung zu HA")
     day_hidden = f'<input type="hidden" name="day" value="{e(f["day"])}">' if f.get("day") else ""
     export_q = "&".join(f"{k}={e(v)}" for k, v in f.items() if v and k not in ("view", "group"))
 
     body = f"""<form class="f" method="get" autocomplete="off">
-<input class="search" type="search" name="q" value="{e(f["q"] or "")}" placeholder="Suchen: Name, Material, Kunde, Projekt-ID …">
-<button type="button" class="ftoggle">Filter</button>
+<input class="search" type="search" name="q" value="{e(f["q"] or "")}" placeholder="{e(t("Suchen: Name, Material, Kunde, Projekt-ID …"))}">
+<button type="button" class="ftoggle">{t("Filter")}</button>
 <div class="flt"><select name="printer">{printer_opts}</select><select name="month">{month_opts}</select>
 <select name="status">{status_opts}</select><select name="material">{mat_opts}</select>
 <select name="customer">{cust_opts}</select><select name="todo">{todo_opts}</select></div>{day_hidden}
 <input type="hidden" name="view" value="{e(view)}"><input type="hidden" name="group" value="{e(f.get("group") or "")}">
-<div class="tail"><span class="seg"><a href="#" data-view="table" class="{"on" if view != "gallery" else ""}">Tabelle</a><a href="#" data-view="gallery" class="{"on" if view == "gallery" else ""}">Galerie</a></span>
-<button type="button" class="gbtn{" on" if f.get("group") else ""}" title="Liste nach Tagen gruppieren">📅 Nach Tagen</button>
-<button type="button" class="selbtn" title="Mehrere Drucke auswählen, z. B. zum Löschen">☑ Auswählen</button>
+<div class="tail"><span class="seg"><a href="#" data-view="table" class="{"on" if view != "gallery" else ""}">{t("Tabelle")}</a><a href="#" data-view="gallery" class="{"on" if view == "gallery" else ""}">{t("Galerie")}</a></span>
+<button type="button" class="gbtn{" on" if f.get("group") else ""}" title="{e(t("Liste nach Tagen gruppieren"))}">{t("📅 Nach Tagen")}</button>
+<button type="button" class="selbtn" title="{e(t("Mehrere Drucke auswählen, z. B. zum Löschen"))}">{t("☑ Auswählen")}</button>
 <a href="export.csv?{export_q}" class="muted" style="font-size:13px">CSV</a>
 <span class="muted" style="font-size:13px"><span class="dot" style="background:{dot};border:0"></span>{conn}</span></div>
 </form>
 <div id="results">{results(store, f)}</div>
-<div id="selbar" hidden><b><span class="n">0</span> ausgewählt</b><button type="button" class="all">Alle</button>
-<button type="button" class="none">Keine</button><span class="sp"></span><button type="button" class="cancel">Abbrechen</button>
-<button type="button" class="btn danger del" disabled>🗑 Löschen</button></div>
-<div id="toast" hidden><span></span><button type="button">Rückgängig</button></div>"""
+<div id="selbar" hidden><b>{t('<span class="n">0</span> ausgewählt')}</b><button type="button" class="all">{t("Alle")}</button>
+<button type="button" class="none">{t("Keine")}</button><span class="sp"></span><button type="button" class="cancel">{t("Abbrechen")}</button>
+<button type="button" class="btn danger del" disabled>{t("🗑 Löschen")}</button></div>
+<div id="toast" hidden><span></span><button type="button">{t("Rückgängig")}</button></div>"""
     return layout("Printlog", "jobs", f"<style>{JOBS_CSS}{ACT_CSS}</style>" + body, ACT_JS + JOBS_JS)
 
 
@@ -387,21 +395,21 @@ def results(store: Store, f: dict[str, str | None]) -> str:
     summary = store.summary(**q)
     mat_sum = store.material_summary(**q)
     names = printer_names(store)
-    t = summary["total"]
+    tot = summary["total"]
 
-    n = t["n"] or 0
+    n = tot["n"] or 0
     kpis = [
-        ("Gesamtkosten", fmt_num(t["cost_total"], 2, "€"),
-         f'{n} Druck{"e" if n != 1 else ""}' + (f' · Ø {fmt_num(t["cost_total"] / n, 2, "€")}' if n else ""), True),
-        ("⚡ Strom", fmt_num(t["cost"], 2, "€"), fmt_num(t["kwh"], 2, "kWh"), False),
-        ("🧵 Filament", fmt_num(t["cost_filament"], 2, "€"), fmt_num((t["weight"] or 0) / 1000, 2, "kg"), False),
-        ("🖨 Drucker", fmt_num(t["cost_printer"], 2, "€"), "Abschr. + Wartung", False),
-        ("Drucke", str(n), " ", False),
-        ("Ausschuss", fmt_num(t["scrap_cost"], 2, "€"), f'{t["scrap_n"]} Druck{"e" if t["scrap_n"] != 1 else ""}', False),
+        (t("Gesamtkosten"), fmt_num(tot["cost_total"], 2, "€"),
+         tn(n, "{n} Druck", "{n} Drucke") + (f' · Ø {fmt_num(tot["cost_total"] / n, 2, "€")}' if n else ""), True, True),
+        (t("⚡ Strom"), fmt_num(tot["cost"], 2, "€"), fmt_num(tot["kwh"], 2, "kWh"), False, True),
+        (t("🧵 Filament"), fmt_num(tot["cost_filament"], 2, "€"), fmt_num((tot["weight"] or 0) / 1000, 2, "kg"), False, True),
+        (t("🖨 Drucker"), fmt_num(tot["cost_printer"], 2, "€"), t("Abschr. + Wartung"), False, True),
+        (t("Drucke"), str(n), " ", False, False),
+        (t("Ausschuss"), fmt_num(tot["scrap_cost"], 2, "€"), tn(tot["scrap_n"], "{n} Druck", "{n} Drucke"), False, True),
     ]
     kpi_html = "".join(
-        f'<div class="kpi{" main" if main else ""}"><span class="muted">{e(k)}</span><b class="{"" if k == "Drucke" else "calc"}">{e(v)}</b><small class="calc">{e(sub)}</small></div>'
-        for k, v, sub, main in kpis
+        f'<div class="kpi{" main" if main else ""}"><span class="muted">{e(k)}</span><b class="{"calc" if calc else ""}">{e(v)}</b><small class="calc">{e(sub)}</small></div>'
+        for k, v, sub, main, calc in kpis
     )
     per_printer = " · ".join(
         f'{e(names.get(p["printer"], p["printer"]))}: <b>{fmt_num(p["cost_total"] or p["cost"], 2, "€")}</b>'
@@ -412,19 +420,19 @@ def results(store: Store, f: dict[str, str | None]) -> str:
     )
     day_note = ""
     if f.get("day"):
-        d = datetime.strptime(f["day"], "%Y-%m-%d").strftime("%d.%m.%Y")
-        day_note = f'<span>Tag: <b>{d}</b> · <a href="./">alle Tage</a></span>'
+        d = fmt_date(datetime.strptime(f["day"], "%Y-%m-%d"), "date")
+        day_note = f'<span>{t("Tag")}: <b>{d}</b> · <a href="./">{t("alle Tage")}</a></span>'
     mini = f'<div class="mini">{day_note}<span class="calc">{per_printer}</span><span class="muted">{per_mat}</span></div>'
 
     banner = ""
     if jobs and not store.printer_rates_set() and not store.material_prices():
-        banner = ('<div class="banner">Noch keine Drucker- oder Filamentpreise hinterlegt. '
-                  '<a href="settings">Zu den Einstellungen</a></div>')
+        banner = (f'<div class="banner">{t("Noch keine Drucker- oder Filamentpreise hinterlegt.")} '
+                  f'<a href="settings">{t("Zu den Einstellungen")}</a></div>')
 
     photos = store.first_photos([j["id"] for j in jobs])
     if f.get("view") == "gallery":
         cards = "".join(_gallery_card(j, names, photos.get(j["id"])) for j in jobs)
-        listing = f'<div class="gallery">{cards}</div>' if cards else '<p class="muted">Keine Drucke gefunden.</p>'
+        listing = f'<div class="gallery">{cards}</div>' if cards else f'<p class="muted">{t("Keine Drucke gefunden.")}</p>'
     else:
         mg = margins(store)
         grouped = bool(f.get("group"))
@@ -435,18 +443,18 @@ def results(store: Store, f: dict[str, str | None]) -> str:
                 cards.append(f'<div class="mday"><b>{label[0]}</b><span>{label[1]}</span></div>')
             rows += [_job_row(j, names, mg, grouped) for j in day_jobs]
             cards += [_mobile_card(j, names, photos.get(j["id"])) for j in day_jobs]
-        empty = '<p class="muted" style="padding:14px 18px;margin:0">Keine Drucke gefunden.</p>'
-        listing = f"""<div class="jt"><div class="jh"><div></div><div>Auftrag · Material · Kunde</div><div>Drucker · Start</div>
-<div class="r">Verbrauch</div><div class="r">Kosten</div><div>Verkaufspreise</div><div class="r">Status</div></div>
+        empty = f'<p class="muted" style="padding:14px 18px;margin:0">{t("Keine Drucke gefunden.")}</p>'
+        listing = f"""<div class="jt"><div class="jh"><div></div><div>{t("Auftrag · Material · Kunde")}</div><div>{t("Drucker · Start")}</div>
+<div class="r">{t("Verbrauch")}</div><div class="r">{t("Kosten")}</div><div>{t("Verkaufspreise")}</div><div class="r">{t("Status")}</div></div>
 {"".join(rows) or empty}</div>
-<div class="legend2 calc"><span><i class="c-str"></i>Strom</span><span><i class="c-fil"></i>Filament</span><span><i class="c-dru"></i>Drucker</span>
-<span>· Balken antippen für die Aufschlüsselung</span></div>
+<div class="legend2 calc"><span><i class="c-str"></i>{t("Strom")}</span><span><i class="c-fil"></i>{t("Filament")}</span><span><i class="c-dru"></i>{t("Drucker")}</span>
+<span>· {t("Balken antippen für die Aufschlüsselung")}</span></div>
 <div class="mlist">{"".join(cards) or empty}</div>"""
     return f'{banner}<div class="kpis jk">{kpi_html}</div>{mini}{listing}'
 
 
-WEEKDAYS = ("Mo.", "Di.", "Mi.", "Do.", "Fr.", "Sa.", "So.")
-WEEKDAYS_LONG = ("Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag")
+WEEKDAYS = (N_("Mo."), N_("Di."), N_("Mi."), N_("Do."), N_("Fr."), N_("Sa."), N_("So."))
+WEEKDAYS_LONG = (N_("Montag"), N_("Dienstag"), N_("Mittwoch"), N_("Donnerstag"), N_("Freitag"), N_("Samstag"), N_("Sonntag"))
 
 
 def _by_day(jobs: list[dict[str, Any]]) -> list[tuple[tuple[str, str] | None, list[dict[str, Any]]]]:
@@ -458,11 +466,12 @@ def _by_day(jobs: list[dict[str, Any]]) -> list[tuple[tuple[str, str] | None, li
         d = datetime.fromtimestamp(j["start_ts"]).date() if j.get("start_ts") else None
         if d != last:
             if d is None:
-                label = ("Ohne Datum", "")
+                label = (t("Ohne Datum"), "")
             else:
                 diff = (today - d).days
-                short = f"{WEEKDAYS[d.weekday()]}, {d.day}.{d.month}.{'' if d.year == today.year else d.year}"
-                name = {0: "Heute", 1: "Gestern"}.get(diff) or (WEEKDAYS_LONG[d.weekday()] if 0 < diff < 7 else short)
+                dm = fmt_date(datetime(d.year, d.month, d.day), "dm")
+                short = f"{t(WEEKDAYS[d.weekday()])}, {dm}{'' if d.year == today.year else (' ' if lang_en() else '') + str(d.year)}"
+                name = {0: t("Heute"), 1: t("Gestern")}.get(diff) or (t(WEEKDAYS_LONG[d.weekday()]) if 0 < diff < 7 else short)
                 label = (name, short if name != short else "")
             groups.append((label, []))
             last = d
@@ -473,9 +482,9 @@ def _by_day(jobs: list[dict[str, Any]]) -> list[tuple[tuple[str, str] | None, li
 def _bar_parts(j: dict[str, Any]) -> list[tuple[str, str, float, str]]:
     grams = j["filament_g"] if j.get("filament_g") is not None else j["weight_g"]
     parts = [
-        ("Strom", "c-str", j.get("cost"), fmt_num(j.get("kwh"), 3, "kWh") if j.get("kwh") is not None else "kein Zählerstand"),
-        ("Filament", "c-fil", j.get("cost_filament"), fmt_num(grams, 1, "g")),
-        ("Drucker", "c-dru", j.get("cost_printer"), "Abschreibung + Wartung"),
+        (t("Strom"), "c-str", j.get("cost"), fmt_num(j.get("kwh"), 3, "kWh") if j.get("kwh") is not None else t("kein Zählerstand")),
+        (t("Filament"), "c-fil", j.get("cost_filament"), fmt_num(grams, 1, "g")),
+        (t("Drucker"), "c-dru", j.get("cost_printer"), t("Abschreibung + Wartung")),
     ]
     return parts
 
@@ -492,9 +501,9 @@ def _cost_box(j: dict[str, Any]) -> str:
         f'<div><i class="{c}"></i><span>{n}</span><b>{fmt_num(v, 2, "€")}</b><small>{e(sub)}</small></div>'
         for n, c, v, sub in parts
     )
-    rows += f'<div class="sum"><i></i><span>Gesamt</span><b>{fmt_num(total, 2, "€")}</b>'
-    rows += (f'<small>{_per_piece(j)} bei {q} Stück</small>' if q and q > 1 else "") + "</div>"
-    return (f'<button type="button" class="cb" aria-label="Kosten aufschlüsseln"><b>{fmt_num(total, 2, "€")}</b>{per}'
+    rows += f'<div class="sum"><i></i><span>{t("Gesamt")}</span><b>{fmt_num(total, 2, "€")}</b>'
+    rows += (f'<small>{t("{pp} bei {q} Stück", pp=_per_piece(j), q=q)}</small>' if q and q > 1 else "") + "</div>"
+    return (f'<button type="button" class="cb" aria-label="{e(t("Kosten aufschlüsseln"))}"><b>{fmt_num(total, 2, "€")}</b>{per}'
             f'<span class="bar">{bar}</span><span class="pop">{rows}</span></button>')
 
 
@@ -502,17 +511,17 @@ def _prices(j: dict[str, Any], mg: list[tuple[str, float]]) -> str:
     q = j.get("quantity") or 1
     items: list[tuple[str, float, bool]] = []
     if j.get("customer_margin") is not None:
-        items.append((f'👤 {j.get("customer_name") or "Kunde"}', j["customer_margin"], True))
+        items.append((f'👤 {j.get("customer_name") or t("Kunde")}', j["customer_margin"], True))
     items += [(n, p, False) for n, p in mg]
     out = ""
     if j.get("final_price") is not None:
         fp = j["final_price"]
-        per = f'{fmt_num(fp / q, 2)}/Stk.' if q > 1 else ""
-        out += f'<span class="fp">Endpreis</span><b class="fp">{fmt_num(fp, 2, "€")}</b><small>{per}</small>'
+        per = t("{v}/Stk.", v=fmt_num(fp / q, 2)) if q > 1 else ""
+        out += f'<span class="fp">{t("Endpreis")}</span><b class="fp">{fmt_num(fp, 2, "€")}</b><small>{per}</small>'
     for name, pct, cu in items:
         price = _price(j, pct)
         cls = ' class="cu"' if cu else ""
-        per = f'{fmt_num(price / q, 2)}/Stk.' if price is not None and q > 1 else ""
+        per = t("{v}/Stk.", v=fmt_num(price / q, 2)) if price is not None and q > 1 else ""
         # Ohne Endpreis ist der Kundenpreis das, was der Kunde zahlt: bleibt im Diskret-Modus sichtbar.
         shown = cu and j.get("final_price") is None
         c2 = (' class="cu"' if shown else ' class="cu calc"') if cu else ' class="calc"'
@@ -524,9 +533,9 @@ def _prices(j: dict[str, Any], mg: list[tuple[str, float]]) -> str:
 def _status_badges(j: dict[str, Any]) -> str:
     status = _status_of(j)
     tone = _STATUS_TONE.get(status.split()[0], "none")
-    out = f'<span class="bdg st-{tone}">{e(status)}</span>'
+    out = f'<span class="bdg st-{tone}">{e(t(status))}</span>'
     if j.get("is_scrap") and j["status"] != "abgebrochen":
-        out += '<span class="bdg st-bad">Ausschuss</span>'
+        out += f'<span class="bdg st-bad">{t("Ausschuss")}</span>'
     return out + customer_badges(j)
 
 
@@ -545,46 +554,46 @@ def _acts(title: str, items: list[tuple[str, str, dict[str, str] | None]]) -> st
 def customer_badges(j: dict[str, Any], cls: str = "bdg") -> str:
     """Zahlung und Übergabe als antippbare Badges (nur Drucke mit Kunde, kein Ausschuss)."""
     if j.get("gift") and not j.get("customer_id") and not j.get("is_scrap"):
-        return f'<span class="{cls} st-gift">🎁 verschenkt</span>'
+        return f'<span class="{cls} st-gift">{t("🎁 verschenkt")}</span>'
     if not j.get("customer_id") or j.get("is_scrap"):
         return ""
     jid = j["id"]
     out = ""
     due = amount_due(j)
     if j.get("gift"):
-        items = [("Doch berechnen", f"api/jobs/{jid}", {"gift": "0"}), ("Abrechnung ansehen …", f"job?id={jid}#ab", None)]
-        out += f'<button type="button" class="{cls} st-gift act"{_acts("Verschenkt, keine Zahlung nötig", items)}>🎁 verschenkt</button>'
+        items = [(t("Doch berechnen"), f"api/jobs/{jid}", {"gift": "0"}), (t("Abrechnung ansehen …"), f"job?id={jid}#ab", None)]
+        out += f'<button type="button" class="{cls} st-gift act"{_acts(t("Verschenkt, keine Zahlung nötig"), items)}>{t("🎁 verschenkt")}</button>'
     elif due is not None:
         paid = j.get("paid") or 0
         rest = max(0.0, due - paid)
         url = f"api/jobs/{jid}/pay"
-        detail = (f"Betrag eingeben …", f"job?id={jid}#ab", None)
+        detail = (t("Betrag eingeben …"), f"job?id={jid}#ab", None)
         if rest < 0.005:
-            label, tone = "bezahlt", "ok"
-            items = [("Zurücksetzen (nicht bezahlt)", url, {"reset": "1"}), ("Zahlungen ansehen …", f"job?id={jid}#ab", None)]
+            label, tone = t("bezahlt"), "ok"
+            items = [(t("Zurücksetzen (nicht bezahlt)"), url, {"reset": "1"}), (t("Zahlungen ansehen …"), f"job?id={jid}#ab", None)]
         else:
-            label, tone = ((f"{fmt_num(paid, 2)}/{fmt_num(due, 2, '€')}", "run") if paid > 0 else ("nicht bezahlt", "warn"))
-            items = [(f"Alles bezahlt ({fmt_num(rest, 2, '€')})", url, {"rest": "1"}), detail]
+            label, tone = ((f"{fmt_num(paid, 2)}/{fmt_num(due, 2, '€')}", "run") if paid > 0 else (t("nicht bezahlt"), "warn"))
+            items = [(t("Alles bezahlt ({v})", v=fmt_num(rest, 2, '€')), url, {"rest": "1"}), detail]
             if paid > 0:
-                items.append(("Zurücksetzen", url, {"reset": "1"}))
+                items.append((t("Zurücksetzen"), url, {"reset": "1"}))
             else:
-                items.append(("🎁 Verschenkt", f"api/jobs/{jid}", {"gift": "1"}))
-        title = f"{fmt_num(paid, 2, '€')} von {fmt_num(due, 2, '€')} bezahlt"
+                items.append((t("🎁 Verschenkt"), f"api/jobs/{jid}", {"gift": "1"}))
+        title = t("{paid} von {due} bezahlt", paid=fmt_num(paid, 2, '€'), due=fmt_num(due, 2, '€'))
         out += f'<button type="button" class="{cls} st-{tone} act"{_acts(title, items)}>💶 {label}</button>'
     if j.get("state") == "done":
         n, d = j.get("quantity") or 1, min(j.get("delivered") or 0, j.get("quantity") or 1)
         url = f"api/jobs/{jid}/handover"
-        label, tone = (("übergeben", "ok") if d >= n else
-                       (f"{d}/{n} übergeben", "run") if d else ("nicht übergeben", "warn"))
+        label, tone = ((t("übergeben"), "ok") if d >= n else
+                       (t("{d}/{n} übergeben", d=d, n=n), "run") if d else (t("nicht übergeben"), "warn"))
         items = []
         if d < n:
-            items.append((f"Alles übergeben ({n - d} Stück)" if n > 1 else "Übergeben", url, {"qty": "rest"}))
+            items.append((t("Alles übergeben ({k} Stück)", k=n - d) if n > 1 else t("Übergeben"), url, {"qty": "rest"}))
             if n - d > 1:
-                items.append(("1 Stück übergeben", url, {"qty": "1"}))
-                items.append(("Andere Anzahl …", f"job?id={jid}#ab", None))
+                items.append((t("1 Stück übergeben"), url, {"qty": "1"}))
+                items.append((t("Andere Anzahl …"), f"job?id={jid}#ab", None))
         if d:
-            items.append(("Zurücksetzen (nicht übergeben)", url, {"reset": "1"}))
-        out += f'<button type="button" class="{cls} st-{tone} act"{_acts(f"{d} von {n} Stück übergeben", items)}>📦 {label}</button>'
+            items.append((t("Zurücksetzen (nicht übergeben)"), url, {"reset": "1"}))
+        out += f'<button type="button" class="{cls} st-{tone} act"{_acts(t("{d} von {n} Stück übergeben", d=d, n=n), items)}>📦 {label}</button>'
     return out
 
 
@@ -634,24 +643,24 @@ def _job_row(j: dict[str, Any], names: dict[str, str], mg: list[tuple[str, float
         tags.append(f'<span class="tag">👤 {e(j["customer_name"])}</span>')
     q = j.get("quantity")
     if q and q > 1:
-        tags.append(f'<span class="tag">{q} Stück</span>')
+        tags.append(f'<span class="tag">{t("{q} Stück", q=q)}</span>')
     url, title = j.get("project_url"), j.get("project_title")
     if url and url.startswith(("http://", "https://")):
-        tags.append(f'<a class="tag" href="{e(url)}" target="_blank" rel="noopener">🔗 {e(title or "Projekt")}</a>')
+        tags.append(f'<a class="tag" href="{e(url)}" target="_blank" rel="noopener">🔗 {e(title or t("Projekt"))}</a>')
     elif title:
         tags.append(f'<span class="tag">🔗 {e(title)}</span>')
     if j.get("local_path"):
-        tags.append('<span class="tag" title="Lokaler Ordner hinterlegt">📂</span>')
+        tags.append(f'<span class="tag" title="{e(t("Lokaler Ordner hinterlegt"))}">📂</span>')
     if j["status"] == "abgebrochen" and j["progress"] is not None:
-        tags.append(f'<span class="tnote bad">bei {int(j["progress"])} % abgebrochen</span>')
+        tags.append(f'<span class="tnote bad">{t("bei {p} % abgebrochen", p=int(j["progress"]))}</span>')
     if j.get("note"):
-        tags.append(f'<span class="tnote warn">{e(j["note"])}</span>')
+        tags.append(f'<span class="tnote warn">{e(t_note(j["note"]))}</span>')
     if j.get("job_note"):
         tags.append(f'<span class="tnote">📝 {e(j["job_note"])}</span>')
     tag_html = f'<div class="tags">{"".join(tags)}</div>' if tags else ""
     if j.get("start_ts"):
         st = datetime.fromtimestamp(j["start_ts"])
-        when = st.strftime("%H:%M") if grouped else f"{st.day}.{st.month}. {st:%H:%M}"
+        when = st.strftime("%H:%M") if grouped else fmt_date(st, "dm_hm")
     else:
         when = "–"
     dur = fmt_dur(j["start_ts"], j["end_ts"])
@@ -676,8 +685,8 @@ def _mobile_card(j: dict[str, Any], names: dict[str, str], photo: str | None) ->
     grams = j["filament_g"] if j.get("filament_g") is not None else j["weight_g"]
     extra = ""
     if j["status"] == "abgebrochen" and j["progress"] is not None:
-        extra = f'<div class="note">bei {int(j["progress"])} %</div>'
-    scrap = '<div class="s s-abgebrochen">Ausschuss</div>' if j.get("is_scrap") and j["status"] != "abgebrochen" else ""
+        extra = f'<div class="note">{t("bei {p} %", p=int(j["progress"]))}</div>'
+    scrap = f'<div class="s s-abgebrochen">{t("Ausschuss")}</div>' if j.get("is_scrap") and j["status"] != "abgebrochen" else ""
     q = j.get("quantity")
     meta = [e(names.get(j["printer"], j["printer_name"] or j["printer"])), fmt_ts(j["start_ts"])]
     if j["end_ts"]:
@@ -686,7 +695,7 @@ def _mobile_card(j: dict[str, Any], names: dict[str, str], photo: str | None) ->
     if not chips and grams is not None:
         meta.append(fmt_num(grams, 1, "g"))
     if q and q > 1:
-        meta.append(f"{q} Stk.")
+        meta.append(t("{q} Stk.", q=q))
     if j.get("customer_name"):
         meta.append(e(j["customer_name"]))
     if j.get("code"):
@@ -698,7 +707,7 @@ def _mobile_card(j: dict[str, Any], names: dict[str, str], photo: str | None) ->
         f'<div><div class="mt">{e(j["task_name"] or "–")}</div>'
         + (f'<div class="mp">{e(sub)}</div>' if sub else "")
         + f'</div><div class="mr"><b class="calc">{fmt_num(j.get("cost_total"), 2, "€")}</b><span class="calc">{per}</span>'
-        f'<div class="s s-{e(status.split()[0])}">{e(status)}</div>{extra}{scrap}'
+        f'<div class="s s-{e(status.split()[0])}">{e(t(status))}</div>{extra}{scrap}'
         f'<div class="mcb">{customer_badges(j)}</div></div>'
         f'<div class="mm">{chips}<div class="meta">{"".join(f"<span>{m}</span>" for m in meta)}</div></div></a>'
     )
@@ -713,7 +722,7 @@ def _gallery_card(j: dict[str, Any], names: dict[str, str], photo: str | None) -
         f'<div class="gt"><b>{e(j["task_name"] or "–")}</b>'
         + (f'<span class="badge" style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{e(j["project_title"])}</span>' if j.get("project_title") else "")
         + f'<span class="badge">{e(names.get(j["printer"], j["printer"]))} · {fmt_ts(j["start_ts"])}{cust}{badge}{" · " + _pid(j) if j.get("code") else ""}</span><br>'
-        f'<span class="badge"><span class="s s-{e(status.split()[0])}">{e(status)}</span> · '
+        f'<span class="badge"><span class="s s-{e(status.split()[0])}">{e(t(status))}</span> · '
         f'<span class="calc">{fmt_num(j.get("cost_total"), 2, "€")}</span></span></div></a>'
     )
 
@@ -838,10 +847,10 @@ document.querySelectorAll('[data-copy]').forEach(b=>b.onclick=async()=>{
   try{await navigator.clipboard.writeText(t);ok=true}catch(_){}
   if(!ok){const a=document.createElement('textarea');a.value=t;a.style.position='fixed';a.style.opacity='0';
     document.body.appendChild(a);a.select();try{ok=document.execCommand('copy')}catch(_){}a.remove()}
-  b.textContent=ok?'✓ Kopiert':'Strg+C';if(!ok)prompt('Kopieren:',t);
+  b.textContent=ok?_t("✓ Kopiert"):_t("Strg+C");if(!ok)prompt(_t("Kopieren:"),t);
   setTimeout(()=>b.textContent=old,1500)});
 document.querySelectorAll('img.big,.photos img').forEach(i=>i.onclick=()=>z(i.src));
-document.querySelectorAll('.photos form').forEach(f=>f.onsubmit=()=>confirm('Foto löschen?'));
+document.querySelectorAll('.photos form').forEach(f=>f.onsubmit=()=>confirm(_t("Foto löschen?")));
 bindAct(()=>location.reload());
 (function(){let st={};try{st=JSON.parse(localStorage.getItem('pl_secs')||'{}')}catch(_){}
  const secs=[...document.querySelectorAll('.sec')];const has=k=>secs.some(x=>x.dataset.sec===k);
@@ -849,12 +858,12 @@ bindAct(()=>location.reload());
    x.classList.toggle('open',k in st?st[k]:def);
    x.querySelector('.sh').onclick=()=>{if(!matchMedia('(max-width:760px)').matches)return;
      const o=x.classList.toggle('open');st[k]=o;try{localStorage.setItem('pl_secs',JSON.stringify(st))}catch(_){}}});})();
-document.querySelectorAll('.ho form').forEach(f=>f.onsubmit=()=>confirm('Eintrag löschen?'));
-document.querySelectorAll('form.jdel').forEach(f=>f.onsubmit=()=>confirm('Diesen Druck in den Papierkorb legen? Du kannst ihn unter Einstellungen → Papierkorb wiederherstellen.'));
+document.querySelectorAll('.ho form').forEach(f=>f.onsubmit=()=>confirm(_t("Eintrag löschen?")));
+document.querySelectorAll('form.jdel').forEach(f=>f.onsubmit=()=>confirm(_t("Diesen Druck in den Papierkorb legen? Du kannst ihn unter Einstellungen → Papierkorb wiederherstellen.")));
 document.querySelectorAll('.up input[type=file]').forEach(inp=>inp.onchange=()=>{
   if(!inp.files.length) return;
   const f=inp.form;f.querySelectorAll('input[type=file]').forEach(o=>{if(o!==inp)o.disabled=true});
-  f.querySelector('.up-status').textContent='Lade hoch …';f.submit();});
+  f.querySelector('.up-status').textContent=_t("Lade hoch …");f.submit();});
 function tab(n,push){if(!document.querySelector('.pane[data-pane="'+n+'"]'))return;
   document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===n));
   document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('on',p.dataset.pane===n));
@@ -866,9 +875,9 @@ addEventListener('hashchange',()=>{closeAct();tab(location.hash.slice(1),false);
 """
 
 DETAIL_TABS = {
-    "ov": "Übersicht",
-    "ed_missing": "Bearbeiten, solange Kunde oder Stückzahl fehlen",
-    "ed": "Immer Bearbeiten",
+    "ov": N_("Übersicht"),
+    "ed_missing": N_("Bearbeiten, solange Kunde oder Stückzahl fehlen"),
+    "ed": N_("Immer Bearbeiten"),
 }
 
 _STATUS_TONE = {"fertig": "ok", "abgebrochen": "bad", "unvollständig": "warn", "läuft": "run", "kühlt": "run"}
@@ -876,15 +885,15 @@ _STATUS_TONE = {"fertig": "ok", "abgebrochen": "bad", "unvollständig": "warn", 
 
 def _upload_form(job_id: int) -> str:
     return (f'<form method="post" action="api/jobs/{job_id}/photos" enctype="multipart/form-data" class="up">'
-            '<label class="btn primary">📷 Foto aufnehmen<input type="file" name="photo" accept="image/*" capture="environment"></label>'
-            '<label class="btn">🖼 Aus Galerie oder Dateien<input type="file" name="photo" accept="image/*" multiple></label>'
-            '<span class="muted up-status" style="font-size:13px">Das Foto wird nach der Auswahl automatisch hochgeladen.</span></form>')
+            f'<label class="btn primary">{t("📷 Foto aufnehmen")}<input type="file" name="photo" accept="image/*" capture="environment"></label>'
+            f'<label class="btn">{t("🖼 Aus Galerie oder Dateien")}<input type="file" name="photo" accept="image/*" multiple></label>'
+            f'<span class="muted up-status" style="font-size:13px">{t("Das Foto wird nach der Auswahl automatisch hochgeladen.")}</span></form>')
 
 
 def _photo_tiles(photos: list[dict[str, Any]]) -> str:
     return "".join(
         f'<figure><img src="images/{e(p["file"])}" loading="lazy" alt="">'
-        f'<form method="post" action="api/photos/{p["id"]}/delete"><button title="Foto löschen">×</button></form></figure>'
+        f'<form method="post" action="api/photos/{p["id"]}/delete"><button title="{e(t("Foto löschen"))}">×</button></form></figure>'
         for p in photos
     )
 
@@ -900,7 +909,8 @@ def _deal_box(job: dict[str, Any], handovers: list[dict[str, Any]], payments: li
     if not job.get("customer_id"):
         return ""
     if job.get("is_scrap"):
-        return '<div class="dealg"><div class="box"><h3>Zahlung &amp; Übergabe</h3><p class="muted" style="margin:0">Ausschuss wird nicht berechnet.</p></div></div>'
+        return (f'<div class="dealg"><div class="box"><h3>{t("Zahlung &amp; Übergabe")}</h3>'
+                f'<p class="muted" style="margin:0">{t("Ausschuss wird nicht berechnet.")}</p></div></div>')
     jid = job["id"]
     n = job.get("quantity") or 1
     d = job.get("delivered") or 0
@@ -909,54 +919,52 @@ def _deal_box(job: dict[str, Any], handovers: list[dict[str, Any]], payments: li
     rest = max(0.0, (due or 0) - paid)
     today = datetime.now().strftime("%Y-%m-%d")
     suggest = _price(job, job.get("customer_margin") or 0)
-    src = "Endpreis" if job.get("final_price") is not None else f'Vorschlag: Kosten + {fmt_input(job.get("customer_margin") or 0)} % Kundenmarge'
+    src = (t("Endpreis") if job.get("final_price") is not None
+           else t("Vorschlag: Kosten + {p} % Kundenmarge", p=fmt_input(job.get("customer_margin") or 0)))
 
     def entry(ts: float, what: str, note: str | None, url: str, title: str) -> str:
-        return (f'<div class="ho"><span>{datetime.fromtimestamp(ts).strftime("%d.%m.%y")}</span><b>{what}</b>'
+        return (f'<div class="ho"><span>{fmt_date(ts, "date_s")}</span><b>{what}</b>'
                 f'<span class="muted">{e(note or "")}</span>'
                 f'<form method="post" action="{url}"><button class="del" title="{title}">×</button></form></div>')
 
-    pay_rows = "".join(entry(p["ts"], fmt_num(p["amount"], 2, "€"), p["note"], f'api/payments/{p["id"]}/delete', "Zahlung löschen")
+    pay_rows = "".join(entry(p["ts"], fmt_num(p["amount"], 2, "€"), p["note"], f'api/payments/{p["id"]}/delete', t("Zahlung löschen"))
                        for p in payments)
-    ho_rows = "".join(entry(h["ts"], f'{h["qty"]} Stück', h["note"], f'api/handovers/{h["id"]}/delete', "Übergabe löschen")
+    ho_rows = "".join(entry(h["ts"], t("{q} Stück", q=h["qty"]), h["note"], f'api/handovers/{h["id"]}/delete', t("Übergabe löschen"))
                       for h in handovers)
     price_form = (f'<form class="hof" method="post" action="api/jobs/{jid}?redirect=ab">'
-                  f'<label class="fpl">Endpreis €<input name="final_price" inputmode="decimal" value="{fmt_input(job.get("final_price"))}" '
+                  f'<label class="fpl">{t("Endpreis €")}<input name="final_price" inputmode="decimal" value="{fmt_input(job.get("final_price"))}" '
                   f'placeholder="{fmt_input(round(suggest, 2)) if suggest is not None else ""}"></label>'
-                  f'<button class="btn">Speichern</button></form>')
+                  f'<button class="btn">{t("Speichern")}</button></form>')
     pay_form = ""
     if due is not None and rest >= 0.005:
         pay_form = (f'<form class="hof" method="post" action="api/jobs/{jid}/pay?redirect=1">'
-                    f'<input name="amount" inputmode="decimal" value="{fmt_input(round(rest, 2))}" title="Betrag €" class="amt">'
-                    f'<input name="date" type="date" value="{today}"><input name="note" placeholder="Notiz (optional)">'
-                    f'<button class="btn primary">Zahlung eintragen</button></form>')
+                    f'<input name="amount" inputmode="decimal" value="{fmt_input(round(rest, 2))}" title="{e(t("Betrag €"))}" class="amt">'
+                    f'<input name="date" type="date" value="{today}"><input name="note" placeholder="{e(t("Notiz (optional)"))}">'
+                    f'<button class="btn primary">{t("Zahlung eintragen")}</button></form>')
     ho_form = ""
     if job.get("state") == "done" and d < n:
         ho_form = (f'<form class="hof" method="post" action="api/jobs/{jid}/handover?redirect=1">'
-                   f'<input name="qty" type="number" min="1" max="{n - d}" value="{n - d}" inputmode="numeric" title="Stück" class="amt">'
-                   f'<input name="date" type="date" value="{today}"><input name="note" placeholder="Notiz (optional)">'
-                   f'<button class="btn primary">Übergabe eintragen</button></form>')
-    pay_state = ("bezahlt" if due is not None and rest < 0.005 else
-                 f"{fmt_num(paid, 2, '€')} bezahlt, {fmt_num(rest, 2, '€')} offen" if due is not None else "Preis fehlt noch")
-    pay_sum = ("bezahlt" if due is not None and rest < 0.005 else
-               f"{fmt_num(paid, 2)}/{fmt_num(due, 2, '€')}" if paid > 0 and due is not None else
-               f"{fmt_num(due, 2, '€')} offen" if due is not None else "Preis fehlt")
+                   f'<input name="qty" type="number" min="1" max="{n - d}" value="{n - d}" inputmode="numeric" title="{e(t("Stück"))}" class="amt">'
+                   f'<input name="date" type="date" value="{today}"><input name="note" placeholder="{e(t("Notiz (optional)"))}">'
+                   f'<button class="btn primary">{t("Übergabe eintragen")}</button></form>')
+    pay_state = (t("bezahlt") if due is not None and rest < 0.005 else
+                 t("{paid} bezahlt, {rest} offen", paid=fmt_num(paid, 2, '€'), rest=fmt_num(rest, 2, '€')) if due is not None
+                 else t("Preis fehlt noch"))
     gift_form = (f'<form class="hof" method="post" action="api/jobs/{jid}?redirect=ab"><input type="hidden" name="gift" value="{0 if job.get("gift") else 1}">'
-                 f'<button class="btn">{"Doch berechnen" if job.get("gift") else "🎁 Als verschenkt markieren"}</button>'
-                 f'<span class="muted">{"Zählt weiter in Kosten und Statistik." if not job.get("gift") else ""}</span></form>')
+                 f'<button class="btn">{t("Doch berechnen") if job.get("gift") else t("🎁 Als verschenkt markieren")}</button>'
+                 f'<span class="muted">{t("Zählt weiter in Kosten und Statistik.") if not job.get("gift") else ""}</span></form>')
     if job.get("gift"):
-        pay_body = (f'<div class="deal"><div><span>{e(job.get("customer_name") or "Kunde")}</span><b>🎁 verschenkt</b>'
-                    f'<small>keine Zahlung nötig, zählt weiter in Kosten und Statistik</small></div></div>{pay_rows}{gift_form}')
+        pay_body = (f'<div class="deal"><div><span>{e(job.get("customer_name") or t("Kunde"))}</span><b>{t("🎁 verschenkt")}</b>'
+                    f'<small>{t("keine Zahlung nötig, zählt weiter in Kosten und Statistik")}</small></div></div>{pay_rows}{gift_form}')
     else:
         pay_body = ""
-    pay_body = pay_body or (f'<div class="deal"><div><span>{e(job.get("customer_name") or "Kunde")} zahlt</span><b>{fmt_num(due, 2, "€")}</b>'
-            f'<small class="calc">{e(src)}</small></div><div><span>Stand</span><b>{fmt_num(paid, 2, "€")}</b><small>{pay_state}</small></div></div>'
+    pay_body = pay_body or (f'<div class="deal"><div><span>{e(t("{name} zahlt", name=job.get("customer_name") or t("Kunde")))}</span><b>{fmt_num(due, 2, "€")}</b>'
+            f'<small class="calc">{e(src)}</small></div><div><span>{t("Stand")}</span><b>{fmt_num(paid, 2, "€")}</b><small>{pay_state}</small></div></div>'
             f'{price_form}{pay_rows}{pay_form}{gift_form}')
-    ho_body = (f'<div class="deal"><div><span>Übergeben</span><b>{min(d, n)} von {n} Stück</b>'
-               f'<small>{"alles übergeben" if d >= n else f"noch {n - d} offen"}</small></div></div>{ho_rows}{ho_form}')
-    ho_sum = "alles übergeben" if d >= n else f"{min(d, n)} von {n} Stück"
-    return (f'<div class="dealg"><div class="box"><h3>Preis &amp; Zahlung</h3>{pay_body}</div>'
-            f'<div class="box"><h3>Übergabe</h3>{ho_body}</div></div>')
+    ho_body = (f'<div class="deal"><div><span>{t("Übergeben")}</span><b>{t("{d} von {n} Stück", d=min(d, n), n=n)}</b>'
+               f'<small>{t("alles übergeben") if d >= n else t("noch {k} offen", k=n - d)}</small></div></div>{ho_rows}{ho_form}')
+    return (f'<div class="dealg"><div class="box"><h3>{t("Preis &amp; Zahlung")}</h3>{pay_body}</div>'
+            f'<div class="box"><h3>{t("Übergabe")}</h3>{ho_body}</div></div>')
 
 
 def _deal_strip(job: dict[str, Any]) -> str:
@@ -964,12 +972,13 @@ def _deal_strip(job: dict[str, Any]) -> str:
     if not job.get("customer_id") or job.get("is_scrap"):
         return ""
     due = amount_due(job)
-    src = "Endpreis" if job.get("final_price") is not None else "Vorschlag"
-    head = (f'<span>{e(job.get("customer_name") or "Kunde")}</span><b>nichts</b><small>verschenkt</small>' if job.get("gift") else
-            f'<span>{e(job.get("customer_name") or "Kunde")} zahlt</span><b>{fmt_num(due, 2, "€")}</b><small class="calc">{src}</small>')
+    src = t("Endpreis") if job.get("final_price") is not None else t("Vorschlag")
+    name = job.get("customer_name") or t("Kunde")
+    head = (f'<span>{e(name)}</span><b>{t("nichts")}</b><small>{t("verschenkt")}</small>' if job.get("gift") else
+            f'<span>{e(t("{name} zahlt", name=name))}</span><b>{fmt_num(due, 2, "€")}</b><small class="calc">{src}</small>')
     return (f'<div class="strip"><div class="sa">{head}</div>'
             f'<div class="badges">{customer_badges(job, "bdg st")}</div>'
-            f'<a href="#ab" data-goto="ab" class="btn sm">Abrechnung →</a></div>')
+            f'<a href="#ab" data-goto="ab" class="btn sm">{t("Abrechnung →")}</a></div>')
 
 
 def _share_button(job: dict[str, Any]) -> str:
@@ -978,15 +987,15 @@ def _share_button(job: dict[str, Any]) -> str:
 
     jid = job["id"]
     items = [
-        ("🧾 Bild für Kunden", "Foto, Stückzahl, Preis, Zahlungsstand", f"export/{jid}/bon-kunde.png",
+        (t("🧾 Bild für Kunden"), t("Foto, Stückzahl, Preis, Zahlungsstand"), f"export/{jid}/bon-kunde.png",
          file_name(job, "kunde", "png"), "image/png", 0),
-        ("🧾 Bild intern", "zusätzlich Kosten, Margen und Gewinn", f"export/{jid}/bon-intern.png",
+        (t("🧾 Bild intern"), t("zusätzlich Kosten, Margen und Gewinn"), f"export/{jid}/bon-intern.png",
          file_name(job, "intern", "png"), "image/png", 1),
-        ("📄 PDF", "volle Aufschlüsselung zum Ablegen", f"export/{jid}/kosten.pdf",
+        ("📄 PDF", t("volle Aufschlüsselung zum Ablegen"), f"export/{jid}/kosten.pdf",
          file_name(job, "kosten", "pdf"), "application/pdf", 1),
     ]
     return (f'<button type="button" class="btn sm" id="share" data-exports="{e(json.dumps(items))}" '
-            f'title="Als Bild oder PDF teilen bzw. speichern">📤 Teilen</button>')
+            f'title="{e(t("Als Bild oder PDF teilen bzw. speichern"))}">{t("📤 Teilen")}</button>')
 
 
 # Teilen: am Handy/Tablet über das Teilen-Menü des Systems (z. B. WhatsApp), sonst Download.
@@ -996,29 +1005,29 @@ SHARE_JS = """
  function save(blob,name){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;
    document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},5000)}
  async function share(file){await navigator.share({files:[file],title:file.name})}
- async function run(x,it,st){const [label,desc,u,name,type]=it;const url=u+(st?'':'?status=0');x.disabled=true;x.querySelector('small').textContent='wird erstellt …';
+ async function run(x,it,st){const [label,desc,u,name,type]=it;const url=u+(st?'':'?status=0');x.disabled=true;x.querySelector('small').textContent=_t("wird erstellt …");
    try{const r=await fetch(url);if(!r.ok)throw new Error(r.status);const blob=await r.blob();
      const file=new File([blob],name,{type});
      if(touch&&navigator.canShare&&navigator.canShare({files:[file]})){
        try{await share(file);closeAct();return}
        catch(err){if(err.name==='AbortError'){closeAct();return}
-         if(err.name==='NotAllowedError'){x.disabled=false;x.querySelector('small').textContent='fertig, nochmal tippen zum Teilen';
+         if(err.name==='NotAllowedError'){x.disabled=false;x.querySelector('small').textContent=_t("fertig, nochmal tippen zum Teilen");
            x.onclick=async ev=>{ev.stopPropagation();try{await share(file)}catch(_){}closeAct()};return}}}
      save(blob,name);closeAct()}
-   catch(err){x.disabled=false;x.querySelector('small').textContent='Fehler, bitte nochmal tippen'}}
+   catch(err){x.disabled=false;x.querySelector('small').textContent=_t("Fehler, bitte nochmal tippen")}}
  b.onclick=ev=>{ev.stopPropagation();const open=actMenu&&actMenu.dataset.for==='share';closeAct();if(open)return;
    const m=document.createElement('div');m.className='actmenu share';m.dataset.for='share';
-   const t=document.createElement('b');t.textContent=touch?'Teilen':'Herunterladen';m.appendChild(t);
+   const t=document.createElement('b');t.textContent=touch?_t("Teilen"):_t("Herunterladen");m.appendChild(t);
    const priv=document.documentElement.classList.contains('priv');
    const cl=document.createElement('label');cl.className='chk';const cb=document.createElement('input');cb.type='checkbox';
    let keep='1';try{keep=localStorage.getItem('pl_share_status')||'1'}catch(_){}cb.checked=keep==='1';
    cb.onchange=()=>{try{localStorage.setItem('pl_share_status',cb.checked?'1':'0')}catch(_){}};
-   cl.onclick=e3=>e3.stopPropagation();cl.append(cb,document.createTextNode(' Bezahlt/Übergeben mit drauf'));
+   cl.onclick=e3=>e3.stopPropagation();cl.append(cb,document.createTextNode(' '+_t("Bezahlt/Übergeben mit drauf")));
    items.forEach(it=>{if(it[5]&&priv)return;const x=document.createElement('button');x.type='button';
      const l=document.createElement('span');l.textContent=it[0];const s=document.createElement('small');s.textContent=it[1];
      x.append(l,s);x.onclick=e2=>{e2.stopPropagation();run(x,it,cb.checked)};m.appendChild(x)});
    m.appendChild(cl);
-   if(priv){const n=document.createElement('small');n.className='hint';n.textContent='Diskret-Modus: interne Varianten ausgeblendet';m.appendChild(n)}
+   if(priv){const n=document.createElement('small');n.className='hint';n.textContent=_t("Diskret-Modus: interne Varianten ausgeblendet");m.appendChild(n)}
    document.body.appendChild(m);const rc=b.getBoundingClientRect();
    m.style.top=(scrollY+rc.bottom+6)+'px';
    m.style.left=Math.max(8,Math.min(scrollX+rc.right-m.offsetWidth,scrollX+innerWidth-m.offsetWidth-8))+'px';actMenu=m}})();
@@ -1032,43 +1041,43 @@ def page_job(store: Store, job: dict[str, Any], saved: str | None) -> str:
     status = _status_of(job)
     qty = job.get("quantity") or 0
     total = job.get("cost_total")
-    big = (f'<img class="big" src="images/{e(job["image"])}" alt="Vorschau">' if job.get("image")
-           else '<div class="big noimg">kein Vorschaubild</div>')
+    big = (f'<img class="big" src="images/{e(job["image"])}" alt="">' if job.get("image")
+           else f'<div class="big noimg">{t("kein Vorschaubild")}</div>')
     grams = job["filament_g"] if job.get("filament_g") is not None else job["weight_g"]
 
     # Kopfbereich: Badges, Kennzahlen, Verkaufspreise
     tone = _STATUS_TONE.get(status.split()[0], "")
-    extra = f' bei {int(job["progress"])} %' if job["status"] == "abgebrochen" and job["progress"] is not None else ""
-    badges = f'<span class="bdg st st-{tone}">{e(status)}{extra}</span>'
+    extra = " " + t("bei {p} %", p=int(job["progress"])) if job["status"] == "abgebrochen" and job["progress"] is not None else ""
+    badges = f'<span class="bdg st st-{tone}">{e(t(status))}{extra}</span>'
     if job.get("code"):
         badges += (f'<button type="button" class="bdg pidb" data-copy="{e(code_label(job["code"]))}" '
-                   f'title="Projekt-ID: tippe sie in die Suche, um den Druck wiederzufinden. Klick kopiert.">'
+                   f'title="{e(t("Projekt-ID: tippe sie in die Suche, um den Druck wiederzufinden. Klick kopiert."))}">'
                    f'# {e(code_label(job["code"]))}</button>')
     if job.get("is_scrap"):
-        badges += '<span class="bdg st st-bad">Ausschuss</span>'
+        badges += f'<span class="bdg st st-bad">{t("Ausschuss")}</span>'
     badges += f'<span class="bdg">🖨 {e(names.get(job["printer"], job["printer"]))}</span>'
     if job.get("customer_name"):
         badges += f'<span class="bdg">👤 {e(job["customer_name"])}</span>'
     if qty > 1:
-        badges += f'<span class="bdg">{qty} Stück</span>'
-    per = ("wird nach dem Druck berechnet" if total is None
-           else f'{fmt_num(total / qty, 2, "€")} pro Stück' if qty > 1 else "für den ganzen Druck")
-    kpis = (f'<div class="kp main"><span>Gesamtkosten</span><b>{fmt_num(total, 2, "€")}</b><small>{per}</small></div>'
-            f'<div class="kp"><span>⚡ Strom</span><b>{fmt_num(job["cost"], 2, "€")}</b><small>{fmt_num(job["kwh"], 3, "kWh")}</small></div>'
-            f'<div class="kp"><span>🧵 Filament</span><b>{fmt_num(job.get("cost_filament"), 2, "€")}</b><small>{fmt_num(grams, 1, "g")}</small></div>'
-            f'<div class="kp"><span>🖨 Drucker</span><b>{fmt_num(job.get("cost_printer"), 2, "€")}</b><small>Abschr. + Wartung</small></div>')
+        badges += f'<span class="bdg">{t("{q} Stück", q=qty)}</span>'
+    per = (t("wird nach dem Druck berechnet") if total is None
+           else t("{v} pro Stück", v=fmt_num(total / qty, 2, "€")) if qty > 1 else t("für den ganzen Druck"))
+    kpis = (f'<div class="kp main"><span>{t("Gesamtkosten")}</span><b>{fmt_num(total, 2, "€")}</b><small>{per}</small></div>'
+            f'<div class="kp"><span>{t("⚡ Strom")}</span><b>{fmt_num(job["cost"], 2, "€")}</b><small>{fmt_num(job["kwh"], 3, "kWh")}</small></div>'
+            f'<div class="kp"><span>{t("🧵 Filament")}</span><b>{fmt_num(job.get("cost_filament"), 2, "€")}</b><small>{fmt_num(grams, 1, "g")}</small></div>'
+            f'<div class="kp"><span>{t("🖨 Drucker")}</span><b>{fmt_num(job.get("cost_printer"), 2, "€")}</b><small>{t("Abschr. + Wartung")}</small></div>')
     mg = list(margins(store))
     if job.get("customer_margin") is not None:
-        mg.insert(0, (f'Kunde {job.get("customer_name") or ""}'.strip(), job["customer_margin"]))
+        mg.insert(0, (f'{t("Kunde")} {job.get("customer_name") or ""}'.strip(), job["customer_margin"]))
     price_rows = ""
     for n, p in mg:
         price = _price(job, p)
-        each = (f' <span class="tag">{fmt_num(price / qty, 2, "€")}/Stk.</span>'
+        each = (f' <span class="tag">{t("{v}/Stk.", v=fmt_num(price / qty, 2, "€"))}</span>'
                 if price is not None and qty > 1 else "")
         price_rows += (f'<div class="pr"><div>{e(n)} <span class="tag">+{e(fmt_input(p))} %</span></div>'
                        f'<div><b>{fmt_num(price, 2, "€")}</b>{each}</div></div>')
     if not price_rows:
-        price_rows = '<p class="muted" style="margin:6px 0 0">Keine Margen eingestellt (Einstellungen).</p>'
+        price_rows = f'<p class="muted" style="margin:6px 0 0">{t("Keine Margen eingestellt (Einstellungen).")}</p>'
 
     # Übersicht
     materials = parse_materials(job.get("materials"))
@@ -1081,100 +1090,100 @@ def page_job(store: Store, job: dict[str, Any], saved: str | None) -> str:
         f'<div class="mrow"><span class="dot" style="background:{_color(m["color"])}"></span>'
         f'<span>{e(m["name"] or "?")} <span class="muted" style="font-size:13px">{e(m["type"] or "")}</span>'
         + (f'<span class="mnote">{e(mnotes[i])}</span>' if i in mnotes else "") + '</span>'
-        + (f'<span class="slot">{e(m["slot"])}</span>' if m["slot"] else "")
+        + (f'<span class="slot">{e(t(m["slot"]))}</span>' if m["slot"] else "")
         + f'<span class="g">{fmt_num(m["grams"], 1, "g")}</span></div>'
         for i, m in enumerate(materials)
-    ) or '<span class="muted">keine Angaben</span>'
+    ) or f'<span class="muted">{t("keine Angaben")}</span>'
     types = list(dict.fromkeys(_short(m["name"]) for m in materials if m["name"]))
     mat_sum = (", ".join(types[:2]) + (" …" if len(types) > 2 else "") + " · " if types else "") + fmt_num(grams, 1, "g")
     dur = fmt_dur(job["start_ts"], job["end_ts"])
-    druck_sum = (datetime.fromtimestamp(job["start_ts"]).strftime("%d.%m. %H:%M") if job["start_ts"] else "–") + (f" · {dur}" if dur != "–" else "")
+    druck_sum = (fmt_date(job["start_ts"], "dm_hm") if job["start_ts"] else "–") + (f" · {dur}" if dur != "–" else "")
     price_sum = " · ".join(re.sub(r"<[^>]+>", "", x) for x in re.findall(r"<b>([^<]*)</b>", price_rows)[:3])
-    facts = (f'<div><span>Start</span><b>{fmt_ts(job["start_ts"])}</b></div>'
-             f'<div><span>Ende</span><b>{fmt_ts(job["end_ts"])}</b></div>'
-             f'<div><span>Dauer</span><b>{fmt_dur(job["start_ts"], job["end_ts"])}</b></div>'
-             f'<div><span>Energie</span><b>{fmt_num(job["kwh"], 3, "kWh")}</b></div>'
-             f'<div><span>Filament</span><b>{fmt_num(grams, 1, "g")}</b></div>')
+    facts = (f'<div><span>{t("Start")}</span><b>{fmt_ts(job["start_ts"])}</b></div>'
+             f'<div><span>{t("Ende")}</span><b>{fmt_ts(job["end_ts"])}</b></div>'
+             f'<div><span>{t("Dauer")}</span><b>{fmt_dur(job["start_ts"], job["end_ts"])}</b></div>'
+             f'<div><span>{t("Energie")}</span><b>{fmt_num(job["kwh"], 3, "kWh")}</b></div>'
+             f'<div><span>{t("Filament")}</span><b>{fmt_num(grams, 1, "g")}</b></div>')
     side = ""
     if job.get("project_url") or job.get("project_title"):
-        side += f'<h3 style="margin-top:16px">Projekt</h3>{_project(job)}'
+        side += f'<h3 style="margin-top:16px">{t("Projekt")}</h3>{_project(job)}'
     if job.get("local_path"):
-        side += f'<h3 style="margin-top:16px">Ordner</h3>{_local_path(job)}'
+        side += f'<h3 style="margin-top:16px">{t("Ordner")}</h3>{_local_path(job)}'
     if job.get("job_note"):
-        side += f'<h3 style="margin-top:16px">Notiz</h3><div style="white-space:pre-wrap">{e(job["job_note"])}</div>'
+        side += f'<h3 style="margin-top:16px">{t("Notiz")}</h3><div style="white-space:pre-wrap">{e(job["job_note"])}</div>'
     if job.get("note"):
-        side += f'<h3 style="margin-top:16px">Hinweis</h3><div class="muted">{e(job["note"])}</div>'
+        side += f'<h3 style="margin-top:16px">{t("Hinweis")}</h3><div class="muted">{e(t_note(job["note"]))}</div>'
     preview = photos[:5]
     photo_box = (f'<div class="photos">{_photo_tiles(preview)}</div>' if preview
-                 else '<p class="muted" style="margin:0 0 10px">Noch keine eigenen Fotos.</p>')
-    more = (f'<p style="margin:10px 0 0"><a href="#ph" data-goto="ph">Alle {len(photos)} Fotos ansehen →</a></p>'
+                 else f'<p class="muted" style="margin:0 0 10px">{t("Noch keine eigenen Fotos.")}</p>')
+    more = (f'<p style="margin:10px 0 0"><a href="#ph" data-goto="ph">{t("Alle {n} Fotos ansehen →", n=len(photos))}</a></p>'
             if len(photos) > len(preview) else "")
 
     # Bearbeiten
     mat_fields = ""
     if materials:
-        mat_fields = ('<div class="full mfields"><span>Filament-Notizen (z. B. genauer Farbname, erscheint auf Bon und PDF)</span>'
+        mat_fields = (f'<div class="full mfields"><span>{t("Filament-Notizen (z. B. genauer Farbname, erscheint auf Bon und PDF)")}</span>'
                       + "".join(f'<label class="mf"><span class="dot" style="background:{_color(m["color"])}"></span>'
-                                f'<span class="mn">{e((m["slot"] + " · ") if m["slot"] else "")}{e(_short(m["name"]))}</span>'
-                                f'<input name="mnote__{i}" value="{e(mnotes.get(i, ""))}" maxlength="120" placeholder="z. B. Ivory White"></label>'
+                                f'<span class="mn">{e((t(m["slot"]) + " · ") if m["slot"] else "")}{e(_short(m["name"]))}</span>'
+                                f'<input name="mnote__{i}" value="{e(mnotes.get(i, ""))}" maxlength="120" placeholder="{e(t("z. B. Ivory White"))}"></label>'
                                 for i, m in enumerate(materials)) + '</div>')
     cur = str(job.get("customer_id") or "")
-    cust_opts = opt("", "– kein Kunde –", cur) + "".join(opt(str(c["id"]), c["name"], cur) for c in customers)
+    cust_opts = opt("", t("– kein Kunde –"), cur) + "".join(opt(str(c["id"]), c["name"], cur) for c in customers)
     sv = "" if job.get("scrap") is None else str(job["scrap"])
-    scrap_opts = (opt("", f'automatisch ({"ja, abgebrochen" if job["status"] == "abgebrochen" else "nein"})', sv)
-                  + opt("1", "ja, Ausschuss", sv) + opt("0", "nein, verwendbar", sv))
+    scrap_opts = (opt("", t("automatisch ({x})", x=t("ja, abgebrochen") if job["status"] == "abgebrochen" else t("nein")), sv)
+                  + opt("1", t("ja, Ausschuss"), sv) + opt("0", t("nein, verwendbar"), sv))
 
     # Start-Tab laut Einstellung; nach dem Speichern immer die Übersicht.
     mode = store.settings().get("detail_tab") or "ov"
     missing = not (job.get("customer_id") and job.get("quantity"))
     start = "ed" if not saved and (mode == "ed" or (mode == "ed_missing" and missing)) else "ov"
 
-    def on(t: str) -> str:
-        return " on" if t == start else ""
+    def on(tab: str) -> str:
+        return " on" if tab == start else ""
 
     ab_tab = ab_pane = ""
     if job.get("customer_id"):
-        ab_tab = f'<button type="button" data-tab="ab" class="{on("ab").strip()}">Abrechnung</button>'
+        ab_tab = f'<button type="button" data-tab="ab" class="{on("ab").strip()}">{t("Abrechnung")}</button>'
         ab_pane = (f'<section class="pane{on("ab")}" data-pane="ab">'
                    f'{_deal_box(job, store.handovers(job["id"]), store.payments(job["id"]))}</section>')
-    banner = '<div class="banner">Gespeichert.</div>' if saved else ""
-    body = f"""<div class="jd">{banner}<div class="jtop"><a class="back" href="./">← alle Drucke</a>
-<div class="jact">{_share_button(job)}<form class="jdel" method="post" action="api/jobs/{job["id"]}/delete"><button class="btn sm danger" title="Diesen Druck löschen">🗑 Löschen</button></form></div></div>
+    banner = f'<div class="banner">{t("Gespeichert.")}</div>' if saved else ""
+    body = f"""<div class="jd">{banner}<div class="jtop"><a class="back" href="./">{t("← alle Drucke")}</a>
+<div class="jact">{_share_button(job)}<form class="jdel" method="post" action="api/jobs/{job["id"]}/delete"><button class="btn sm danger" title="{e(t("Diesen Druck löschen"))}">{t("🗑 Löschen")}</button></form></div></div>
 <section class="hero"><div>{big}</div>
 <div><h2 class="jtitle">{e(job["task_name"] or "–")}</h2><div class="badges">{badges}</div><div class="kps calc">{kpis}</div></div>
-{_sec("prices", "Verkaufspreise", price_sum, price_rows, "prices calc")}</section>
-<div class="tabs" role="tablist"><button type="button" data-tab="ov" class="{on("ov").strip()}">Übersicht</button>
-{ab_tab}<button type="button" data-tab="ed" class="{on("ed").strip()}">Bearbeiten</button>
-<button type="button" data-tab="ph" class="{on("ph").strip()}">Fotos ({len(photos)})</button></div>
+{_sec("prices", t("Verkaufspreise"), price_sum, price_rows, "prices calc")}</section>
+<div class="tabs" role="tablist"><button type="button" data-tab="ov" class="{on("ov").strip()}">{t("Übersicht")}</button>
+{ab_tab}<button type="button" data-tab="ed" class="{on("ed").strip()}">{t("Bearbeiten")}</button>
+<button type="button" data-tab="ph" class="{on("ph").strip()}">{t("Fotos ({n})", n=len(photos))}</button></div>
 <section class="pane{on("ov")}" data-pane="ov">{_deal_strip(job)}<div class="ovg">
-{_sec("druck", "Druck", druck_sum, f'<div class="facts">{facts}</div>{side}')}
-{_sec("mat", "Material", mat_sum, mat_bar + mat_rows)}
-{_sec("fotos", "Eigene Fotos", f"{len(photos)} Foto{'' if len(photos) == 1 else 's'}", _upload_form(job["id"]) + photo_box + more)}
+{_sec("druck", t("Druck"), druck_sum, f'<div class="facts">{facts}</div>{side}')}
+{_sec("mat", t("Material"), mat_sum, mat_bar + mat_rows)}
+{_sec("fotos", t("Eigene Fotos"), tn(len(photos), "{n} Foto", "{n} Fotos"), _upload_form(job["id"]) + photo_box + more)}
 </div></section>
 {ab_pane}<section class="pane{on("ed")}" data-pane="ed"><div class="box">
 <form class="fields" method="post" action="api/jobs/{job["id"]}?redirect=1">
-<label class="full">Name<input name="task_name" value="{e(job["task_name"] or "")}"></label>
-<label>Kunde<select name="customer_id">{cust_opts}</select></label>
-<label>Stückzahl auf der Platte<input name="quantity" type="number" min="1" inputmode="numeric" value="{job.get("quantity") or ""}" placeholder="1"></label>
-<label>Ausschuss<select name="scrap">{scrap_opts}</select></label>
-<label>Abrechnung<select name="gift">{opt("0", "berechnen", "1" if job.get("gift") else "0")}{opt("1", "🎁 verschenkt (keine Zahlung)", "1" if job.get("gift") else "0")}</select></label>
-<label>Projekttitel<input name="project_title" value="{e(job.get("project_title") or "")}" placeholder="wird beim Speichern aus dem Link geholt, wenn leer"></label>
-<label class="full">Projektlink (MakerWorld, Printables …)<input name="project_url" type="url" value="{e(job.get("project_url") or "")}" placeholder="https://makerworld.com/…"></label>
-<label class="full">Lokaler Ordner oder 3D-Datei (Windows-Pfad)<input name="local_path" value="{e(job.get("local_path") or "")}" placeholder="z. B. D:\\3D-Druck\\Projekte\\Halter" spellcheck="false"></label>
-{mat_fields}<label class="full">Notiz<textarea name="job_note" rows="3">{e(job.get("job_note") or "")}</textarea></label>
-<div class="act"><button class="primary">Speichern</button></div>
+<label class="full">{t("Name")}<input name="task_name" value="{e(job["task_name"] or "")}"></label>
+<label>{t("Kunde")}<select name="customer_id">{cust_opts}</select></label>
+<label>{t("Stückzahl auf der Platte")}<input name="quantity" type="number" min="1" inputmode="numeric" value="{job.get("quantity") or ""}" placeholder="1"></label>
+<label>{t("Ausschuss")}<select name="scrap">{scrap_opts}</select></label>
+<label>{t("Abrechnung")}<select name="gift">{opt("0", t("berechnen"), "1" if job.get("gift") else "0")}{opt("1", t("🎁 verschenkt (keine Zahlung)"), "1" if job.get("gift") else "0")}</select></label>
+<label>{t("Projekttitel")}<input name="project_title" value="{e(job.get("project_title") or "")}" placeholder="{e(t("wird beim Speichern aus dem Link geholt, wenn leer"))}"></label>
+<label class="full">{t("Projektlink (MakerWorld, Printables …)")}<input name="project_url" type="url" value="{e(job.get("project_url") or "")}" placeholder="https://makerworld.com/…"></label>
+<label class="full">{t("Lokaler Ordner oder 3D-Datei (Windows-Pfad)")}<input name="local_path" value="{e(job.get("local_path") or "")}" placeholder="{e(t("z. B. D:\\3D-Druck\\Projekte\\Halter"))}" spellcheck="false"></label>
+{mat_fields}<label class="full">{t("Notiz")}<textarea name="job_note" rows="3">{e(job.get("job_note") or "")}</textarea></label>
+<div class="act"><button class="primary">{t("Speichern")}</button></div>
 </form></div>
-<form class="jdel" method="post" action="api/jobs/{job["id"]}/delete"><button class="btn danger">🗑 Druck löschen</button></form></section>
+<form class="jdel" method="post" action="api/jobs/{job["id"]}/delete"><button class="btn danger">{t("🗑 Druck löschen")}</button></form></section>
 <section class="pane{on("ph")}" data-pane="ph"><div class="box">{_upload_form(job["id"])}
-{f'<div class="photos lg">{_photo_tiles(photos)}</div>' if photos else '<p class="muted">Noch keine eigenen Fotos.</p>'}</div></section>
+{f'<div class="photos lg">{_photo_tiles(photos)}</div>' if photos else f'<p class="muted">{t("Noch keine eigenen Fotos.")}</p>'}</div></section>
 </div>"""
-    return layout(job["task_name"] or "Druck", "jobs", f"<style>{DETAIL_CSS}{ACT_CSS}</style>" + body, ACT_JS + DETAIL_JS + SHARE_JS)
+    return layout(job["task_name"] or t("Druck"), "jobs", f"<style>{DETAIL_CSS}{ACT_CSS}</style>" + body, ACT_JS + DETAIL_JS + SHARE_JS)
 
 
 # ---- Kunden -------------------------------------------------------------------
 
-GIFT_PERIODS = {"": "Gesamter Zeitraum", "monat": "Dieser Monat", "vormonat": "Letzter Monat",
-                "jahr": "Dieses Jahr", "vorjahr": "Letztes Jahr", "frei": "Frei wählen …"}
+GIFT_PERIODS = {"": N_("Gesamter Zeitraum"), "monat": N_("Dieser Monat"), "vormonat": N_("Letzter Monat"),
+                "jahr": N_("Dieses Jahr"), "vorjahr": N_("Letztes Jahr"), "frei": N_("Frei wählen …")}
 
 
 def gift_period(period: str | None, von: str | None, bis: str | None) -> tuple[float | None, float | None, str | None]:
@@ -1212,7 +1221,7 @@ def page_customers(store: Store, saved: str | None, show: str | None = None,
         g = gifts.get(c["id"])
         if not g:
             return "–"
-        return (f'<a class="otag gift" href="./?customer={c["id"]}{gq}" title="Kosten {fmt_num(g["cost"], 2, "€")}">'
+        return (f'<a class="otag gift" href="./?customer={c["id"]}{gq}" title="{e(t("Kosten {v}", v=fmt_num(g["cost"], 2, "€")))}">'
                 f'🎁 {g["n"]} · {fmt_num(g["value"], 2, "€")}</a>')
 
     customers = [c for c in all_customers if not show or (show == "offen" and (c["open_n"] or c["undelivered_n"]))
@@ -1221,71 +1230,71 @@ def page_customers(store: Store, saved: str | None, show: str | None = None,
         f"""<tr><td><form method="post" action="customers" class="edit" style="margin:0">
 <input type="hidden" name="id" value="{c["id"]}">
 <input name="name" value="{e(c["name"])}" required style="width:180px">
-<input name="contact" value="{e(c["contact"] or "")}" placeholder="Kontakt" style="width:200px">
-<input name="note" value="{e(c["note"] or "")}" placeholder="Notiz" style="width:220px">
-<input name="margin_pct" class="num calc" style="width:90px" value="{fmt_input(c.get("margin_pct"))}" inputmode="decimal" placeholder="Marge %" title="Eigene Marge in %, hat Vorrang">
-<button>Speichern</button></form></td>
-<td class="n" data-l="Drucke">{c["n"]}</td>
-<td class="n" data-l="Offen">{_open_tags(c)}</td>
-<td class="n" data-l="Bezahlt">{fmt_num(c["paid_amount"], 2, "€") if c["paid_amount"] else "–"}</td>
-<td class="n" data-l="Verschenkt">{gift_tag(c)}</td>
-<td class="n calc" data-l="Kosten">{fmt_num(c["cost_total"], 2, "€")}</td>
-<td class="n" data-l="Letzter Druck">{fmt_ts(c["last_ts"]) if c["last_ts"] else "–"}</td>
-<td><a href="./?customer={c["id"]}">Drucke</a></td>
-<td><form method="post" action="customers/{c["id"]}/delete" class="d"><button class="del" title="Kunde löschen">×</button></form></td></tr>"""
+<input name="contact" value="{e(c["contact"] or "")}" placeholder="{e(t("Kontakt"))}" style="width:200px">
+<input name="note" value="{e(c["note"] or "")}" placeholder="{e(t("Notiz"))}" style="width:220px">
+<input name="margin_pct" class="num calc" style="width:90px" value="{fmt_input(c.get("margin_pct"))}" inputmode="decimal" placeholder="{e(t("Marge %"))}" title="{e(t("Eigene Marge in %, hat Vorrang"))}">
+<button>{t("Speichern")}</button></form></td>
+<td class="n" data-l="{e(t("Drucke"))}">{c["n"]}</td>
+<td class="n" data-l="{e(t("Offen"))}">{_open_tags(c)}</td>
+<td class="n" data-l="{e(t("Bezahlt"))}">{fmt_num(c["paid_amount"], 2, "€") if c["paid_amount"] else "–"}</td>
+<td class="n" data-l="{e(t("Verschenkt"))}">{gift_tag(c)}</td>
+<td class="n calc" data-l="{e(t("Kosten"))}">{fmt_num(c["cost_total"], 2, "€")}</td>
+<td class="n" data-l="{e(t("Letzter Druck"))}">{fmt_ts(c["last_ts"]) if c["last_ts"] else "–"}</td>
+<td><a href="./?customer={c["id"]}">{t("Drucke")}</a></td>
+<td><form method="post" action="customers/{c["id"]}/delete" class="d"><button class="del" title="{e(t("Kunde löschen"))}">×</button></form></td></tr>"""
         for c in customers
-    ) or ('<tr><td colspan="9" class="muted">' + ("Im Zeitraum nichts verschenkt." if show == "verschenkt" else
-          "Keine offenen Beträge oder Übergaben." if show else "Noch keine Kunden angelegt.") + '</td></tr>')
+    ) or ('<tr><td colspan="9" class="muted">' + (t("Im Zeitraum nichts verschenkt.") if show == "verschenkt" else
+          t("Keine offenen Beträge oder Übergaben.") if show else t("Noch keine Kunden angelegt.")) + '</td></tr>')
     open_total = sum(c["open_amount"] or 0 for c in all_customers)
     undelivered = sum(c["undelivered_n"] or 0 for c in all_customers)
-    banner = '<div class="banner">Gespeichert.</div>' if saved else ""
+    banner = f'<div class="banner">{t("Gespeichert.")}</div>' if saved else ""
     pq = "".join(f"&{k}={e(v)}" for k, v in (("period", period), ("von", von), ("bis", bis)) if v and (k == "period" or period == "frei"))
-    seg = (f'<span class="seg"><a href="customers?{pq[1:]}" class="{"" if show else "on"}">Alle</a>'
-           f'<a href="customers?show=offen{pq}" class="{"on" if show == "offen" else ""}">Nur mit Offenem</a>'
-           f'<a href="customers?show=verschenkt{pq}" class="{"on" if show == "verschenkt" else ""}">Mit Verschenktem</a></span>')
+    seg = (f'<span class="seg"><a href="customers?{pq[1:]}" class="{"" if show else "on"}">{t("Alle")}</a>'
+           f'<a href="customers?show=offen{pq}" class="{"on" if show == "offen" else ""}">{t("Nur mit Offenem")}</a>'
+           f'<a href="customers?show=verschenkt{pq}" class="{"on" if show == "verschenkt" else ""}">{t("Mit Verschenktem")}</a></span>')
     g_n = sum(g["n"] for g in gifts.values())
     g_val = sum(g["value"] for g in gifts.values())
     g_cost = sum(g["cost"] for g in gifts.values())
-    per_opts = "".join(opt(k, v, period) for k, v in GIFT_PERIODS.items())
+    per_opts = "".join(opt(k, t(v), period) for k, v in GIFT_PERIODS.items())
     free = (f'<input type="date" name="von" value="{e(von or "")}"><input type="date" name="bis" value="{e(bis or "")}">'
             if period == "frei" else "")
     gift_form = (f'<form class="gper" method="get" action="customers">{f"<input type=hidden name=show value={e(show)}>" if show else ""}'
-                 f'<span class="otag gift">🎁 verschenkt <b>{g_n}</b> Druck{"e" if g_n != 1 else ""} · Wert <b>{fmt_num(g_val, 2, "€")}</b>'
-                 f'<span class="calc">· Kosten {fmt_num(g_cost, 2, "€")}</span></span>'
+                 f'<span class="otag gift">{tn(g_n, "🎁 verschenkt <b>{n}</b> Druck", "🎁 verschenkt <b>{n}</b> Drucke")} · {t("Wert")} <b>{fmt_num(g_val, 2, "€")}</b>'
+                 f'<span class="calc">· {t("Kosten {v}", v=fmt_num(g_cost, 2, "€"))}</span></span>'
                  f'<select name="period" onchange="this.form.submit()">{per_opts}</select>{free}'
-                 f'{"<button>Anzeigen</button>" if period == "frei" else ""}</form>')
-    summary = (f'<div class="osum"><span class="otag warn">💶 offen <b>{fmt_num(open_total, 2, "€")}</b></span>'
-               f'<span class="otag run">📦 nicht übergeben <b>{undelivered}</b> Druck{"e" if undelivered != 1 else ""}</span>{seg}</div>'
+                 f'{"<button>" + t("Anzeigen") + "</button>" if period == "frei" else ""}</form>')
+    summary = (f'<div class="osum"><span class="otag warn">{t("💶 offen")} <b>{fmt_num(open_total, 2, "€")}</b></span>'
+               f'<span class="otag run">{tn(undelivered, "📦 nicht übergeben <b>{n}</b> Druck", "📦 nicht übergeben <b>{n}</b> Drucke")}</span>{seg}</div>'
                f'<div class="osum">{gift_form}</div>')
     body = f"""<style>.osum{{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:0 0 12px}}
 .otag{{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:999px;font-weight:600;font-size:13px;white-space:nowrap;text-decoration:none;
  border:1px solid color-mix(in srgb,currentColor 35%,transparent);background:color-mix(in srgb,currentColor 10%,transparent)}}
 .otag.warn{{color:var(--warn)}}.otag.run{{color:var(--run)}}.otag.ok{{color:var(--ok)}}.otag.gift{{color:#b07cf0}}
 .gper{{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0}}.gper select,.gper input{{width:auto}}td .otag{{margin:2px 0 2px 4px}}</style>
-{banner}<h2 style="margin-top:0">Neuer Kunde</h2>
+{banner}<h2 style="margin-top:0">{t("Neuer Kunde")}</h2>
 <form method="post" action="customers" class="f">
-<input name="name" placeholder="Name" required><input name="contact" placeholder="Kontakt (optional)">
-<input name="note" placeholder="Notiz (optional)"><input name="margin_pct" class="num" inputmode="decimal" placeholder="Marge % (optional)" style="width:150px"><button class="primary">Anlegen</button></form>
-<h2>Kunden</h2>{summary}
-<div class="wrap"><table class="stack"><thead><tr><th>Name · Kontakt · Notiz</th><th class="n">Drucke</th><th class="n">Offen</th><th class="n">Bezahlt</th><th class="n">Verschenkt</th>
-<th class="n calc">Kosten</th><th class="n">Letzter Druck</th><th></th><th></th></tr></thead><tbody>{rows}</tbody></table></div>
-<p class="muted">Offen = Endpreis (oder Kosten + Kundenmarge) minus eingetragene Zahlungen, ohne Ausschuss und ohne Verschenktes. Ein Klick auf ein Schild zeigt die passenden Drucke.</p>
-<p class="muted">Verschenkt: Anzahl und Wert (Endpreis bzw. Kosten + Kundenmarge) der verschenkten Drucke im gewählten Zeitraum, nach Druckstart. Die Kosten stehen im Tooltip.</p>
-<p class="muted">Die Marge eines Kunden gilt für alle seine Drucke und wird zusätzlich zu den allgemeinen Margen angezeigt.</p>
-<p class="muted">Drucke weist du auf der Detailseite eines Drucks (Tab „Bearbeiten“) einem Kunden zu. Beim Löschen eines Kunden bleiben seine Drucke erhalten, nur ohne Kunde.</p>"""
-    script = "document.querySelectorAll('form.d').forEach(f=>f.onsubmit=()=>confirm('Kunde löschen? Die Drucke bleiben erhalten.'));"
-    return layout("Kunden", "customers", body, script)
+<input name="name" placeholder="{e(t("Name"))}" required><input name="contact" placeholder="{e(t("Kontakt (optional)"))}">
+<input name="note" placeholder="{e(t("Notiz (optional)"))}"><input name="margin_pct" class="num" inputmode="decimal" placeholder="{e(t("Marge % (optional)"))}" style="width:150px"><button class="primary">{t("Anlegen")}</button></form>
+<h2>{t("Kunden")}</h2>{summary}
+<div class="wrap"><table class="stack"><thead><tr><th>{t("Name · Kontakt · Notiz")}</th><th class="n">{t("Drucke")}</th><th class="n">{t("Offen")}</th><th class="n">{t("Bezahlt")}</th><th class="n">{t("Verschenkt")}</th>
+<th class="n calc">{t("Kosten")}</th><th class="n">{t("Letzter Druck")}</th><th></th><th></th></tr></thead><tbody>{rows}</tbody></table></div>
+<p class="muted">{t("Offen = Endpreis (oder Kosten + Kundenmarge) minus eingetragene Zahlungen, ohne Ausschuss und ohne Verschenktes. Ein Klick auf ein Schild zeigt die passenden Drucke.")}</p>
+<p class="muted">{t("Verschenkt: Anzahl und Wert (Endpreis bzw. Kosten + Kundenmarge) der verschenkten Drucke im gewählten Zeitraum, nach Druckstart. Die Kosten stehen im Tooltip.")}</p>
+<p class="muted">{t("Die Marge eines Kunden gilt für alle seine Drucke und wird zusätzlich zu den allgemeinen Margen angezeigt.")}</p>
+<p class="muted">{t("Drucke weist du auf der Detailseite eines Drucks (Tab „Bearbeiten“) einem Kunden zu. Beim Löschen eines Kunden bleiben seine Drucke erhalten, nur ohne Kunde.")}</p>"""
+    script = """document.querySelectorAll('form.d').forEach(f=>f.onsubmit=()=>confirm(_t("Kunde löschen? Die Drucke bleiben erhalten.")));"""
+    return layout(t("Kunden"), "customers", body, script)
 
 
 def _open_tags(c: dict[str, Any]) -> str:
     out = ""
     if c["open_n"]:
         out += (f'<a class="otag warn" href="./?customer={c["id"]}&todo=unbezahlt">💶 {fmt_num(c["open_amount"], 2, "€")}'
-                f' · {c["open_n"]} Druck{"e" if c["open_n"] != 1 else ""}</a>')
+                f' · {tn(c["open_n"], "{n} Druck", "{n} Drucke")}</a>')
     if c["undelivered_n"]:
-        out += (f'<a class="otag run" href="./?customer={c["id"]}&todo=abholen">📦 {c["undelivered_n"]} nicht übergeben</a>')
+        out += (f'<a class="otag run" href="./?customer={c["id"]}&todo=abholen">📦 {t("{n} nicht übergeben", n=c["undelivered_n"])}</a>')
     if not out and c["n"]:
-        out = '<span class="otag ok">✓ alles erledigt</span>'
+        out = f'<span class="otag ok">{t("✓ alles erledigt")}</span>'
     return out or "–"
 
 
@@ -1298,35 +1307,35 @@ def page_trash(store: Store, days: int, done: str | None) -> str:
     rows = ""
     for j in jobs:
         left = max(0, int((j["deleted_ts"] + days * 86400 - now) // 86400))
-        rows += (f'<tr><td data-l="Druck"><b>{e(j.get("task_name") or "–")}</b></td>'
-                 f'<td data-l="Drucker">{e(names.get(j["printer"], j.get("printer_name") or j["printer"]))}</td>'
-                 f'<td data-l="Start">{fmt_ts(j.get("start_ts"))}</td>'
-                 f'<td class="n calc" data-l="Kosten">{fmt_num(j.get("cost_total"), 2, "€")}</td>'
-                 f'<td data-l="Gelöscht">{fmt_ts(j["deleted_ts"])}</td>'
-                 f'<td data-l="Endgültig">{"heute" if left == 0 else "morgen" if left == 1 else f"in {left} Tagen"}</td>'
+        rows += (f'<tr><td data-l="{e(t("Druck"))}"><b>{e(j.get("task_name") or "–")}</b></td>'
+                 f'<td data-l="{e(t("Drucker"))}">{e(names.get(j["printer"], j.get("printer_name") or j["printer"]))}</td>'
+                 f'<td data-l="{e(t("Start"))}">{fmt_ts(j.get("start_ts"))}</td>'
+                 f'<td class="n calc" data-l="{e(t("Kosten"))}">{fmt_num(j.get("cost_total"), 2, "€")}</td>'
+                 f'<td data-l="{e(t("Gelöscht"))}">{fmt_ts(j["deleted_ts"])}</td>'
+                 f'<td data-l="{e(t("Endgültig"))}">{t("heute") if left == 0 else t("morgen") if left == 1 else t("in {n} Tagen", n=left)}</td>'
                  f'<td><form method="post" action="trash/restore" style="margin:0"><input type="hidden" name="ids" value="{j["id"]}">'
-                 f'<button class="btn sm">↩ Wiederherstellen</button></form></td>'
+                 f'<button class="btn sm">{t("↩ Wiederherstellen")}</button></form></td>'
                  f'<td><form method="post" action="trash/purge" class="pg" style="margin:0"><input type="hidden" name="ids" value="{j["id"]}">'
-                 f'<button class="del" title="Endgültig löschen">×</button></form></td></tr>')
+                 f'<button class="del" title="{e(t("Endgültig löschen"))}">×</button></form></td></tr>')
     if not rows:
-        rows = '<tr><td colspan="8" class="muted">Der Papierkorb ist leer.</td></tr>'
+        rows = f'<tr><td colspan="8" class="muted">{t("Der Papierkorb ist leer.")}</td></tr>'
     msg = ""
     if done and done[1:].isdigit():
         n = int(done[1:])
-        msg = (f'<div class="banner">{n} Druck{"e" if n != 1 else ""} '
-               f'{"wiederhergestellt" if done[0] == "r" else "endgültig gelöscht"}.</div>')
+        msg = (f'<div class="banner">' + (tn(n, "{n} Druck wiederhergestellt.", "{n} Drucke wiederhergestellt.") if done[0] == "r"
+               else tn(n, "{n} Druck endgültig gelöscht.", "{n} Drucke endgültig gelöscht.")) + '</div>')
     ids = ",".join(str(j["id"]) for j in jobs)
     actions = (f'<div class="osum" style="display:flex;gap:10px;flex-wrap:wrap;margin:0 0 12px">'
-               f'<form method="post" action="trash/restore" style="margin:0"><input type="hidden" name="ids" value="{ids}"><button class="btn">↩ Alle wiederherstellen</button></form>'
-               f'<form method="post" action="trash/purge" class="pg all" style="margin:0"><input type="hidden" name="all" value="1"><button class="btn danger">Papierkorb leeren</button></form></div>'
+               f'<form method="post" action="trash/restore" style="margin:0"><input type="hidden" name="ids" value="{ids}"><button class="btn">{t("↩ Alle wiederherstellen")}</button></form>'
+               f'<form method="post" action="trash/purge" class="pg all" style="margin:0"><input type="hidden" name="all" value="1"><button class="btn danger">{t("Papierkorb leeren")}</button></form></div>'
                if jobs else "")
-    body = f"""{msg}<p><a href="settings">← Einstellungen</a></p><h2 style="margin-top:0">Papierkorb</h2>
-<p class="muted">Gelöschte Drucke bleiben {days} Tage hier (ändern unter Einstellungen) und werden danach samt Fotos, Zahlungen und Übergaben endgültig gelöscht.</p>
-{actions}<div class="wrap"><table class="stack"><thead><tr><th>Druck</th><th>Drucker</th><th>Start</th><th class="n calc">Kosten</th><th>Gelöscht</th><th>Endgültig weg</th><th></th><th></th></tr></thead>
+    body = f"""{msg}<p><a href="settings">{t("← Einstellungen")}</a></p><h2 style="margin-top:0">{t("Papierkorb")}</h2>
+<p class="muted">{t("Gelöschte Drucke bleiben {n} Tage hier (ändern unter Einstellungen) und werden danach samt Fotos, Zahlungen und Übergaben endgültig gelöscht.", n=days)}</p>
+{actions}<div class="wrap"><table class="stack"><thead><tr><th>{t("Druck")}</th><th>{t("Drucker")}</th><th>{t("Start")}</th><th class="n calc">{t("Kosten")}</th><th>{t("Gelöscht")}</th><th>{t("Endgültig weg")}</th><th></th><th></th></tr></thead>
 <tbody>{rows}</tbody></table></div>"""
     script = ("document.querySelectorAll('form.pg').forEach(f=>f.onsubmit=()=>confirm(f.classList.contains('all')?"
-              "'Papierkorb leeren? Alle Drucke darin werden endgültig gelöscht.':'Diesen Druck endgültig löschen?'));")
-    return layout("Papierkorb", "settings", body, script)
+              '_t("Papierkorb leeren? Alle Drucke darin werden endgültig gelöscht."):_t("Diesen Druck endgültig löschen?")));')
+    return layout(t("Papierkorb"), "settings", body, script)
 
 
 # ---- Einstellungen ------------------------------------------------------------
@@ -1346,86 +1355,88 @@ def page_settings(store: Store, saved: str | None, logo: str | None = None,
     for key, name in names.items():
         r = rates.get(key, {})
         rate = hourly_rate(r)
-        hint = f"bisher {fmt_num(logged[key], 0 if logged[key] >= 10 else 1)} h" if logged.get(key) else "z. B. 800"
+        hint = (t("bisher {v} h", v=fmt_num(logged[key], 0 if logged[key] >= 10 else 1)) if logged.get(key)
+                else t("z. B. {v}", v=800))
         printer_rows.append(
             f"<tr><td>{e(name)}</td>"
-            + field(key, "purchase_eur", r, "z. B. 1299", "Anschaffung €")
-            + field(key, "life_hours", r, "z. B. 5000", "Lebensdauer h")
-            + field(key, "maint_per_year", r, "z. B. 60", "Wartung €/Jahr")
-            + field(key, "hours_per_year", r, hint, "Druckstunden/Jahr")
-            + field(key, "extra_per_hour", r, "z. B. 0,05", "Verschleiß €/h")
-            + f'<td class="n" data-l="= pro Stunde">{fmt_num(rate, 3, "€/h")}</td></tr>'
+            + field(key, "purchase_eur", r, t("z. B. {v}", v=1299), t("Anschaffung €"))
+            + field(key, "life_hours", r, t("z. B. {v}", v=5000), t("Lebensdauer h"))
+            + field(key, "maint_per_year", r, t("z. B. {v}", v=60), t("Wartung €/Jahr"))
+            + field(key, "hours_per_year", r, hint, t("Druckstunden/Jahr"))
+            + field(key, "extra_per_hour", r, t("z. B. {v}", v=fmt_input(0.05)), t("Verschleiß €/h"))
+            + f'<td class="n" data-l="{e(t("= pro Stunde"))}">{fmt_num(rate, 3, "€/h")}</td></tr>'
         )
 
     types = sorted(set(KNOWN_TYPES) | set(store.material_types())
                    | {k for k, v in prices.items() if v["kind"] == "type"})
     type_rows = "".join(
-        f'<tr><td>{e(t)}</td><td class="n"><input class="num" name="type__{e(t)}" '
-        f'value="{fmt_input(prices.get(t, {}).get("eur_per_kg"))}" inputmode="decimal" placeholder="€/kg"></td></tr>'
-        for t in types
+        f'<tr><td>{e(ty)}</td><td class="n"><input class="num" name="type__{e(ty)}" '
+        f'value="{fmt_input(prices.get(ty, {}).get("eur_per_kg"))}" inputmode="decimal" placeholder="€/kg"></td></tr>'
+        for ty in types
     )
     seen = {m["name"]: m["type"] for m in store.material_names()}
     for k, v in prices.items():
         if v["kind"] == "name":
             seen.setdefault(k, None)
     name_rows = "".join(
-        f'<tr><td>{e(n)} <span class="muted">{e(t or "")}</span></td><td class="n"><input class="num" name="name__{e(n)}" '
-        f'value="{fmt_input(prices.get(n, {}).get("eur_per_kg"))}" inputmode="decimal" placeholder="wie Typ"></td></tr>'
-        for n, t in sorted(seen.items())
-    ) or '<tr><td colspan="2" class="muted">Erscheint, sobald Drucke mit Materialangaben erfasst sind.</td></tr>'
+        f'<tr><td>{e(n)} <span class="muted">{e(ty or "")}</span></td><td class="n"><input class="num" name="name__{e(n)}" '
+        f'value="{fmt_input(prices.get(n, {}).get("eur_per_kg"))}" inputmode="decimal" placeholder="{e(t("wie Typ"))}"></td></tr>'
+        for n, ty in sorted(seen.items())
+    ) or f'<tr><td colspan="2" class="muted">{t("Erscheint, sobald Drucke mit Materialangaben erfasst sind.")}</td></tr>'
 
-    banner = f'<div class="banner">Gespeichert. {e(saved)} Drucke wurden neu berechnet.</div>' if saved else ""
+    banner = f'<div class="banner">{t("Gespeichert. {n} Drucke wurden neu berechnet.", n=e(saved))}</div>' if saved else ""
     cfg = store.settings()
     margin_rows = "".join(
         f'<tr><td><input name="margin{i}_name" value="{e(cfg.get(f"margin{i}_name") or "")}" placeholder="{ph}" style="width:100%"></td>'
         f'<td class="n"><input class="num" name="margin{i}_pct" value="{e(cfg.get(f"margin{i}_pct") or "")}" inputmode="decimal" placeholder="%"></td></tr>'
-        for i, ph in ((1, "z. B. Privat"), (2, "z. B. Gewerbe"))
+        for i, ph in ((1, t("z. B. Privat")), (2, t("z. B. Gewerbe")))
     )
     from datetime import datetime
 
-    from .backup import BACKUP_DIR, INTERVALS, WEEKDAYS, describe, enabled, next_run, schedule
+    from .backup import BACKUP_DIR, INTERVALS, WEEKDAYS, backup_msg, describe, enabled, next_run, schedule
     last = (cfg.get("backup_last") or "").split("|", 2)
     interval, weekday, hour = schedule(cfg)
 
     def options(items: list[tuple[str, str]], current: str) -> str:
-        return "".join(f'<option value="{e(v)}"{" selected" if v == current else ""}>{e(t)}</option>' for v, t in items)
+        return "".join(f'<option value="{e(v)}"{" selected" if v == current else ""}>{e(lbl)}</option>' for v, lbl in items)
 
     backup_form = (
         '<div class="wrap"><table><tbody>'
-        f'<tr><td>Intervall</td><td><select name="backup_interval">{options(list(INTERVALS.items()), interval)}</select></td></tr>'
-        f'<tr><td>Wochentag <span class="muted">(nur wöchentlich)</span></td><td><select name="backup_weekday">'
-        f'{options([(str(i), d) for i, d in enumerate(WEEKDAYS)], str(weekday))}</select></td></tr>'
-        f'<tr><td>Uhrzeit</td><td><select name="backup_hour">'
+        f'<tr><td>{t("Intervall")}</td><td><select name="backup_interval">{options([(k, t(v)) for k, v in INTERVALS.items()], interval)}</select></td></tr>'
+        f'<tr><td>{t("Wochentag")} <span class="muted">{t("(nur wöchentlich)")}</span></td><td><select name="backup_weekday">'
+        f'{options([(str(i), t(d)) for i, d in enumerate(WEEKDAYS)], str(weekday))}</select></td></tr>'
+        f'<tr><td>{t("Uhrzeit")}</td><td><select name="backup_hour">'
         f'{options([(str(h), f"{h:02d}:00") for h in range(24)], str(hour))}</select></td></tr>'
         '</tbody></table></div>'
     )
     if enabled():
-        state = ("noch keins" if len(last) < 3 else
-                 f'{fmt_ts(float(last[0]))}: {"✓ " + e(last[2]) if last[1] == "ok" else "⚠ " + e(last[2])}')
+        state = (t("noch keins") if len(last) < 3 else
+                 f'{fmt_ts(float(last[0]))}: {"✓ " + e(backup_msg(last[2])) if last[1] == "ok" else "⚠ " + e(last[2])}')
         nxt = next_run(cfg, datetime.now())
-        backup_html = (f'<h2>Backup</h2><p>{e(describe(cfg))} nach <code>{e(BACKUP_DIR)}</code>. '
-                       f'Nächstes Backup: {fmt_ts(nxt.timestamp())}. Letztes Backup: {state}</p>'
+        backup_html = (f'<h2>Backup</h2><p>{t("{when} nach {dir}.", when=e(describe(cfg)), dir=f"<code>{e(BACKUP_DIR)}</code>")} '
+                       f'{t("Nächstes Backup")}: {fmt_ts(nxt.timestamp())}. {t("Letztes Backup")}: {state}</p>'
                        f'{backup_form}'
-                       '<p><button type="submit" formaction="backup" formmethod="post">Jetzt sichern</button></p>')
+                       f'<p><button type="submit" formaction="backup" formmethod="post">{t("Jetzt sichern")}</button></p>')
     else:
-        backup_html = ('<h2>Backup</h2><p class="muted">Aus. Zum Einschalten im Stack einen Netzwerkordner als '
-                       '<code>/backup</code> einhängen und <code>BACKUP_DIR=/backup</code> setzen (siehe README). '
-                       'Den Zeitplan kannst du schon vorab festlegen.</p>'
-                       f'{backup_form}')
+        backup_html = (f'<h2>Backup</h2><p class="muted">'
+                       + t("Aus. Zum Einschalten im Stack einen Netzwerkordner als <code>/backup</code> einhängen und "
+                           "<code>BACKUP_DIR=/backup</code> setzen (siehe README). Den Zeitplan kannst du schon vorab festlegen.")
+                       + f'</p>{backup_form}')
     custom_logo = cfg.get("bon_logo")
     logo_src = f"images/{e(custom_logo)}" if custom_logo else "static/logo-bon.png"
-    logo_note = {"ok": "Neues Logo gespeichert.", "reset": "Bon nutzt wieder das App-Logo.",
-                 "bad": "Das Bild ließ sich nicht lesen. Bitte PNG, JPG oder WebP nehmen."}.get(logo or "", "")
-    logo_html = f"""<h2 style="margin-top:0">Logo auf Bon und PDF</h2>
-<p class="muted">Steht oben auf dem Bon-Bild und im Kopf der PDF-Kostenaufstellung. Ohne eigenes Logo gilt das App-Logo.
-Am besten ein PNG mit durchsichtigem Hintergrund, mindestens 600 px breit.</p>
+    logo_note = {"ok": t("Neues Logo gespeichert."), "reset": t("Bon nutzt wieder das App-Logo."),
+                 "bad": t("Das Bild ließ sich nicht lesen. Bitte PNG, JPG oder WebP nehmen.")}.get(logo or "", "")
+    reset_btn = (f'<button type="submit" name="bon_logo_reset" value="1" class="lnk">{t("Zurück zum App-Logo")}</button>'
+                 if custom_logo else "")
+    logo_html = f"""<h2 style="margin-top:0">{t("Logo auf Bon und PDF")}</h2>
+<p class="muted">{t("Steht oben auf dem Bon-Bild und im Kopf der PDF-Kostenaufstellung. Ohne eigenes Logo gilt das App-Logo. Am besten ein PNG mit durchsichtigem Hintergrund, mindestens 600 px breit.")}</p>
 {f'<div class="banner">{e(logo_note)}</div>' if logo_note else ""}
-<div class="logobox"><div class="paper"><img src="{logo_src}" alt="Bon-Logo"><span>3 D - D R U C K</span></div>
-<div class="logoctl"><b>{"Eigenes Logo" if custom_logo else "App-Logo (Standard)"}</b>
-<label class="btn file">🖼 {"Anderes Logo wählen" if custom_logo else "Eigenes Logo hochladen"}<input type="file" name="bon_logo" accept="image/png,image/jpeg,image/webp"></label>
-<label class="chk"><input type="checkbox" name="bon_logo_white" value="1"> Weißen Hintergrund durchsichtig machen</label>
+<div class="logobox"><div class="paper"><img src="{logo_src}" alt=""><span>{e(bon_tagline())}</span></div>
+<div class="logoctl"><b>{t("Eigenes Logo") if custom_logo else t("App-Logo (Standard)")}</b>
+<label class="btn file">🖼 {t("Anderes Logo wählen") if custom_logo else t("Eigenes Logo hochladen")}<input type="file" name="bon_logo" accept="image/png,image/jpeg,image/webp"></label>
+<label class="chk"><input type="checkbox" name="bon_logo_white" value="1"> {t("Weißen Hintergrund durchsichtig machen")}</label>
 <span class="muted logofile"></span>
-{'<button type="submit" name="bon_logo_reset" value="1" class="lnk">Zurück zum App-Logo</button>' if custom_logo else ""}
+{reset_btn}
 </div></div>"""
 
     printers_html = _printers_pane(store, live, printer_msg)
@@ -1433,43 +1444,49 @@ Am besten ein PNG mit durchsichtigem Hintergrund, mindestens 600 px breit.</p>
     def pane(key: str, label: str, html: str) -> tuple[str, str, str]:
         return key, label, html
 
+    cur_lang = cfg.get("language") or "auto"
+    lang_opts = opt("auto", t("Automatisch (Sprache des Browsers)"), cur_lang) + "".join(
+        opt(k, v, cur_lang) for k, v in LANGS.items())
+    price_entity = e(os.environ.get("PRICE_ENTITY", "input_number.strompreis"))
     panes = [
-        pane("kosten", "Kosten", f"""<h2 style="margin-top:0">Drucker: Abschreibung, Wartung und Verschleiß</h2>
-<p class="muted">Kosten pro Druckstunde = Anschaffung ÷ Lebensdauer in Druckstunden + Wartung pro Jahr ÷ Druckstunden pro Jahr + Verschleiß pro Stunde. Leere Felder zählen nicht. „bisher“ zeigt die erfassten Druckstunden der letzten 12 Monate.</p>
-<div class="wrap"><table class="stack"><thead><tr><th>Drucker</th><th class="n">Anschaffung €</th><th class="n">Lebensdauer h</th>
-<th class="n">Wartung €/Jahr</th><th class="n">Druckstunden/Jahr</th><th class="n">Verschleiß €/h</th><th class="n">= pro Stunde</th></tr></thead>
+        pane("kosten", t("Kosten"), f"""<h2 style="margin-top:0">{t("Drucker: Abschreibung, Wartung und Verschleiß")}</h2>
+<p class="muted">{t("Kosten pro Druckstunde = Anschaffung ÷ Lebensdauer in Druckstunden + Wartung pro Jahr ÷ Druckstunden pro Jahr + Verschleiß pro Stunde. Leere Felder zählen nicht. „bisher“ zeigt die erfassten Druckstunden der letzten 12 Monate.")}</p>
+<div class="wrap"><table class="stack"><thead><tr><th>{t("Drucker")}</th><th class="n">{t("Anschaffung €")}</th><th class="n">{t("Lebensdauer h")}</th>
+<th class="n">{t("Wartung €/Jahr")}</th><th class="n">{t("Druckstunden/Jahr")}</th><th class="n">{t("Verschleiß €/h")}</th><th class="n">{t("= pro Stunde")}</th></tr></thead>
 <tbody>{"".join(printer_rows)}</tbody></table></div>
-<p class="muted">Der Strompreis kommt aus Home Assistant ({e(os.environ.get("PRICE_ENTITY", "input_number.strompreis"))}) bzw. aus der HA-Automation und wird pro Druck zum Druckende festgehalten.</p>"""),
-        pane("drucker", "Drucker", printers_html),
-        pane("filament", "Filament", f"""<h2 style="margin-top:0">Filamentpreise nach Typ</h2>
-<p class="muted">Standardpreis pro Kilogramm, gilt für alle Filamente dieses Typs.</p>
-<div class="wrap"><table><thead><tr><th>Typ</th><th class="n">€/kg</th></tr></thead><tbody>{type_rows}</tbody></table></div>
-<h2>Filamentpreise nach Sorte (optional)</h2>
-<p class="muted">Überschreibt den Typpreis für eine bestimmte Sorte, z. B. „Bambu PLA Matte“. Leer lassen = Typpreis.</p>
-<div class="wrap"><table><thead><tr><th>Sorte</th><th class="n">€/kg</th></tr></thead><tbody>{name_rows}</tbody></table></div>"""),
-        pane("margen", "Margen", f"""<h2 style="margin-top:0">Margen</h2>
-<p class="muted">Bis zu zwei allgemeine Aufschläge auf die Gesamtkosten. Jede Marge bekommt in der Tabelle eine eigene Spalte mit Verkaufspreis (und Preis pro Stück). Eine Marge pro Kunde stellst du unter „Kunden“ ein.</p>
-<div class="wrap"><table><thead><tr><th>Name</th><th class="n">Aufschlag %</th></tr></thead><tbody>{margin_rows}</tbody></table></div>"""),
-        pane("bon", "Bon &amp; PDF", logo_html),
-        pane("ansicht", "Ansicht", f"""<h2 style="margin-top:0">Detailseite</h2>
-<p class="muted">Welcher Tab beim Öffnen eines Drucks aktiv ist. Nach dem Speichern zeigt die Seite immer die Übersicht.</p>
-<p><label>Start-Tab <select name="detail_tab">{"".join(opt(k, v, cfg.get("detail_tab") or "ov") for k, v in DETAIL_TABS.items())}</select></label></p>
-<h2>Papierkorb</h2>
-<p class="muted">Gelöschte Drucke landen erst im Papierkorb und lassen sich dort wiederherstellen. Nach dieser Zeit werden sie samt Fotos endgültig gelöscht.</p>
-<p><label>Aufbewahren <input class="num" name="trash_days" inputmode="numeric" style="width:80px" value="{e(cfg.get("trash_days") or "30")}"> Tage</label>
-· <a href="trash">Papierkorb öffnen ({store.trash_count()})</a></p>"""),
+<p class="muted">{t("Der Strompreis kommt aus Home Assistant ({entity}) bzw. aus der HA-Automation und wird pro Druck zum Druckende festgehalten.", entity=price_entity)}</p>"""),
+        pane("drucker", t("Drucker"), printers_html),
+        pane("filament", t("Filament"), f"""<h2 style="margin-top:0">{t("Filamentpreise nach Typ")}</h2>
+<p class="muted">{t("Standardpreis pro Kilogramm, gilt für alle Filamente dieses Typs.")}</p>
+<div class="wrap"><table><thead><tr><th>{t("Typ")}</th><th class="n">€/kg</th></tr></thead><tbody>{type_rows}</tbody></table></div>
+<h2>{t("Filamentpreise nach Sorte (optional)")}</h2>
+<p class="muted">{t("Überschreibt den Typpreis für eine bestimmte Sorte, z. B. „Bambu PLA Matte“. Leer lassen = Typpreis.")}</p>
+<div class="wrap"><table><thead><tr><th>{t("Sorte")}</th><th class="n">€/kg</th></tr></thead><tbody>{name_rows}</tbody></table></div>"""),
+        pane("margen", t("Margen"), f"""<h2 style="margin-top:0">{t("Margen")}</h2>
+<p class="muted">{t("Bis zu zwei allgemeine Aufschläge auf die Gesamtkosten. Jede Marge bekommt in der Tabelle eine eigene Spalte mit Verkaufspreis (und Preis pro Stück). Eine Marge pro Kunde stellst du unter „Kunden“ ein.")}</p>
+<div class="wrap"><table><thead><tr><th>{t("Name")}</th><th class="n">{t("Aufschlag %")}</th></tr></thead><tbody>{margin_rows}</tbody></table></div>"""),
+        pane("bon", t("Bon &amp; PDF"), logo_html),
+        pane("ansicht", t("Ansicht"), f"""<h2 style="margin-top:0">Sprache · Language</h2>
+<p class="muted">{t("Sprache der Oberfläche, von Bon, PDF und CSV-Export. „Automatisch“ richtet sich nach der Sprache des Browsers.")}</p>
+<p><label>{t("Sprache")} <select name="language">{lang_opts}</select></label></p>
+<h2>{t("Detailseite")}</h2>
+<p class="muted">{t("Welcher Tab beim Öffnen eines Drucks aktiv ist. Nach dem Speichern zeigt die Seite immer die Übersicht.")}</p>
+<p><label>{t("Start-Tab")} <select name="detail_tab">{"".join(opt(k, t(v), cfg.get("detail_tab") or "ov") for k, v in DETAIL_TABS.items())}</select></label></p>
+<h2>{t("Papierkorb")}</h2>
+<p class="muted">{t("Gelöschte Drucke landen erst im Papierkorb und lassen sich dort wiederherstellen. Nach dieser Zeit werden sie samt Fotos endgültig gelöscht.")}</p>
+<p><label>{t("Aufbewahren")} <input class="num" name="trash_days" inputmode="numeric" style="width:80px" value="{e(cfg.get("trash_days") or "30")}"> {t("Tage")}</label>
+· <a href="trash">{t("Papierkorb öffnen ({n})", n=store.trash_count())}</a></p>"""),
         pane("backup", "Backup", backup_html.replace("<h2>Backup</h2>", '<h2 style="margin-top:0">Backup</h2>', 1)),
-        pane("windows", "Windows", """<h2 style="margin-top:0">Ordner-Links (Windows)</h2>
-<p>Bei jedem Druck kannst du einen lokalen Ordner oder eine Datei eintragen. „📋 Kopieren“ geht immer (dann Win+E, Strg+L, einfügen).
-Damit „📂 Öffnen“ direkt funktioniert, richte einmalig pro Windows-PC das Link-Protokoll ein:</p>
+        pane("windows", "Windows", f"""<h2 style="margin-top:0">{t("Ordner-Links (Windows)")}</h2>
+<p>{t("Bei jedem Druck kannst du einen lokalen Ordner oder eine Datei eintragen. „📋 Kopieren“ geht immer (dann Win+E, Strg+L, einfügen). Damit „📂 Öffnen“ direkt funktioniert, richte einmalig pro Windows-PC das Link-Protokoll ein:")}</p>
 <ol>
-<li><a href="tools/printlog-einrichten.cmd" download>printlog-einrichten.cmd</a> herunterladen und doppelklicken. Falls Windows „Der Computer wurde geschützt“ zeigt: „Weitere Informationen“ → „Trotzdem ausführen“.</li>
-<li>Im Dialog deinen <b>Projektordner</b> wählen. 3D-Dateien darin (3MF, STL, STEP, OBJ) öffnen sich dann direkt im Standardprogramm, z. B. Bambu Studio. „Abbrechen“ heißt: Dateien nie direkt öffnen, nur im Explorer markieren.</li>
-<li>Beim ersten Klick auf „📂 Öffnen“ fragt der Browser nach. Mit „Immer erlauben“ kommt die Frage nicht wieder.</li>
+<li>{t('<a href="tools/printlog-einrichten.cmd" download>printlog-einrichten.cmd</a> herunterladen und doppelklicken. Falls Windows „Der Computer wurde geschützt“ zeigt: „Weitere Informationen“ → „Trotzdem ausführen“.')}</li>
+<li>{t("Im Dialog deinen <b>Projektordner</b> wählen. 3D-Dateien darin (3MF, STL, STEP, OBJ) öffnen sich dann direkt im Standardprogramm, z. B. Bambu Studio. „Abbrechen“ heißt: Dateien nie direkt öffnen, nur im Explorer markieren.")}</li>
+<li>{t("Beim ersten Klick auf „📂 Öffnen“ fragt der Browser nach. Mit „Immer erlauben“ kommt die Frage nicht wieder.")}</li>
 </ol>
-<p class="muted">Sicherheit: Ordner öffnen sich nur im Explorer. Eine Datei startet nur, wenn sie eine 3D-Endung hat <i>und</i> in deinem Projektordner liegt, sonst wird sie im Explorer markiert. Programme und Skripte startet ein Link nie. Den Projektordner legt nur dein PC fest, nicht PrintLog. Zum Ändern die Einrichtung erneut starten.
-Pfade mit Leerzeichen und Umlauten sowie Netzwerkpfade (<code>\\\\server\\freigabe</code>) gehen. Die Einrichtung legt alles unter <code>%LOCALAPPDATA%\\printlog</code> ab, ohne Adminrechte.
-Entfernen: <a href="tools/printlog-open-entfernen.reg" download>printlog-open-entfernen.reg</a> öffnen. Nur das Skript: <a href="tools/printlog-open.ps1" download>printlog-open.ps1</a>.</p>"""),
+<p class="muted">{t("Sicherheit: Ordner öffnen sich nur im Explorer. Eine Datei startet nur, wenn sie eine 3D-Endung hat <i>und</i> in deinem Projektordner liegt, sonst wird sie im Explorer markiert. Programme und Skripte startet ein Link nie. Den Projektordner legt nur dein PC fest, nicht PrintLog. Zum Ändern die Einrichtung erneut starten.")}
+{t("Pfade mit Leerzeichen und Umlauten sowie Netzwerkpfade (<code>\\\\server\\freigabe</code>) gehen. Die Einrichtung legt alles unter <code>%LOCALAPPDATA%\\printlog</code> ab, ohne Adminrechte.")}
+{t('Entfernen: <a href="tools/printlog-open-entfernen.reg" download>printlog-open-entfernen.reg</a> öffnen. Nur das Skript: <a href="tools/printlog-open.ps1" download>printlog-open.ps1</a>.')}</p>"""),
     ]
     tabs = "".join(f'<button type="button" data-tab="{k}" class="{"on" if i == 0 else ""}">{lbl}</button>'
                    for i, (k, lbl, _) in enumerate(panes))
@@ -1479,10 +1496,10 @@ Entfernen: <a href="tools/printlog-open-entfernen.reg" download>printlog-open-en
 <input type="hidden" name="tab" value="kosten">
 <div class="stabs" role="tablist">{tabs}</div>
 {panes_html}
-<div class="sbar"><button class="primary" type="submit">Speichern</button>
-<span class="muted">Preise gelten danach für alle Drucke (werden neu berechnet).</span></div>
+<div class="sbar"><button class="primary" type="submit">{t("Speichern")}</button>
+<span class="muted">{t("Preise gelten danach für alle Drucke (werden neu berechnet).")}</span></div>
 </form>"""
-    return layout("Einstellungen", "settings", body, SETTINGS_JS)
+    return layout(t("Einstellungen"), "settings", body, SETTINGS_JS)
 
 
 SETTINGS_CSS = """
@@ -1540,7 +1557,7 @@ function stab(n){if(!sf.querySelector('.spane[data-pane="'+n+'"]'))return;
 sf.querySelectorAll('.stabs button').forEach(b=>b.onclick=()=>{stab(b.dataset.tab);history.replaceState(null,'','#'+b.dataset.tab)});
 if(location.hash)stab(location.hash.slice(1));
 const lf=sf.querySelector('input[name=bon_logo]');
-if(lf)lf.onchange=()=>{const f=lf.files[0];if(!f)return;sf.querySelector('.logofile').textContent=f.name+' – wird beim Speichern übernommen';
+if(lf)lf.onchange=()=>{const f=lf.files[0];if(!f)return;sf.querySelector('.logofile').textContent=f.name+' – '+_t("wird beim Speichern übernommen");
   const im=sf.querySelector('.logobox img');im.src=URL.createObjectURL(f)};
 """
 
@@ -1553,10 +1570,10 @@ def _printers_pane(store: Store, live: dict[str, Any] | None, msg: str | None) -
         if not entity:
             return ""
         if live is None:
-            return '<span class="pchk muted" title="Home Assistant nicht verbunden">?</span>'
+            return f'<span class="pchk muted" title="{e(t("Home Assistant nicht verbunden"))}">?</span>'
         state = live.get(entity)
         if state is None:
-            return '<span class="pchk bad" title="Gibt es in Home Assistant nicht">⚠ nicht gefunden</span>'
+            return f'<span class="pchk bad" title="{e(t("Gibt es in Home Assistant nicht"))}">{t("⚠ nicht gefunden")}</span>'
         val = str(state)
         if unit and val not in ("unavailable", "unknown"):
             val = f"{val} {unit}"
@@ -1574,46 +1591,44 @@ def _printers_pane(store: Store, live: dict[str, Any] | None, msg: str | None) -
         status = c.get("status") or (pcfg.status_entity(c) if not new else "")
         ams = ", ".join(c.get("ams") or [])
         ams_check = "".join(check(f"sensor.{a}_tray_1") for a in (c.get("ams") or [])[:1])
-        head = (f'<div class="phead"><label>Kurzname {inp(f"{f}__key", "", "z. B. x1c", "pkey", " pattern=[a-z0-9_]{1,20}")}</label>'
-                f'<label class="grow">Name {inp(f"{f}__name", "", "z. B. X1C Werkstatt")}</label></div>'
+        head = (f'<div class="phead"><label>{t("Kurzname")} {inp(f"{f}__key", "", t("z. B. {v}", v="x1c"), "pkey", " pattern=[a-z0-9_]{1,20}")}</label>'
+                f'<label class="grow">{t("Name")} {inp(f"{f}__name", "", t("z. B. {v}", v=t("X1C Werkstatt")))}</label></div>'
                 if new else
                 f'<div class="phead"><code class="pk">{e(c["key"])}</code>'
-                f'<label class="grow">Name {inp(f"{f}__name", c.get("name"), c["key"])}</label>'
-                f'<label class="chk prm"><input type="checkbox" name="{f}__remove" value="1"> Entfernen</label></div>')
+                f'<label class="grow">{t("Name")} {inp(f"{f}__name", c.get("name"), c["key"])}</label>'
+                f'<label class="chk prm"><input type="checkbox" name="{f}__remove" value="1"> {t("Entfernen")}</label></div>')
         return f"""<div class="pcard{' pnew' if new else ''}">{head}
 <div class="pgrid">
-<label>Druckstatus-Sensor {inp(f"{f}__status", status, "sensor.…_print_status")}{check(status)}</label>
-<label>Energiezähler (kWh) {inp(f"{f}__energy", c.get("energy"), "leer = keine Steckdose")}{check(c.get("energy"), "kWh")}</label>
-<label>Feste Leistung (W) {inp(f"{f}__fixed_w", c.get("fixed_w"), "z. B. 120", "", ' inputmode="decimal"')}
-<small class="muted">Ohne Steckdose oder wenn sie ausfällt: kWh = Druckdauer × Leistung</small></label>
+<label>{t("Druckstatus-Sensor")} {inp(f"{f}__status", status, "sensor.…_print_status")}{check(status)}</label>
+<label>{t("Energiezähler (kWh)")} {inp(f"{f}__energy", c.get("energy"), t("leer = keine Steckdose"))}{check(c.get("energy"), "kWh")}</label>
+<label>{t("Feste Leistung (W)")} {inp(f"{f}__fixed_w", c.get("fixed_w"), t("z. B. {v}", v=120), "", ' inputmode="decimal"')}
+<small class="muted">{t("Ohne Steckdose oder wenn sie ausfällt: kWh = Druckdauer × Leistung")}</small></label>
 </div>
-<details{' open' if new else ''}><summary>Filament und weitere Entitäten</summary><div class="pgrid">
-<label>AMS (Namensanfang, mit Komma) {inp(f"{f}__ams", ams, "z. B. x1c_ams_1")}{ams_check}</label>
-<label>Externe Spule {inp(f"{f}__ext", c.get("ext"), "sensor.…_external_spool")}{check(c.get("ext"))}</label>
-<label>Namensanfang der übrigen Entitäten {inp(f"{f}__prefix", c.get("prefix"), pcfg.prefix({"status": status}) or "aus dem Druckstatus")}
-<small class="muted">Für Auftrag, Gewicht, Fortschritt und Vorschaubild (sensor.&lt;anfang&gt;_task_name …). Leer = aus dem Druckstatus.</small></label>
+<details{' open' if new else ''}><summary>{t("Filament und weitere Entitäten")}</summary><div class="pgrid">
+<label>{t("AMS (Namensanfang, mit Komma)")} {inp(f"{f}__ams", ams, t("z. B. {v}", v="x1c_ams_1"))}{ams_check}</label>
+<label>{t("Externe Spule")} {inp(f"{f}__ext", c.get("ext"), "sensor.…_external_spool")}{check(c.get("ext"))}</label>
+<label>{t("Namensanfang der übrigen Entitäten")} {inp(f"{f}__prefix", c.get("prefix"), pcfg.prefix({"status": status}) or t("aus dem Druckstatus"))}
+<small class="muted">{t("Für Auftrag, Gewicht, Fortschritt und Vorschaubild (sensor.&lt;anfang&gt;_task_name …). Leer = aus dem Druckstatus.")}</small></label>
 </div></details></div>"""
 
     cfgs = pcfg.load(store)
     note = f'<div class="banner">{e(msg)}</div>' if msg else ""
-    cards = "".join(card(c) for c in cfgs) or '<p class="muted">Noch kein Drucker eingerichtet.</p>'
-    return f"""<h2 style="margin-top:0">Drucker und Home Assistant</h2>
-<p class="muted">Welche Entitäten aus Home Assistant zu welchem Drucker gehören. printlog braucht sie, um nach einem Neustart
-verpasste Drucke nachzuholen und Material und Strom zuzuordnen. Mit dem Blueprint „printlog: Druck erfassen“ (siehe README)
-trägt die Automation ihre Entitäten beim nächsten Druck selbst ein und legt neue Drucker an. ✓ zeigt den aktuellen Wert aus Home Assistant.</p>
+    cards = "".join(card(c) for c in cfgs) or f'<p class="muted">{t("Noch kein Drucker eingerichtet.")}</p>'
+    return f"""<h2 style="margin-top:0">{t("Drucker und Home Assistant")}</h2>
+<p class="muted">{t("Welche Entitäten aus Home Assistant zu welchem Drucker gehören. printlog braucht sie, um nach einem Neustart verpasste Drucke nachzuholen und Material und Strom zuzuordnen. Mit dem Blueprint „printlog: Druck erfassen“ (siehe README) trägt die Automation ihre Entitäten beim nächsten Druck selbst ein und legt neue Drucker an. ✓ zeigt den aktuellen Wert aus Home Assistant.")}</p>
 {note}<div class="plist">{cards}</div>
-<details class="padd"><summary>＋ Drucker von Hand hinzufügen</summary>{card(None)}</details>"""
+<details class="padd"><summary>{t("＋ Drucker von Hand hinzufügen")}</summary>{card(None)}</details>"""
 
 
 def csv_rows(store: Store, f: dict[str, str | None]) -> list[list[Any]]:
     names = printer_names(store)
-    header = ["ID", "Projekt-ID", "Auftrag", "Drucker", "Kunde", "Stück", "Start", "Ende", "Dauer h", "Status",
-              "Fortschritt %", "Filament g", "Material", "kWh", "Strom €", "Filament €", "Drucker €",
-              "Gesamt €", "Ausschuss", "Projekt", "Projektlink", "Ordner", "Notiz"]
+    header = [t(h) for h in (N_("ID"), N_("Projekt-ID"), N_("Auftrag"), N_("Drucker"), N_("Kunde"), N_("Stück"), N_("Start"), N_("Ende"), N_("Dauer h"), N_("Status"),
+              N_("Fortschritt %"), N_("Filament g"), N_("Material"), N_("kWh"), N_("Strom €"), N_("Filament €"), N_("Drucker €"),
+              N_("Gesamt €"), N_("Ausschuss"), N_("Projekt"), N_("Projektlink"), N_("Ordner"), N_("Notiz"))]
     mg = margins(store)
-    at = header.index("Gesamt €") + 1
+    at = header.index(t("Gesamt €")) + 1
     header[at:at] = [f"{n} +{fmt_input(p)} % €" for n, p in mg]
-    header += ["Endpreis €", "Zu zahlen €", "Bezahlt €", "Übergeben Stück"]
+    header += [t("Endpreis €"), t("Zu zahlen €"), t("Bezahlt €"), t("Übergeben Stück")]
     out: list[list[Any]] = [header]
     q = db_filters(f)
     for j in store.list_jobs(limit=100000, **q):
@@ -1623,9 +1638,9 @@ def csv_rows(store: Store, f: dict[str, str | None]) -> list[list[Any]]:
         out.append([
             j["id"], code_label(j.get("code")), j["task_name"], names.get(j["printer"], j["printer"]), j.get("customer_name"),
             j.get("quantity"), fmt_ts(j["start_ts"]), fmt_ts(j["end_ts"]),
-            round(dur, 2) if dur else None, _status_of(j), j["progress"], grams, mats, j["kwh"],
+            round(dur, 2) if dur else None, t(_status_of(j)), j["progress"], grams, mats, j["kwh"],
             j["cost"], j.get("cost_filament"), j.get("cost_printer"), j.get("cost_total"), *[round(_price(j, p), 2) if _price(j, p) is not None else None for _, p in mg],
-            "ja" if j.get("is_scrap") else "nein", j.get("project_title"), j.get("project_url"), j.get("local_path"), j.get("job_note"),
+            t("ja") if j.get("is_scrap") else t("nein"), j.get("project_title"), j.get("project_url"), j.get("local_path"), j.get("job_note"),
             j.get("final_price"), (0 if j.get("gift") else round(amount_due(j), 2)) if j.get("customer_id") and amount_due(j) is not None else None,
             round(j.get("paid") or 0, 2), j.get("delivered") or 0,
         ])

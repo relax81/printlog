@@ -1,0 +1,232 @@
+blueprint:
+  name: "printlog: record prints (Bambu Lab)"
+  description: >-
+    Reports start, end and end of the cool-down of a Bambu Lab printer as a
+    `printlog` event. The printlog container stores each print with material,
+    weight per AMS slot, kWh and cover image. Create one automation from this
+    blueprint per printer. Needs the Bambu Lab integration (ha-bambulab). A
+    smart plug with an energy meter is optional: without one, printlog uses
+    the fixed power from Settings → Printers. printlog picks up the entities
+    chosen here on the first print. (German version: printlog_drucker.yaml)
+  domain: automation
+  author: printlog
+  source_url: https://github.com/relax81/printlog/blob/main/blueprints/automation/printlog/printlog_printer.yaml
+  homeassistant:
+    min_version: "2024.10.0"
+  input:
+    printer:
+      name: Printer
+      icon: mdi:printer-3d
+      input:
+        printer_key:
+          name: Short name
+          description: >-
+            Short and unique, only lowercase letters, digits and _, e.g. h2s.
+            printlog stores the printer under this name. For a printer that
+            printlog already knows, use the same short name as before.
+          selector:
+            text:
+        print_status:
+          name: Print status
+          description: >-
+            The "Print status" sensor (…_print_status). The automation finds
+            the job, weight, progress and cover image by the same name prefix.
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+                  integration: bambu_lab
+        ams_units:
+          name: AMS units
+          description: >-
+            For each AMS, the sensor of tray 1 (…_tray_1), in the order AMS 1,
+            AMS 2 and so on. Leave empty if the printer has no AMS.
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                - domain: sensor
+                  integration: bambu_lab
+        external_spool:
+          name: External spool
+          description: Sensor of the external spool (…_external_spool). Optional.
+          default: ""
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+                  integration: bambu_lab
+    power:
+      name: Electricity
+      icon: mdi:power-plug
+      input:
+        energy_sensor:
+          name: Energy meter (optional)
+          description: >-
+            Meter reading in kWh, e.g. of a Shelly plug. Leave empty without a
+            plug.
+          default: ""
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+                  device_class: energy
+        power_sensor:
+          name: Power (optional)
+          description: >-
+            Current power in W of the same plug. The automation uses it to
+            detect the end of the cool-down. Without it, it waits for the
+            maximum cool-down time.
+          default: ""
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+                  device_class: power
+        price_entity:
+          name: Electricity price (optional)
+          description: >-
+            Price per kWh in €, e.g. a number helper. Leave empty and printlog
+            reads the entity from PRICE_ENTITY itself
+            (default input_number.strompreis).
+          default: ""
+          selector:
+            entity:
+              filter:
+                - domain: [input_number, number, sensor]
+    tuning:
+      name: Fine-tuning
+      icon: mdi:tune
+      collapsed: true
+      input:
+        standby_w:
+          name: Standby power
+          description: Below this value the cool-down counts as finished.
+          default: 30
+          selector:
+            number:
+              min: 1
+              max: 200
+              step: 1
+              unit_of_measurement: W
+        cooldown_max:
+          name: Maximum cool-down
+          default: 5
+          selector:
+            number:
+              min: 0
+              max: 30
+              step: 1
+              unit_of_measurement: min
+        meter_delay:
+          name: Meter delay
+          description: >-
+            Wait time after the cool-down until the meter has reported its
+            last reading. Shelly reports about once per minute.
+          default: 70
+          selector:
+            number:
+              min: 0
+              max: 300
+              step: 5
+              unit_of_measurement: s
+mode: parallel
+max: 5
+
+variables:
+  printer_key: !input printer_key
+  status_entity: !input print_status
+  ams_units: !input ams_units
+  ext_entity: !input external_spool
+  energy_entity: !input energy_sensor
+  power_entity: !input power_sensor
+  price_entity: !input price_entity
+  standby_w: !input standby_w
+  prefix: >-
+    {{ status_entity | regex_replace('^sensor\\.', '') | regex_replace('_print_status$', '') }}
+  ams: >-
+    {{ ams_units | map('regex_replace', '^sensor\\.(.+)_tray_\\d+$', '\\1') | list }}
+
+triggers:
+  - trigger: state
+    entity_id: !input print_status
+    id: start
+    to: running
+    not_from: [running, pause, unavailable, unknown, offline]
+  - trigger: state
+    entity_id: !input print_status
+    id: stop
+    from: [running, pause, prepare]
+    to: [finish, failed]
+
+actions:
+  - alias: Report start or end right away
+    event: printlog
+    event_data:
+      phase: "{{ trigger.id }}"
+      printer: "{{ printer_key }}"
+      status: "{{ trigger.to_state.state }}"
+      energy_kwh: "{{ states(energy_entity) if energy_entity else '' }}"
+      price: "{{ states(price_entity) if price_entity else '' }}"
+      printer_name: "{{ states('sensor.' ~ prefix ~ '_printer_name') }}"
+      printer_start_time: "{{ states('sensor.' ~ prefix ~ '_start_time') }}"
+      progress: "{{ states('sensor.' ~ prefix ~ '_print_progress') }}"
+      task_name: "{{ states('sensor.' ~ prefix ~ '_task_name') }}"
+      weight_g: "{{ states('sensor.' ~ prefix ~ '_print_weight') }}"
+      image_entity: "image.{{ prefix }}_cover_image"
+      status_entity: "{{ status_entity }}"
+      energy_entity: "{{ energy_entity }}"
+      prefix: "{{ prefix }}"
+      ams: "{{ ams | to_json }}"
+      ext: "{{ ext_entity }}"
+      materials: >-
+        {% set w = 'sensor.' ~ prefix ~ '_print_weight' %}
+        {% set attrs = states[w].attributes if states[w] else {} %}
+        {% set ns = namespace(items=[]) %}
+        {% for k, v in attrs.items() if k is match('AMS \\d+ Tray \\d+$') %}
+          {% set n = k.split(' ')[1] | int %}
+          {% set e = 'sensor.' ~ ams[n - 1] ~ '_tray_' ~ k.split(' ')[3] if 0 < n <= ams | length else '' %}
+          {% set ns.items = ns.items + [{'slot': k, 'name': states(e) if e else none,
+             'type': state_attr(e, 'type') if e else none,
+             'color': state_attr(e, 'color') if e else none, 'grams': v}] %}
+        {% endfor %}
+        {% for k, v in attrs.items() if 'xternal' in k %}
+          {% set ns.items = ns.items + [{'slot': k, 'name': states(ext_entity) if ext_entity else none,
+             'type': state_attr(ext_entity, 'type') if ext_entity else none,
+             'color': state_attr(ext_entity, 'color') if ext_entity else none, 'grams': v}] %}
+        {% endfor %}
+        {% if not ns.items %}
+          {% set a = 'sensor.' ~ prefix ~ '_active_tray' %}
+          {% set ns.items = [{'slot': 'aktiv', 'name': states(a), 'type': state_attr(a, 'type'),
+             'color': state_attr(a, 'color'), 'grams': states(w) | float(0)}] %}
+        {% endif %}
+        {{ ns.items | to_json }}
+  - condition: trigger
+    id: stop
+  - alias: Wait for the cool-down (only with an energy meter)
+    if:
+      - condition: template
+        value_template: "{{ energy_entity != '' }}"
+    then:
+      - alias: Until power drops below standby or a new print starts
+        wait_template: >-
+          {{ states(status_entity) in ['prepare', 'running']
+             or (power_entity != '' and states(power_entity) | float(0) < standby_w) }}
+        timeout:
+          minutes: !input cooldown_max
+        continue_on_timeout: true
+      - alias: No meter delay on an immediate restart, otherwise heating up would be counted
+        if:
+          - condition: template
+            value_template: "{{ states(status_entity) not in ['prepare', 'running'] }}"
+        then:
+          - delay:
+              seconds: !input meter_delay
+  - alias: Report the final meter reading
+    event: printlog
+    event_data:
+      phase: final
+      printer: "{{ printer_key }}"
+      energy_kwh: "{{ states(energy_entity) if energy_entity else '' }}"
+      price: "{{ states(price_entity) if price_entity else '' }}"

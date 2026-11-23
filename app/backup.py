@@ -10,12 +10,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import shutil
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
 from .db import Store
+from .i18n import N_, t
 
 log = logging.getLogger("printlog.backup")
 
@@ -23,9 +25,9 @@ BACKUP_DIR = os.environ.get("BACKUP_DIR", "").strip()
 BACKUP_HOUR = int(os.environ.get("BACKUP_HOUR", "3"))
 BACKUP_KEEP = int(os.environ.get("BACKUP_KEEP", "14"))  # so viele Stände der Datenbank
 
-INTERVALS = {"daily": "Täglich", "weekly": "Wöchentlich"}
+INTERVALS = {"daily": N_("Täglich"), "weekly": N_("Wöchentlich")}
 DEFAULT_INTERVAL = "weekly"
-WEEKDAYS = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
+WEEKDAYS = [N_("Montag"), N_("Dienstag"), N_("Mittwoch"), N_("Donnerstag"), N_("Freitag"), N_("Samstag"), N_("Sonntag")]
 DEFAULT_WEEKDAY = 6  # Sonntag
 
 
@@ -60,8 +62,14 @@ def next_run(cfg: dict[str, str], now: datetime) -> datetime:
 def describe(cfg: dict[str, str]) -> str:
     interval, weekday, hour = schedule(cfg)
     if interval == "weekly":
-        return f"Jeden {WEEKDAYS[weekday]} um {hour}:00 Uhr"
-    return f"Jede Nacht um {hour}:00 Uhr" if hour < 6 else f"Täglich um {hour}:00 Uhr"
+        return t("Jeden {day} um {hour}:00 Uhr", day=t(WEEKDAYS[weekday]), hour=hour)
+    return t("Jede Nacht um {hour}:00 Uhr", hour=hour) if hour < 6 else t("Täglich um {hour}:00 Uhr", hour=hour)
+
+
+def backup_msg(text: str) -> str:
+    """Gespeicherte Zusammenfassung (deutsch, siehe run_backup) in der aktuellen Sprache."""
+    m = re.fullmatch(r"Datenbank (\S+), (\d+) neue Bilder", text or "")
+    return t("Datenbank {name}, {n} neue Bilder", name=m.group(1), n=m.group(2)) if m else text
 
 
 def enabled() -> bool:

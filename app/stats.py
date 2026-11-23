@@ -10,18 +10,19 @@ from typing import Any
 
 from .costing import parse_materials
 from .db import Store
-from .ui import e, fmt_hours, fmt_num, layout, printer_names
+from .i18n import N_, t, tn
+from .ui import e, fmt_date, fmt_hours, fmt_num, layout, printer_names
 
 PERIODS = {
-    "day": ("Tag", 30),      # letzte 30 Tage
-    "week": ("Woche", 12),   # letzte 12 Wochen
-    "month": ("Monat", 12),  # letzte 12 Monate
+    "day": (N_("Tag"), 30),      # letzte 30 Tage
+    "week": (N_("Woche"), 12),   # letzte 12 Wochen
+    "month": (N_("Monat"), 12),  # letzte 12 Monate
 }
 MATERIAL_ORDER = ["PLA", "PETG", "ABS", "ASA", "TPU", "PA", "PC"]
-COST_SERIES = [("cost_energy", "Strom"), ("cost_filament", "Filament"), ("cost_printer", "Drucker")]
-WEEKDAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
-MONTHS = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September",
-          "Oktober", "November", "Dezember"]
+COST_SERIES = [("cost_energy", N_("Strom")), ("cost_filament", N_("Filament")), ("cost_printer", N_("Drucker"))]
+WEEKDAYS = [N_("Mo"), N_("Di"), N_("Mi"), N_("Do"), N_("Fr"), N_("Sa"), N_("So")]
+MONTHS = [N_("Januar"), N_("Februar"), N_("März"), N_("April"), N_("Mai"), N_("Juni"), N_("Juli"), N_("August"),
+          N_("September"), N_("Oktober"), N_("November"), N_("Dezember")]
 
 
 def _series_color(i: int) -> str:
@@ -38,7 +39,7 @@ def _buckets(period: str, today: date) -> tuple[list[str], list[str], datetime, 
         for i in range(n):
             d = start + timedelta(days=i)
             keys.append(d.strftime("%Y-%m-%d"))
-            labels.append(d.strftime("%d.%m."))
+            labels.append(fmt_date(datetime(d.year, d.month, d.day), "dm"))
         since = datetime.combine(start, datetime.min.time())
         until = datetime.combine(today + timedelta(days=1), datetime.min.time())
     elif period == "week":
@@ -47,7 +48,7 @@ def _buckets(period: str, today: date) -> tuple[list[str], list[str], datetime, 
         for i in range(n):
             d = start + timedelta(weeks=i)
             keys.append(d.strftime("%Y-W%W"))
-            labels.append(d.strftime("%d.%m."))
+            labels.append(fmt_date(datetime(d.year, d.month, d.day), "dm"))
         since = datetime.combine(start, datetime.min.time())
         until = datetime.combine(monday + timedelta(weeks=1), datetime.min.time())
     else:
@@ -118,7 +119,7 @@ def bar_chart(keys: list[str], labels: list[str], series: list[tuple[str, str, s
             y -= h
             tip_lines.append(f'<span class="sw" style="background:{color}"></span>{e(label)}: {e(fmt(v, False))}')
         if totals[i] > 0 and len(series) > 1:
-            tip_lines.append(f"Summe: {e(fmt(totals[i], False))}")
+            tip_lines.append(f"{e(t('Summe'))}: {e(fmt(totals[i], False))}")
         parts.append(f'<rect x="{left + slot * i:.1f}" y="{top}" width="{slot:.1f}" height="{plot_h}" '
                      f'fill="transparent" data-tip="{e("<br>".join(tip_lines))}"/>')
         if i % step == 0:
@@ -165,7 +166,7 @@ def page_stats(store: Store, period: str) -> str:
     for r in rows:
         for key, _ in COST_SERIES:
             costs[(r["bucket"], key)] += r[key] or 0
-    cost_series = [(k, lbl, _series_color(i)) for i, (k, lbl) in enumerate(COST_SERIES)]
+    cost_series = [(k, t(lbl), _series_color(i)) for i, (k, lbl) in enumerate(COST_SERIES)]
 
     types_seen = {r["mtype"] for r in mrows}
     mat_order = [t for t in MATERIAL_ORDER if t in types_seen] + sorted(types_seen - set(MATERIAL_ORDER))
@@ -176,9 +177,10 @@ def page_stats(store: Store, period: str) -> str:
         keep = set(mat_order)
     grams: dict[tuple[str, str], float] = defaultdict(float)
     for r in mrows:
-        t = r["mtype"] if r["mtype"] in keep else "Andere"
-        grams[(r["bucket"], t)] += r["grams"] or 0
-    mat_series = [(t, t, _series_color(i)) for i, t in enumerate(mat_order)] or [("PLA", "PLA", "var(--s1)")]
+        mt = r["mtype"] if r["mtype"] in keep else "Andere"
+        grams[(r["bucket"], mt)] += r["grams"] or 0
+    mat_series = ([(mt, t(mt) if mt == "Andere" else mt, _series_color(i)) for i, mt in enumerate(mat_order)]
+                  or [("PLA", "PLA", "var(--s1)")])
 
     # Kennzahlen für den Zeitraum
     tot: dict[str, float] = defaultdict(float)
@@ -189,44 +191,44 @@ def page_stats(store: Store, period: str) -> str:
             per_printer[r["printer"]][k] += r[k] or 0
     rate = f'{tot["ok"] / (tot["ok"] + tot["failed"]) * 100:.0f} %' if tot["ok"] + tot["failed"] else "–"
     kpis = [
-        ("Druckstunden", fmt_hours(tot["hours"])),
-        ("Drucke", str(int(tot["n"]))),
-        ("Erfolgsquote", rate),
-        ("Filament", fmt_num(tot["grams"] / 1000, 2, "kg")),
-        ("Energie", fmt_num(tot["kwh"], 1, "kWh")),
-        ("Gesamtkosten", fmt_num(tot["cost_total"], 2, "€")),
+        (t("Druckstunden"), fmt_hours(tot["hours"])),
+        (t("Drucke"), str(int(tot["n"]))),
+        (t("Erfolgsquote"), rate),
+        (t("Filament"), fmt_num(tot["grams"] / 1000, 2, "kg")),
+        (t("Energie"), fmt_num(tot["kwh"], 1, "kWh")),
+        (t("Gesamtkosten"), fmt_num(tot["cost_total"], 2, "€")),
     ]
     kpi_html = "".join(f'<div class="kpi"><span class="muted">{e(k)}</span><b>{e(v)}</b></div>' for k, v in kpis)
 
     printer_rows = "".join(
         f'<tr><td><span class="sw" style="background:{c}"></span>{e(lbl)}</td>'
-        f'<td class="n" data-l="Drucke">{int(per_printer[p]["n"])}</td><td class="n" data-l="Stunden">{fmt_hours(per_printer[p]["hours"])}</td>'
-        f'<td class="n" data-l="Erfolg">{(per_printer[p]["ok"] / (per_printer[p]["ok"] + per_printer[p]["failed"]) * 100) if per_printer[p]["ok"] + per_printer[p]["failed"] else 0:.0f} %</td>'
-        f'<td class="n" data-l="Filament">{fmt_num(per_printer[p]["grams"] / 1000, 2, "kg")}</td>'
-        f'<td class="n" data-l="Energie">{fmt_num(per_printer[p]["kwh"], 2, "kWh")}</td>'
-        f'<td class="n" data-l="Kosten">{fmt_num(per_printer[p]["cost_total"], 2, "€")}</td></tr>'
+        f'<td class="n" data-l="{e(t("Drucke"))}">{int(per_printer[p]["n"])}</td><td class="n" data-l="{e(t("Stunden"))}">{fmt_hours(per_printer[p]["hours"])}</td>'
+        f'<td class="n" data-l="{e(t("Erfolg"))}">{(per_printer[p]["ok"] / (per_printer[p]["ok"] + per_printer[p]["failed"]) * 100) if per_printer[p]["ok"] + per_printer[p]["failed"] else 0:.0f} %</td>'
+        f'<td class="n" data-l="{e(t("Filament"))}">{fmt_num(per_printer[p]["grams"] / 1000, 2, "kg")}</td>'
+        f'<td class="n" data-l="{e(t("Energie"))}">{fmt_num(per_printer[p]["kwh"], 2, "kWh")}</td>'
+        f'<td class="n" data-l="{e(t("Kosten"))}">{fmt_num(per_printer[p]["cost_total"], 2, "€")}</td></tr>'
         for p, lbl, c in printer_series if p in per_printer
-    ) or '<tr><td colspan="7" class="muted">Im Zeitraum noch keine Drucke.</td></tr>'
+    ) or f'<tr><td colspan="7" class="muted">{t("Im Zeitraum noch keine Drucke.")}</td></tr>'
 
     seg = "".join(
-        f'<a href="stats?period={k}" class="{"on" if k == period else ""}">{lbl}</a>' for k, (lbl, _) in PERIODS.items()
+        f'<a href="stats?period={k}" class="{"on" if k == period else ""}">{t(lbl)}</a>' for k, (lbl, _) in PERIODS.items()
     )
-    range_txt = {"day": "letzte 30 Tage", "week": "letzte 12 Wochen", "month": "letzte 12 Monate"}[period]
+    range_txt = {"day": t("letzte 30 Tage"), "week": t("letzte 12 Wochen"), "month": t("letzte 12 Monate")}[period]
 
     body = f"""<div class="f" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
 <span class="seg">{seg}</span><span class="muted">{range_txt}</span></div>
 <div class="kpis">{kpi_html}</div>
 <div class="grid2">
-<div class="card"><h3>Druckstunden pro Drucker</h3>{bar_chart(keys, labels, printer_series, hours, _fmt_h)}</div>
-<div class="card"><h3>Kosten</h3>{bar_chart(keys, labels, cost_series, costs, _fmt_eur)}</div>
-<div class="card"><h3>Verdrucktes Filament nach Material</h3>{bar_chart(keys, labels, mat_series, grams, _fmt_g)}</div>
-<div class="card"><h3>Drucker im Zeitraum</h3><div class="wrap" style="border:0">
-<table class="stack"><thead><tr><th>Drucker</th><th class="n">Drucke</th><th class="n">Stunden</th><th class="n">Erfolg</th>
-<th class="n">Filament</th><th class="n">Energie</th><th class="n">Kosten</th></tr></thead><tbody>{printer_rows}</tbody></table></div></div>
+<div class="card"><h3>{t("Druckstunden pro Drucker")}</h3>{bar_chart(keys, labels, printer_series, hours, _fmt_h)}</div>
+<div class="card"><h3>{t("Kosten")}</h3>{bar_chart(keys, labels, cost_series, costs, _fmt_eur)}</div>
+<div class="card"><h3>{t("Verdrucktes Filament nach Material")}</h3>{bar_chart(keys, labels, mat_series, grams, _fmt_g)}</div>
+<div class="card"><h3>{t("Drucker im Zeitraum")}</h3><div class="wrap" style="border:0">
+<table class="stack"><thead><tr><th>{t("Drucker")}</th><th class="n">{t("Drucke")}</th><th class="n">{t("Stunden")}</th><th class="n">{t("Erfolg")}</th>
+<th class="n">{t("Filament")}</th><th class="n">{t("Energie")}</th><th class="n">{t("Kosten")}</th></tr></thead><tbody>{printer_rows}</tbody></table></div></div>
 </div>
-<h2>Druckstunden pro Tag, letzte 12 Monate</h2>
+<h2>{t("Druckstunden pro Tag, letzte 12 Monate")}</h2>
 <div class="card">{heatmap(store)}</div>"""
-    return layout("Statistik", "stats", f'<div class="calc">{body}</div>')
+    return layout(t("Statistik"), "stats", f'<div class="calc">{body}</div>')
 
 
 def heatmap(store: Store) -> str:
@@ -251,15 +253,16 @@ def heatmap(store: Store) -> str:
             style = f'background:color-mix(in srgb, var(--s1) {level * 100:.0f}%, var(--grid))'
         else:
             style = ""
-        tip = f'{d.strftime("%d.%m.%Y")}: {fmt_hours(h) if h else "kein Druck"}' + (f' · {count[k]} Drucke' if count.get(k) else "")
+        tip = (f'{fmt_date(datetime(d.year, d.month, d.day), "date")}: {fmt_hours(h) if h else t("kein Druck")}'
+               + (" · " + tn(count[k], "{n} Druck", "{n} Drucke") if count.get(k) else ""))
         link = f'<a href="./?day={k}" title=""><i style="{style}" data-tip="{e(tip)}"></i></a>' if h else f'<i data-tip="{e(tip)}"></i>'
         cells.append(link)
         d += timedelta(days=1)
     return (f'<div class="heat">{"".join(cells)}</div>'
-            '<div class="legend" style="margin-top:6px"><span>weniger</span>'
+            f'<div class="legend" style="margin-top:6px"><span>{t("weniger")}</span>'
             + "".join(f'<i style="display:inline-block;width:12px;height:12px;border-radius:3px;'
                       f'background:color-mix(in srgb, var(--s1) {p}%, var(--grid))"></i>' for p in (0, 25, 50, 75, 100))
-            + '<span>mehr</span></div>')
+            + f'<span>{t("mehr")}</span></div>')
 
 
 # ---- Kalender -------------------------------------------------------------------
@@ -284,7 +287,7 @@ def page_calendar(store: Store, month: str | None) -> str:
         if j["start_ts"]:
             by_day[datetime.fromtimestamp(j["start_ts"]).strftime("%Y-%m-%d")].append(j)
 
-    cells = [f'<div class="h">{d}</div>' for d in WEEKDAYS]
+    cells = [f'<div class="h">{t(d)}</div>' for d in WEEKDAYS]
     d = grid_start
     while d <= grid_end:
         k = d.strftime("%Y-%m-%d")
@@ -298,7 +301,7 @@ def page_calendar(store: Store, month: str | None) -> str:
                 f'<img src="images/{e(photos.get(j["id"]) or j["image"])}" alt="" loading="lazy">'
                 for j in js[:6] if photos.get(j["id"]) or j.get("image")
             )
-            info = (f'<div>{len(js)} Druck{"e" if len(js) != 1 else ""}</div>'
+            info = (f'<div>{tn(len(js), "{n} Druck", "{n} Drucke")}</div>'
                     f'<div class="muted">{fmt_hours(hours)} · <span class="calc">{fmt_num(cost, 2, "€")}</span></div>'
                     f'<div class="thumbs">{thumbs}</div>')
             tip = "<br>".join(e(j["task_name"] or "–") for j in js[:10])
@@ -312,12 +315,12 @@ def page_calendar(store: Store, month: str | None) -> str:
     month_jobs = [j for j in jobs if j["start_ts"] and datetime.fromtimestamp(j["start_ts"]).month == first.month]
     total = sum(j.get("cost_total") or 0 for j in month_jobs)
     body = f"""<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
-<a href="calendar?month={prev_m}">←</a><h2 style="margin:0">{MONTHS[first.month - 1]} {first.year}</h2>
-<a href="calendar?month={next_m}">→</a><a href="calendar" class="muted">heute</a>
-<span class="muted">{len(month_jobs)} Drucke · <span class="calc">{fmt_num(total, 2, "€")}</span></span></div>
+<a href="calendar?month={prev_m}">←</a><h2 style="margin:0">{t(MONTHS[first.month - 1])} {first.year}</h2>
+<a href="calendar?month={next_m}">→</a><a href="calendar" class="muted">{t("heute")}</a>
+<span class="muted">{tn(len(month_jobs), "{n} Druck", "{n} Drucke")} · <span class="calc">{fmt_num(total, 2, "€")}</span></span></div>
 <div class="cal">{"".join(cells)}</div>
-<p class="muted">Ein Klick auf einen Tag zeigt dessen Drucke in der Tabelle.</p>"""
-    return layout("Kalender", "calendar", body)
+<p class="muted">{t("Ein Klick auf einen Tag zeigt dessen Drucke in der Tabelle.")}</p>"""
+    return layout(t("Kalender"), "calendar", body)
 
 
 __all__ = ["page_stats", "page_calendar", "parse_materials"]

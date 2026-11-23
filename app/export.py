@@ -24,8 +24,9 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
 
 from .costing import hourly_rate, material_notes, parse_materials
 from .db import Store, code_label
+from .i18n import N_, note as t_note, t
 from .pages import _short, _status_of, margins
-from .ui import STATIC_DIR, fmt_dur, fmt_input, fmt_num, printer_names
+from .ui import STATIC_DIR, bon_tagline, fmt_date, fmt_dur, fmt_input, fmt_num, printer_names
 
 VARIANTS = ("kunde", "intern")
 
@@ -57,18 +58,23 @@ def _eur(v: float | None) -> str:
     return fmt_num(v, 2, "€")
 
 
-def _date(ts: float | None, fmt: str = "%d.%m.%Y") -> str:
-    return datetime.fromtimestamp(ts).strftime(fmt) if ts else "–"
+def _date(ts: float | None, kind: str = "date") -> str:
+    return fmt_date(ts, kind) if ts else "–"
+
+
+# Dateinamen-Zusatz je Variante (Pfade der Export-URLs bleiben deutsch)
+SUFFIXES = {"kunde": N_("kunde"), "intern": N_("intern"), "kosten": N_("kosten")}
 
 
 def file_name(job: dict[str, Any], suffix: str, ext: str) -> str:
     """z. B. printlog_PL-7K3Q_Kabelhalter_kunde.png (nur ASCII, Umlaute umschrieben)."""
-    name = job.get("task_name") or "Druck"
+    name = job.get("task_name") or t("Druck")
     for a, b in (("ä", "ae"), ("ö", "oe"), ("ü", "ue"), ("Ä", "Ae"), ("Ö", "Oe"), ("Ü", "Ue"), ("ß", "ss")):
         name = name.replace(a, b)
     name = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode()
-    name = re.sub(r"[^A-Za-z0-9]+", "_", name).strip("_")[:40] or "Druck"
+    name = re.sub(r"[^A-Za-z0-9]+", "_", name).strip("_")[:40] or t("Druck")
     ref = code_label(job.get("code")) or job["id"]
+    suffix = t(SUFFIXES[suffix]) if suffix in SUFFIXES else suffix
     return f"printlog_{ref}_{name}{'_' + suffix if suffix else ''}.{ext}"
 
 
@@ -97,20 +103,20 @@ def collect(store: Store, job: dict[str, Any], image_dir: Path, status: bool = T
 
     prices: list[dict[str, Any]] = []
     if cm is not None:
-        prices.append({"name": f'Kunde {job.get("customer_name") or ""}'.strip(), "pct": cm, "customer": True})
+        prices.append({"name": f'{t("Kunde")} {job.get("customer_name") or ""}'.strip(), "pct": cm, "customer": True})
     prices += [{"name": n, "pct": p, "customer": False} for n, p in general]
     for p in prices:
         p["price"] = None if cost is None else cost * (1 + p["pct"] / 100)
 
     # Was der Kunde zahlt: Endpreis, sonst Kundenpreis. Ohne Kunde die erste allgemeine Marge.
     if job.get("final_price") is not None:
-        due, src = job["final_price"], "Endpreis"
+        due, src = job["final_price"], t("Endpreis")
     elif cm is not None and cost is not None:
-        due, src = cost * (1 + cm / 100), f"Kosten + {fmt_input(cm)} % Kundenmarge"
+        due, src = cost * (1 + cm / 100), t("Kosten + {p} % Kundenmarge", p=fmt_input(cm))
     elif not has_customer and general and cost is not None:
-        due, src = cost * (1 + general[0][1] / 100), f"Kosten + {fmt_input(general[0][1])} % ({general[0][0]})"
+        due, src = cost * (1 + general[0][1] / 100), t("Kosten + {p} % ({name})", p=fmt_input(general[0][1]), name=general[0][0])
     else:
-        due, src = cost, "Selbstkosten"
+        due, src = cost, t("Selbstkosten")
     gift = bool(job.get("gift"))
     scrap = bool(job.get("is_scrap"))
     payable = status and has_customer and not gift and not scrap and due is not None
@@ -141,7 +147,7 @@ def collect(store: Store, job: dict[str, Any], image_dir: Path, status: bool = T
     grams = job["filament_g"] if job.get("filament_g") is not None else job.get("weight_g")
     return {
         "job": job,
-        "ref": code_label(job.get("code")) or f'Nr. {job["id"]}',
+        "ref": code_label(job.get("code")) or t("Nr. {id}", id=job["id"]),
         "logo": bon_logo(store, image_dir),
         "qty": qty,
         "cost": cost,
@@ -292,8 +298,8 @@ class _Bon:
 
     def section(self, title: str) -> None:
         f = _font("mono-b", 22)
-        t = " ".join(title.upper())
-        tw = self._w(t, f)
+        txt = " ".join(title.upper())
+        tw = self._w(txt, f)
         yy = self.y + 13
         x = PAD
         while x < PAD + (CW - tw) // 2 - 16:
@@ -303,7 +309,7 @@ class _Bon:
         while x < PAD + CW:
             self.d.line((x, yy, min(x + 10, PAD + CW), yy), fill=FAINT, width=2)
             x += 18
-        self.d.text((PAD + (CW - tw) // 2, self.y), t, font=f, fill=MUTED)
+        self.d.text((PAD + (CW - tw) // 2, self.y), txt, font=f, fill=MUTED)
         self.y += 46
 
     def band(self, text: str) -> None:
@@ -332,7 +338,7 @@ class _Bon:
             self.y += h + 14
         except OSError:
             self.center("printl€g", _font("sans-b", 56))
-        self.center("3 D - D R U C K", _font("mono", 22), MUTED, spacing=0)
+        self.center(bon_tagline(), _font("mono", 22), MUTED, spacing=0)
 
     def photo(self, path: Path | None, max_h: int = 560) -> None:
         if not path:
@@ -409,8 +415,8 @@ class _Bon:
         out = Image.new("RGB", (W, H))
         od = ImageDraw.Draw(out)
         for yy in range(H):
-            t = yy / max(1, H - 1)
-            od.line((0, yy, W, yy), fill=tuple(round(a + (b - a) * t) for a, b in zip(BG_TOP, BG_BOTTOM)))
+            frac = yy / max(1, H - 1)
+            od.line((0, yy, W, yy), fill=tuple(round(a + (b - a) * frac) for a, b in zip(BG_TOP, BG_BOTTOM)))
         shadow = Image.new("L", (W, H), 0)
         shadow.paste(mask.point(lambda v: 150 if v else 0), ((W - PW) // 2 + 6, top + 16))
         shadow = shadow.filter(ImageFilter.GaussianBlur(18))
@@ -425,32 +431,32 @@ def bon_png(data: dict[str, Any], variant: str) -> bytes:
     qty = data["qty"]
     b = _Bon()
     if intern:
-        b.band("INTERN · MIT KALKULATION")
+        b.band(t("INTERN · MIT KALKULATION"))
     b.logo(data["logo"])
     b.gap(20)
     f_small = _font("mono", 24)
     b.row(_date(job.get("end_ts") or job.get("start_ts")), data["ref"], size=24, fill=MUTED, leader=False)
     b.dashed(18)
     b.photo(data["photo"])
-    b.center(job.get("task_name") or "Druck", _font("sans-b", 44), spacing=10, max_lines=3)
+    b.center(job.get("task_name") or t("Druck"), _font("sans-b", 44), spacing=10, max_lines=3)
     if job.get("project_title") and job["project_title"] != job.get("task_name"):
         b.gap(2)
         b.center(job["project_title"], f_small, MUTED, max_lines=2)
     b.dashed()
 
     if data["customer"]:
-        b.row("Für", data["customer"])
-    b.row("Stückzahl", f"{qty} Stk.")
+        b.row(t("Für"), data["customer"])
+    b.row(t("Stückzahl"), t("{q} Stk.", q=qty))
     due = data["due_calc"]
     if qty > 1 and due is not None and not data["gift"]:
-        b.row("Preis pro Stück", _eur(due / qty))
+        b.row(t("Preis pro Stück"), _eur(due / qty))
 
     if intern:
         _bon_intern(b, data)
     elif any(m["note"] for m in data["materials"]):
         # Für Kunden nur die eigenen Notizen (z. B. genauer Farbname), ohne Gramm und Kosten
         b.gap(10)
-        b.section("Farben")
+        b.section(t("Farben"))
         for m in data["materials"]:
             if m["note"]:
                 b.dot(m.get("color"))
@@ -458,37 +464,37 @@ def bon_png(data: dict[str, Any], variant: str) -> bytes:
 
     b.double()
     if data["gift"]:
-        b.row("SUMME", _eur(0), size=46, bold=True, leader=False)
+        b.row(t("SUMME"), _eur(0), size=46, bold=True, leader=False)
         b.gap(4)
-        b.sub("Geschenk, nichts zu zahlen" + (f" (Wert {_eur(due)})" if intern and due is not None else ""))
+        b.sub(t("Geschenk, nichts zu zahlen") + (" " + t("(Wert {v})", v=_eur(due)) if intern and due is not None else ""))
     else:
-        b.row("SUMME", _eur(due), size=46, bold=True, leader=False)
+        b.row(t("SUMME"), _eur(due), size=46, bold=True, leader=False)
         if data["payable"]:
             b.gap(6)
-            b.row("Bezahlt", _eur(data["paid"]), vfill=OK if data["paid"] > 0 else INK)
+            b.row(t("Bezahlt"), _eur(data["paid"]), vfill=OK if data["paid"] > 0 else INK)
             if data["open"] >= 0.005:
-                b.row("Offen", _eur(data["open"]), bold=True, vfill=ACCENT)
+                b.row(t("Offen"), _eur(data["open"]), bold=True, vfill=ACCENT)
     if data["show_handover"]:
         d, n = data["delivered"], qty
-        b.row("Übergeben", "alles" if d >= n else f"{d} von {n} Stk.")
+        b.row(t("Übergeben"), t("alles") if d >= n else t("{d} von {n} Stk.", d=d, n=n))
     if data["gift"]:
-        b.stamp("GESCHENK", GIFT)
+        b.stamp(t("GESCHENK"), GIFT)
     elif data["payable"] and data["open"] < 0.005:
-        b.stamp("BEZAHLT", OK)
+        b.stamp(t("BEZAHLT"), OK)
 
     if intern and (data["payments"] or data["handovers"]):
         b.dashed(18)
         for p in data["payments"]:
-            b.row(f'{_date(p["ts"], "%d.%m.%y")} Zahlung', _eur(p["amount"]), size=24, fill=MUTED)
+            b.row(f'{_date(p["ts"], "date_s")} {t("Zahlung")}', _eur(p["amount"]), size=24, fill=MUTED)
             if p.get("note"):
                 b.sub(p["note"], 20)
         for h in data["handovers"]:
-            b.row(f'{_date(h["ts"], "%d.%m.%y")} Übergabe', f'{h["qty"]} Stk.', size=24, fill=MUTED)
+            b.row(f'{_date(h["ts"], "date_s")} {t("Übergabe")}', t("{q} Stk.", q=h["qty"]), size=24, fill=MUTED)
             if h.get("note"):
                 b.sub(h["note"], 20)
 
     b.dashed()
-    b.center("Vielen Dank!", _font("sans-b", 34), spacing=4)
+    b.center(t("Vielen Dank!"), _font("sans-b", 34), spacing=4)
     b.gap(18)
     b.barcode(code_label(job.get("code")) or f"PL-{job['id']:06d}")
     out = b.finish()
@@ -501,19 +507,19 @@ def _bon_intern(b: _Bon, data: dict[str, Any]) -> None:
     job = data["job"]
     qty = data["qty"]
     b.gap(10)
-    b.section("Druck")
-    b.row("Drucker", data["printer"])
-    b.row("Start", _date(job.get("start_ts"), "%d.%m.%y %H:%M"))
-    b.row("Dauer", fmt_dur(job.get("start_ts"), job.get("end_ts")))
+    b.section(t("Druck"))
+    b.row(t("Drucker"), data["printer"])
+    b.row(t("Start"), _date(job.get("start_ts"), "ts"))
+    b.row(t("Dauer"), fmt_dur(job.get("start_ts"), job.get("end_ts")))
     if data["status"] != "fertig":
-        b.row("Status", data["status"] + (f' bei {int(job["progress"])} %' if job.get("status") == "abgebrochen"
-                                          and job.get("progress") is not None else ""))
+        b.row(t("Status"), t(data["status"]) + (" " + t("bei {p} %", p=int(job["progress"])) if job.get("status") == "abgebrochen"
+                                                and job.get("progress") is not None else ""))
     if data["scrap"]:
-        b.row("Ausschuss", "ja", vfill=ACCENT)
+        b.row(t("Ausschuss"), t("ja"), vfill=ACCENT)
 
     if data["materials"]:
         b.gap(10)
-        b.section("Material")
+        b.section(t("Material"))
         for m in data["materials"]:
             b.dot(m.get("color"))
             b.row(m["note"] or _short(m["name"]) or (m["type"] or "?"), fmt_num(m["grams_used"], 1, "g"), indent=36)
@@ -521,32 +527,32 @@ def _bon_intern(b: _Bon, data: dict[str, Any]) -> None:
                 b.sub(_short(m["name"]) or (m["type"] or ""), indent=36)
 
     b.gap(10)
-    b.section("Kosten")
-    b.row("Strom", _eur(job.get("cost")))
-    b.sub(fmt_num(job.get("kwh"), 3, "kWh") if job.get("kwh") is not None else "kein Zählerstand")
-    b.row("Filament", _eur(job.get("cost_filament")))
+    b.section(t("Kosten"))
+    b.row(t("Strom"), _eur(job.get("cost")))
+    b.sub(fmt_num(job.get("kwh"), 3, "kWh") if job.get("kwh") is not None else t("kein Zählerstand"))
+    b.row(t("Filament"), _eur(job.get("cost_filament")))
     b.sub(fmt_num(data["grams"], 1, "g"))
-    b.row("Drucker", _eur(job.get("cost_printer")))
-    b.sub("Abschreibung + Wartung" + (f' · {fmt_num(data["rate"], 2, "€")}/h' if data["rate"] else ""))
+    b.row(t("Drucker"), _eur(job.get("cost_printer")))
+    b.sub(t("Abschreibung + Wartung") + (f' · {fmt_num(data["rate"], 2, "€")}/h' if data["rate"] else ""))
     b.dashed(10)
-    b.row("Selbstkosten", _eur(data["cost"]), bold=True)
+    b.row(t("Selbstkosten"), _eur(data["cost"]), bold=True)
     if qty > 1 and data["cost"] is not None:
-        b.sub(f'{_eur(data["cost"] / qty)} pro Stück')
+        b.sub(t("{v} pro Stück", v=_eur(data["cost"] / qty)))
 
     if data["prices"] or job.get("final_price") is not None:
         b.gap(10)
-        b.section("Preise")
+        b.section(t("Preise"))
         for p in data["prices"]:
             b.row(f'{p["name"]} +{fmt_input(p["pct"])} %', _eur(p["price"]),
                   vfill=ACCENT if p["customer"] and job.get("final_price") is None else None)
             if qty > 1 and p["price"] is not None:
-                b.sub(f'{_eur(p["price"] / qty)} pro Stück')
+                b.sub(t("{v} pro Stück", v=_eur(p["price"] / qty)))
         if job.get("final_price") is not None:
-            b.row("Endpreis", _eur(job["final_price"]), bold=True, vfill=ACCENT)
+            b.row(t("Endpreis"), _eur(job["final_price"]), bold=True, vfill=ACCENT)
     if data["profit"] is not None:
         pct = f' ({fmt_num(data["profit"] / data["cost"] * 100, 0)} %)' if data["cost"] else ""
-        b.row("Gewinn", _eur(data["profit"]) + pct, vfill=OK if data["profit"] >= 0 else ACCENT)
-    b.sub(f'Summe: {data["due_src"]}')
+        b.row(t("Gewinn"), _eur(data["profit"]) + pct, vfill=OK if data["profit"] >= 0 else ACCENT)
+    b.sub(f'{t("Summe")}: {data["due_src"]}')
 
 
 # ---- PDF ----------------------------------------------------------------------
@@ -608,7 +614,7 @@ def report_pdf(data: dict[str, Any]) -> bytes:
     W_ = A4[0] - 36 * mm
 
     def table(rows: list[list[Any]], widths: list[float], head: bool = True, sum_rows: int = 0) -> Table:
-        t = Table(rows, colWidths=widths, hAlign="LEFT")
+        tbl = Table(rows, colWidths=widths, hAlign="LEFT")
         cmds = [("VALIGN", (0, 0), (-1, -1), "TOP"), ("TOPPADDING", (0, 0), (-1, -1), 3.5),
                 ("BOTTOMPADDING", (0, 0), (-1, -1), 3.5), ("LEFTPADDING", (0, 0), (-1, -1), 4),
                 ("RIGHTPADDING", (0, 0), (-1, -1), 4),
@@ -617,8 +623,8 @@ def report_pdf(data: dict[str, Any]) -> bytes:
             cmds += [("BACKGROUND", (0, 0), (-1, 0), soft), ("LINEBELOW", (0, 0), (-1, 0), 0.8, muted)]
         if sum_rows:
             cmds += [("LINEABOVE", (0, -sum_rows), (-1, -sum_rows), 0.9, ink)]
-        t.setStyle(TableStyle(cmds))
-        return t
+        tbl.setStyle(TableStyle(cmds))
+        return tbl
 
     def H(text: str) -> list[Any]:
         return [P(text, st_h)]
@@ -644,17 +650,17 @@ def report_pdf(data: dict[str, Any]) -> bytes:
             head_left.append(RLImage(str(logo), width=iw * scale, height=ih * scale, hAlign="LEFT"))
     except Exception:  # noqa: BLE001
         head_left.append(P("printl€g", st_title))
-    head_left += [Spacer(1, 3 * mm), P("Kostenaufstellung · intern", st_muted), Spacer(1, 6 * mm),
-                  P(job.get("task_name") or "Druck", st_title)]
-    meta = [f'Druck {data["ref"]}', _date(job.get("end_ts") or job.get("start_ts"))]
+    head_left += [Spacer(1, 3 * mm), P(t("Kostenaufstellung · intern"), st_muted), Spacer(1, 6 * mm),
+                  P(job.get("task_name") or t("Druck"), st_title)]
+    meta = [t("Druck {ref}", ref=data["ref"]), _date(job.get("end_ts") or job.get("start_ts"))]
     if data["customer"]:
-        meta.insert(0, f'Kunde: {data["customer"]}')
+        meta.insert(0, t("Kunde: {name}", name=data["customer"]))
     head_left.append(P(" · ".join(meta), st_muted))
     if job.get("project_title") or job.get("project_url"):
         url = job.get("project_url") or ""
         label = escape(job.get("project_title") or url)
         link = (f'<a href="{escape(url)}" color="#e86a12">{label}</a>' if url.startswith(("http://", "https://")) else label)
-        head_left.append(Paragraph("Projekt: " + link, st_muted))
+        head_left.append(Paragraph(escape(t("Projekt")) + ": " + link, st_muted))
     head_right: Any = ""
     if data["photo"]:
         try:
@@ -681,14 +687,14 @@ def report_pdf(data: dict[str, Any]) -> bytes:
                                         textColor=accent if strong else ink)),
                 P(sub, st_muted)]
     due = data["due_calc"]
-    tiles = [tile("Selbstkosten", _eur(data["cost"]), f'{_eur(data["cost"] / qty)} pro Stück' if qty > 1 and data["cost"] is not None else "für den ganzen Druck"),
-             tile("Geschenkt" if data["gift"] else "Zu zahlen", _eur(0 if data["gift"] else due),
-                  (f"Wert {_eur(due)}" if data["gift"] else data["due_src"]), True)]
+    tiles = [tile(t("Selbstkosten"), _eur(data["cost"]), t("{v} pro Stück", v=_eur(data["cost"] / qty)) if qty > 1 and data["cost"] is not None else t("für den ganzen Druck")),
+             tile(t("Geschenkt") if data["gift"] else t("Zu zahlen"), _eur(0 if data["gift"] else due),
+                  (t("Wert {v}", v=_eur(due)) if data["gift"] else data["due_src"]), True)]
     if data["profit"] is not None:
-        pct = f'{fmt_num(data["profit"] / data["cost"] * 100, 0)} % auf die Kosten' if data["cost"] else ""
-        tiles.append(tile("Gewinn", _eur(data["profit"]), pct))
+        pct = t("{p} % auf die Kosten", p=fmt_num(data["profit"] / data["cost"] * 100, 0)) if data["cost"] else ""
+        tiles.append(tile(t("Gewinn"), _eur(data["profit"]), pct))
     if data["payable"]:
-        tiles.append(tile("Bezahlt", _eur(data["paid"]), "alles bezahlt" if data["open"] < 0.005 else f'{_eur(data["open"])} offen'))
+        tiles.append(tile(t("Bezahlt"), _eur(data["paid"]), t("alles bezahlt") if data["open"] < 0.005 else t("{v} offen", v=_eur(data["open"]))))
     tt = Table([tiles], colWidths=[W_ / len(tiles)] * len(tiles))
     tt.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), soft), ("BOX", (0, 0), (-1, -1), 0.5, line),
                             ("LINEAFTER", (0, 0), (-2, -1), 0.5, line), ("VALIGN", (0, 0), (-1, -1), "TOP"),
@@ -697,23 +703,24 @@ def report_pdf(data: dict[str, Any]) -> bytes:
     story.append(tt)
 
     # Druck
-    facts = [("Drucker", data["printer"]), ("Status", data["status"] + (f' bei {int(job["progress"])} %' if job.get("status") == "abgebrochen" and job.get("progress") is not None else "")),
-             ("Start", _date(job.get("start_ts"), "%d.%m.%Y %H:%M")), ("Ende", _date(job.get("end_ts"), "%d.%m.%Y %H:%M")),
-             ("Dauer", fmt_dur(job.get("start_ts"), job.get("end_ts"))), ("Energie", fmt_num(job.get("kwh"), 3, "kWh")),
-             ("Filament", fmt_num(data["grams"], 1, "g")), ("Stückzahl", f"{qty} Stk.")]
+    aborted = " " + t("bei {p} %", p=int(job["progress"])) if job.get("status") == "abgebrochen" and job.get("progress") is not None else ""
+    facts = [(t("Drucker"), data["printer"]), (t("Status"), t(data["status"]) + aborted),
+             (t("Start"), _date(job.get("start_ts"), "ts_long")), (t("Ende"), _date(job.get("end_ts"), "ts_long")),
+             (t("Dauer"), fmt_dur(job.get("start_ts"), job.get("end_ts"))), (t("Energie"), fmt_num(job.get("kwh"), 3, "kWh")),
+             (t("Filament"), fmt_num(data["grams"], 1, "g")), (t("Stückzahl"), t("{q} Stk.", q=qty))]
     if data["scrap"]:
-        facts.append(("Ausschuss", "ja"))
+        facts.append((t("Ausschuss"), t("ja")))
     if data["gift"]:
-        facts.append(("Abrechnung", "verschenkt"))
+        facts.append((t("Abrechnung"), t("verschenkt")))
     rows = []
     for i in range(0, len(facts), 2):
         pair = facts[i:i + 2] + [("", "")] * (2 - len(facts[i:i + 2]))
         rows.append([P(pair[0][0], st_muted), P(pair[0][1]), P(pair[1][0], st_muted), P(pair[1][1])])
-    story += H("Druck") + [table(rows, [24 * mm, W_ / 2 - 24 * mm, 24 * mm, W_ / 2 - 24 * mm], head=False)]
+    story += H(t("Druck")) + [table(rows, [24 * mm, W_ / 2 - 24 * mm, 24 * mm, W_ / 2 - 24 * mm], head=False)]
 
     # Material
     if data["materials"]:
-        rows = [hrow("Slot", "Filament", "Typ", "Farbe", "Gramm", "€/kg", "Kosten")]
+        rows = [hrow(t("Slot"), t("Filament"), t("Typ"), t("Farbe"), t("Gramm"), "€/kg", t("Kosten"))]
         for m in data["materials"]:
             col = m.get("color") or ""
             swatch: Any = ""
@@ -722,84 +729,86 @@ def report_pdf(data: dict[str, Any]) -> bytes:
                 swatch.setStyle(TableStyle([("BACKGROUND", (0, 0), (0, 0), colors.HexColor(col[:7])),
                                             ("BOX", (0, 0), (0, 0), 0.4, line)]))
             fil = Paragraph(escape(m.get("name") or "?") + (f'<br/><font color="#7a7266" size="8.5">{escape(m["note"])}</font>' if m["note"] else ""), st_body)
-            rows.append([P(m.get("slot") or "–"), fil, P(m.get("type") or "–"), swatch,
+            rows.append([P(t(m["slot"]) if m.get("slot") else "–"), fil, P(m.get("type") or "–"), swatch,
                          P(fmt_num(m["grams_used"], 1, "g"), st_r), P(fmt_num(m["eur_kg"], 2, "€") if m["eur_kg"] is not None else "–", st_r),
                          P(_eur(m["cost"]), st_r)])
-        story += H("Material") + [table(rows, [14 * mm, W_ - 116 * mm, 18 * mm, 14 * mm, 22 * mm, 22 * mm, 26 * mm])]
+        story += H(t("Material")) + [table(rows, [14 * mm, W_ - 116 * mm, 18 * mm, 14 * mm, 22 * mm, 22 * mm, 26 * mm])]
 
     # Kosten
     dur_h = ((job["end_ts"] - job["start_ts"]) / 3600) if job.get("start_ts") and job.get("end_ts") and job["end_ts"] > job["start_ts"] else None
-    rows = [hrow("Posten", "Grundlage", "Betrag"),
-            [P("Strom"), P(fmt_num(job.get("kwh"), 3, "kWh") if job.get("kwh") is not None else "kein Zählerstand", st_muted), P(_eur(job.get("cost")), st_r)],
-            [P("Filament"), P(fmt_num(data["grams"], 1, "g") + (" (anteilig bis zum Abbruch)" if job.get("status") == "abgebrochen" else ""), st_muted), P(_eur(job.get("cost_filament")), st_r)],
-            [P("Drucker"), P("Abschreibung + Wartung" + (f' · {fmt_dur(job["start_ts"], job["end_ts"])} × {fmt_num(data["rate"], 2, "€")}/h' if data["rate"] and dur_h else ""), st_muted),
+    rows = [hrow(t("Posten"), t("Grundlage"), t("Betrag")),
+            [P(t("Strom")), P(fmt_num(job.get("kwh"), 3, "kWh") if job.get("kwh") is not None else t("kein Zählerstand"), st_muted), P(_eur(job.get("cost")), st_r)],
+            [P(t("Filament")), P(fmt_num(data["grams"], 1, "g") + (" " + t("(anteilig bis zum Abbruch)") if job.get("status") == "abgebrochen" else ""), st_muted), P(_eur(job.get("cost_filament")), st_r)],
+            [P(t("Drucker")), P(t("Abschreibung + Wartung") + (f' · {fmt_dur(job["start_ts"], job["end_ts"])} × {fmt_num(data["rate"], 2, "€")}/h' if data["rate"] and dur_h else ""), st_muted),
              P(_eur(job.get("cost_printer")), st_r)],
-            [P("Selbstkosten", ParagraphStyle("sb", parent=st_body, fontName=bold)),
-             P(f'{_eur(data["cost"] / qty)} pro Stück bei {qty} Stück' if qty > 1 and data["cost"] is not None else "", st_muted),
+            [P(t("Selbstkosten"), ParagraphStyle("sb", parent=st_body, fontName=bold)),
+             P(t("{v} pro Stück bei {q} Stück", v=_eur(data["cost"] / qty), q=qty) if qty > 1 and data["cost"] is not None else "", st_muted),
              P(_eur(data["cost"]), st_rb)]]
-    story += H("Kosten") + [table(rows, [34 * mm, W_ - 64 * mm, 30 * mm], sum_rows=1)]
+    story += H(t("Kosten")) + [table(rows, [34 * mm, W_ - 64 * mm, 30 * mm], sum_rows=1)]
 
     # Preise
     if data["prices"] or job.get("final_price") is not None:
-        rows = [hrow("Preis", "Aufschlag", "pro Stück", "Gesamt")]
+        rows = [hrow(t("Preis"), t("Aufschlag"), t("pro Stück"), t("Gesamt"))]
         for p in data["prices"]:
             rows.append([P(p["name"]), P(f'+{fmt_input(p["pct"])} %', st_muted),
                          P(_eur(p["price"] / qty) if p["price"] is not None else "–", st_r), P(_eur(p["price"]), st_r)])
         if job.get("final_price") is not None:
             fp = job["final_price"]
-            rows.append([P("Endpreis", ParagraphStyle("eb", parent=st_body, fontName=bold)), P("fest vereinbart", st_muted),
+            rows.append([P(t("Endpreis"), ParagraphStyle("eb", parent=st_body, fontName=bold)), P(t("fest vereinbart"), st_muted),
                          P(_eur(fp / qty), st_r), P(_eur(fp), st_rb)])
-        story += H("Preise") + [table(rows, [W_ - 92 * mm, 30 * mm, 30 * mm, 32 * mm],
+        story += H(t("Preise")) + [table(rows, [W_ - 92 * mm, 30 * mm, 30 * mm, 32 * mm],
                                       sum_rows=1 if job.get("final_price") is not None else 0)]
 
     # Zahlungen
     if data["customer"] and not data["scrap"] and data["status_shown"]:
-        block: list[Any] = H("Zahlungen")
+        block: list[Any] = H(t("Zahlungen"))
         if data["gift"]:
-            block.append(P("Verschenkt, keine Zahlung nötig.", st_muted))
+            block.append(P(t("Verschenkt, keine Zahlung nötig."), st_muted))
         else:
-            rows = [hrow("Datum", "Notiz", "Betrag")]
+            rows = [hrow(t("Datum"), t("Notiz"), t("Betrag"))]
             rows += [[P(_date(p["ts"])), P(p.get("note") or "", st_muted), P(_eur(p["amount"]), st_r)] for p in data["payments"]]
             if not data["payments"]:
-                rows.append([P("–"), P("noch keine Zahlung", st_muted), P("", st_r)])
-            rows.append([P("Bezahlt", ParagraphStyle("pb", parent=st_body, fontName=bold)), P(f'von {_eur(due)}', st_muted), P(_eur(data["paid"]), st_rb)])
+                rows.append([P("–"), P(t("noch keine Zahlung"), st_muted), P("", st_r)])
+            rows.append([P(t("Bezahlt"), ParagraphStyle("pb", parent=st_body, fontName=bold)), P(t("von {v}", v=_eur(due)), st_muted), P(_eur(data["paid"]), st_rb)])
             if data["open"] >= 0.005:
-                rows.append([P("Offen", ParagraphStyle("ob", parent=st_body, fontName=bold, textColor=accent)), P(""),
+                rows.append([P(t("Offen"), ParagraphStyle("ob", parent=st_body, fontName=bold, textColor=accent)), P(""),
                              P(_eur(data["open"]), ParagraphStyle("orb", parent=st_rb, textColor=accent))])
             block.append(table(rows, [30 * mm, W_ - 60 * mm, 30 * mm], sum_rows=2 if data["open"] >= 0.005 else 1))
         story.append(KeepTogether(block))
 
     # Übergaben
     if data["show_handover"]:
-        rows = [hrow("Datum", "Notiz", "Stück")]
-        rows += [[P(_date(h["ts"])), P(h.get("note") or "", st_muted), P(f'{h["qty"]} Stk.', st_r)] for h in data["handovers"]]
+        rows = [hrow(t("Datum"), t("Notiz"), t("Stück"))]
+        rows += [[P(_date(h["ts"])), P(h.get("note") or "", st_muted), P(t("{q} Stk.", q=h["qty"]), st_r)] for h in data["handovers"]]
         if not data["handovers"]:
-            rows.append([P("–"), P("noch nichts übergeben", st_muted), P("", st_r)])
+            rows.append([P("–"), P(t("noch nichts übergeben"), st_muted), P("", st_r)])
         d = data["delivered"]
-        rows.append([P("Übergeben", ParagraphStyle("ub", parent=st_body, fontName=bold)),
-                     P("alles übergeben" if d >= qty else f"noch {qty - d} offen", st_muted), P(f"{d} von {qty}", st_rb)])
-        story.append(KeepTogether(H("Übergaben") + [table(rows, [30 * mm, W_ - 60 * mm, 30 * mm], sum_rows=1)]))
+        rows.append([P(t("Übergeben"), ParagraphStyle("ub", parent=st_body, fontName=bold)),
+                     P(t("alles übergeben") if d >= qty else t("noch {k} offen", k=qty - d), st_muted), P(t("{d} von {n}", d=d, n=qty), st_rb)])
+        story.append(KeepTogether(H(t("Übergaben")) + [table(rows, [30 * mm, W_ - 60 * mm, 30 * mm], sum_rows=1)]))
 
     # Notizen
     extra = []
     if job.get("job_note"):
-        extra.append(("Notiz", job["job_note"]))
+        extra.append((t("Notiz"), job["job_note"]))
     if job.get("local_path"):
-        extra.append(("Ordner", job["local_path"]))
+        extra.append((t("Ordner"), job["local_path"]))
     if job.get("note"):
-        extra.append(("Hinweis", job["note"]))
+        extra.append((t("Hinweis"), t_note(job["note"])))
     if extra:
-        story += H("Notizen") + [table([[P(k, st_muted), Paragraph(escape(v).replace("\n", "<br/>"), st_body)] for k, v in extra],
+        story += H(t("Notizen")) + [table([[P(k, st_muted), Paragraph(escape(v).replace("\n", "<br/>"), st_body)] for k, v in extra],
                                        [24 * mm, W_ - 24 * mm], head=False)]
 
-    created = datetime.now().strftime("%d.%m.%Y %H:%M")
+    created = fmt_date(datetime.now(), "ts_long")
+    foot_left = t("printlog · Druck {ref} · erstellt am {when}", ref=data["ref"], when=created)
+    page_label = t("Seite")
 
     def footer(canvas: Any, doc: Any) -> None:
         canvas.saveState()
         canvas.setFont(font, 7.5)
         canvas.setFillColor(muted)
-        canvas.drawString(18 * mm, 10 * mm, f'printlog · Druck {data["ref"]} · erstellt am {created}')
-        canvas.drawRightString(A4[0] - 18 * mm, 10 * mm, f"Seite {doc.page}")
+        canvas.drawString(18 * mm, 10 * mm, foot_left)
+        canvas.drawRightString(A4[0] - 18 * mm, 10 * mm, f"{page_label} {doc.page}")
         canvas.setStrokeColor(line)
         canvas.setLineWidth(0.4)
         canvas.line(18 * mm, 13.5 * mm, A4[0] - 18 * mm, 13.5 * mm)
@@ -807,7 +816,7 @@ def report_pdf(data: dict[str, Any]) -> bytes:
 
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=18 * mm, rightMargin=18 * mm, topMargin=16 * mm,
-                            bottomMargin=20 * mm, title=f'{job.get("task_name") or "Druck"} – Kostenaufstellung',
-                            author="printlog", creator="printlog", subject=f'Druck {data["ref"]}')
+                            bottomMargin=20 * mm, title=f'{job.get("task_name") or t("Druck")} – {t("Kostenaufstellung")}',
+                            author="printlog", creator="printlog", subject=t("Druck {ref}", ref=data["ref"]))
     doc.build(story, onFirstPage=footer, onLaterPages=footer)
     return buf.getvalue()

@@ -120,6 +120,9 @@ def create_app() -> web.Application:
         raise SystemExit("HA_TOKEN fehlt (Long-Lived Access Token aus Home Assistant)")
     IMAGE_DIR.mkdir(parents=True, exist_ok=True)
     store = Store(DATA_DIR / "printlog.db")
+    if not store.settings().get("language") and (store.count_jobs() or store.customers()):
+        # Bestehende Installationen von vor der Sprachwahl bleiben deutsch; neue folgen dem Browser.
+        store.set_setting("language", "de")
     ha = HomeAssistant(HA_URL, HA_TOKEN, session=None)  # type: ignore[arg-type]
     app = web.Application(client_max_size=60 * 1024**2)  # Foto-Uploads
     app["store"] = store
