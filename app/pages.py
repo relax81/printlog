@@ -365,7 +365,6 @@ def page_jobs(store: Store, f: dict[str, str | None], connected: bool) -> str:
     dot = "var(--ok)" if connected else "var(--bad)"
     conn = t("HA verbunden") if connected else t("keine Verbindung zu HA")
     day_hidden = f'<input type="hidden" name="day" value="{e(f["day"])}">' if f.get("day") else ""
-    export_q = "&".join(f"{k}={e(v)}" for k, v in f.items() if v and k not in ("view", "group"))
 
     body = f"""<form class="f" method="get" autocomplete="off">
 <input class="search" type="search" name="q" value="{e(f["q"] or "")}" placeholder="{e(t("Suchen: Name, Material, Kunde, Projekt-ID …"))}">
@@ -377,7 +376,6 @@ def page_jobs(store: Store, f: dict[str, str | None], connected: bool) -> str:
 <div class="tail"><span class="seg"><a href="#" data-view="table" class="{"on" if view != "gallery" else ""}">{t("Tabelle")}</a><a href="#" data-view="gallery" class="{"on" if view == "gallery" else ""}">{t("Galerie")}</a></span>
 <button type="button" class="gbtn{" on" if f.get("group") else ""}" title="{e(t("Liste nach Tagen gruppieren"))}">{t("📅 Nach Tagen")}</button>
 <button type="button" class="selbtn" title="{e(t("Mehrere Drucke auswählen, z. B. zum Löschen"))}">{t("☑ Auswählen")}</button>
-<a href="export.csv?{export_q}" class="muted" style="font-size:13px">CSV</a>
 <span class="muted" style="font-size:13px"><span class="dot" style="background:{dot};border:0"></span>{conn}</span></div>
 </form>
 <div id="results">{results(store, f)}</div>
@@ -1354,7 +1352,8 @@ def page_trash(store: Store, days: int, done: str | None) -> str:
 # ---- Einstellungen ------------------------------------------------------------
 
 def page_settings(store: Store, saved: str | None, logo: str | None = None,
-                  live: dict[str, Any] | None = None, printer_msg: str | None = None) -> str:
+                  live: dict[str, Any] | None = None, printer_msg: str | None = None,
+                  safety: list[dict[str, Any]] | None = None, data_msg: dict[str, str] | None = None) -> str:
     names = printer_names(store)
     rates = store.printer_rates()
     prices = store.material_prices()
@@ -1426,12 +1425,12 @@ def page_settings(store: Store, saved: str | None, logo: str | None = None,
         state = (t("noch keins") if len(last) < 3 else
                  f'{fmt_ts(float(last[0]))}: {"✓ " + e(backup_msg(last[2])) if last[1] == "ok" else "⚠ " + e(last[2])}')
         nxt = next_run(cfg, datetime.now())
-        backup_html = (f'<h2>Backup</h2><p>{t("{when} nach {dir}.", when=e(describe(cfg)), dir=f"<code>{e(BACKUP_DIR)}</code>")} '
+        backup_html = (f'<h2>{t("Automatisches Backup")}</h2><p>{t("{when} nach {dir}.", when=e(describe(cfg)), dir=f"<code>{e(BACKUP_DIR)}</code>")} '
                        f'{t("Nächstes Backup")}: {fmt_ts(nxt.timestamp())}. {t("Letztes Backup")}: {state}</p>'
                        f'{backup_form}'
                        f'<p><button type="submit" formaction="backup" formmethod="post">{t("Jetzt sichern")}</button></p>')
     else:
-        backup_html = (f'<h2>Backup</h2><p class="muted">'
+        backup_html = (f'<h2>{t("Automatisches Backup")}</h2><p class="muted">'
                        + t("Aus. Zum Einschalten im Stack einen Netzwerkordner als <code>/backup</code> einhängen und "
                            "<code>BACKUP_DIR=/backup</code> setzen (siehe README). Den Zeitplan kannst du schon vorab festlegen.")
                        + f'</p>{backup_form}')
@@ -1489,7 +1488,7 @@ def page_settings(store: Store, saved: str | None, logo: str | None = None,
 <p class="muted">{t("Gelöschte Drucke landen erst im Papierkorb und lassen sich dort wiederherstellen. Nach dieser Zeit werden sie samt Fotos endgültig gelöscht.")}</p>
 <p><label>{t("Aufbewahren")} <input class="num" name="trash_days" inputmode="numeric" style="width:80px" value="{e(cfg.get("trash_days") or "30")}"> {t("Tage")}</label>
 · <a href="trash">{t("Papierkorb öffnen ({n})", n=store.trash_count())}</a></p>"""),
-        pane("backup", "Backup", backup_html.replace("<h2>Backup</h2>", '<h2 style="margin-top:0">Backup</h2>', 1)),
+        pane("backup", t("Daten &amp; Backup"), _data_pane(store, names, backup_html, safety or [], data_msg or {})),
         pane("windows", "Windows", f"""<h2 style="margin-top:0">{t("Ordner-Links (Windows)")}</h2>
 <p>{t("Bei jedem Druck kannst du einen lokalen Ordner oder eine Datei eintragen. „📋 Kopieren“ geht immer (dann Win+E, Strg+L, einfügen). Damit „📂 Öffnen“ direkt funktioniert, richte einmalig pro Windows-PC das Link-Protokoll ein:")}</p>
 <ol>
@@ -1505,13 +1504,16 @@ def page_settings(store: Store, saved: str | None, logo: str | None = None,
                    for i, (k, lbl, _) in enumerate(panes))
     panes_html = "".join(f'<section class="spane{" on" if i == 0 else ""}" data-pane="{k}">{h}</section>'
                          for i, (k, _, h) in enumerate(panes))
-    body = f"""<style>{SETTINGS_CSS}</style>{banner}<form method="post" enctype="multipart/form-data" class="settings">
+    body = f"""<style>{SETTINGS_CSS}{DATA_CSS}</style>{banner}<form method="post" enctype="multipart/form-data" class="settings">
 <input type="hidden" name="tab" value="kosten">
 <div class="stabs" role="tablist">{tabs}</div>
 {panes_html}
 <div class="sbar"><button class="primary" type="submit">{t("Speichern")}</button>
 <span class="muted">{t("Preise gelten danach für alle Drucke (werden neu berechnet).")}</span></div>
-</form>"""
+</form>
+<form id="csvf" action="export.csv" method="get"></form>
+<form id="impf" action="import" method="post" enctype="multipart/form-data"></form>
+<form id="safef" action="import-safety" method="post"></form>"""
     return layout(t("Einstellungen"), "settings", body, SETTINGS_JS)
 
 
@@ -1569,6 +1571,8 @@ function stab(n){if(!sf.querySelector('.spane[data-pane="'+n+'"]'))return;
   sf.querySelector('input[name=tab]').value=n}
 sf.querySelectorAll('.stabs button').forEach(b=>b.onclick=()=>{stab(b.dataset.tab);history.replaceState(null,'','#'+b.dataset.tab)});
 if(location.hash)stab(location.hash.slice(1));
+const imf=document.querySelector('input[name=file][form=impf]');
+if(imf)imf.onchange=()=>{const f=imf.files[0];if(f)document.querySelector('.impname').textContent=f.name};
 const lf=sf.querySelector('input[name=bon_logo]');
 if(lf)lf.onchange=()=>{const f=lf.files[0];if(!f)return;sf.querySelector('.logofile').textContent=f.name+' – '+_t("wird beim Speichern übernommen");
   const im=sf.querySelector('.logobox img');im.src=URL.createObjectURL(f)};
@@ -1659,3 +1663,173 @@ def csv_rows(store: Store, f: dict[str, str | None]) -> list[list[Any]]:
         ])
     return out
 
+
+
+# ---- Einstellungen → Daten & Backup: Export, Import, Zurücksetzen --------------
+
+
+def fmt_size(n: float | None) -> str:
+    n = float(n or 0)
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024 or unit == "GB":
+            return f"{n:.0f} {unit}" if unit in ("B", "KB") else fmt_num(n, 1, unit)
+        n /= 1024
+    return ""
+
+
+def _data_pane(store: Store, names: dict[str, str], backup_html: str,
+               safety: list[dict[str, Any]], msg: dict[str, str]) -> str:
+    month_opts = opt("", t("Alle Monate"), None) + "".join(
+        opt(m, datetime.strptime(m, "%Y-%m").strftime(t("%m/%Y")), None) for m in store.months())
+    printer_opts = opt("", t("Alle Drucker"), None) + "".join(opt(k, v, None) for k, v in names.items())
+    banner = ""
+    if msg.get("error"):
+        banner = f'<div class="banner bad">⚠ {e(msg["error"])}</div>'
+    elif msg.get("restored") or msg.get("reset"):
+        name = msg.get("restored") or msg.get("reset")
+        text = t("Sicherung eingespielt.") if msg.get("restored") else t("printlog wurde zurückgesetzt.")
+        banner = (f'<div class="banner">✓ {text} '
+                  + t("Der vorherige Stand liegt als {link} bereit.",
+                      link=f'<a href="safety/{e(name)}" download>{e(name)}</a>') + '</div>')
+    rows = "".join(
+        f'<tr><td data-l="{e(t("Anlass"))}">{t("vor dem Einspielen") if "vor-import" in s["name"] else t("vor dem Zurücksetzen")}</td>'
+        f'<td data-l="{e(t("Erstellt"))}">{fmt_ts(s["ts"])}</td><td class="n" data-l="{e(t("Größe"))}">{fmt_size(s["size"])}</td>'
+        f'<td><a class="btn sm" href="safety/{e(s["name"])}" download>⬇ ZIP</a></td>'
+        f'<td><button type="submit" class="btn sm" form="safef" name="name" value="{e(s["name"])}">{t("Einspielen …")}</button></td></tr>'
+        for s in safety)
+    safety_html = (f'<h3>{t("Automatische Sicherungen")}</h3>'
+                   f'<p class="muted">{t("Vor jedem Einspielen und Zurücksetzen legt printlog den bisherigen Stand hier ab (die letzten {n}).", n=5)}</p>'
+                   f'<div class="wrap"><table class="stack"><tbody>{rows}</tbody></table></div>') if rows else ""
+    return f"""{banner}<h2 style="margin-top:0">{t("Exportieren")}</h2>
+<div class="dgrid">
+<div class="dcard"><h3>📦 {t("Komplettsicherung (ZIP)")}</h3>
+<p class="muted">{t("Alles in einer Datei: Datenbank mit Drucken, Kunden, Zahlungen und Papierkorb, alle Fotos und Cover-Bilder, das eigene Bon-Logo und sämtliche Einstellungen (Drucker, Kosten, Filamentpreise, Margen).")}</p>
+<a class="btn primary" href="backup.zip" download>⬇ {t("ZIP herunterladen")}</a></div>
+<div class="dcard"><h3>📄 {t("CSV für Tabellenkalkulation")}</h3>
+<p class="muted">{t("Liste der Drucke mit Kosten, z. B. für Excel. Nur zum Auswerten, lässt sich nicht wieder einspielen.")}</p>
+<div class="row"><select name="month" form="csvf">{month_opts}</select><select name="printer" form="csvf">{printer_opts}</select>
+<button type="submit" class="btn" form="csvf">⬇ {t("CSV herunterladen")}</button></div></div>
+</div>
+<h2>{t("Sicherung einspielen")}</h2>
+<div class="dcard"><p class="muted">{t("ZIP aus „Komplettsicherung“ hochladen. printlog prüft die Datei und zeigt erst eine Vorschau, überschrieben wird nichts, bevor du bestätigst. Vorher sichert printlog automatisch den jetzigen Stand.")}</p>
+<div class="row"><label class="btn file">🗂 <span class="impname">{t("ZIP auswählen")}</span><input type="file" name="file" form="impf" accept=".zip,application/zip" required></label>
+<button type="submit" class="btn" form="impf">{t("Prüfen und Vorschau")} →</button></div>
+{safety_html}</div>
+{backup_html}
+<h2>{t("Zurücksetzen")}</h2>
+<div class="dcard danger"><p>{t("Löscht alle Drucke samt Verlauf, wahlweise auch alle Einstellungen. Vorher legt printlog automatisch eine Sicherung an, die du herunterladen und wieder einspielen kannst.")}</p>
+<a class="btn danger" href="reset">{t("Zurücksetzen …")}</a></div>"""
+
+
+def _cmp_rows(cur: dict[str, Any], new: dict[str, Any]) -> str:
+    def span(d: dict[str, Any]) -> str:
+        if not d.get("first_ts"):
+            return "–"
+        return f'{fmt_date(d["first_ts"])} – {fmt_date(d["last_ts"])}'
+
+    items = [
+        (t("Drucke"), cur["jobs"], new["jobs"]),
+        (t("Kunden"), cur["customers"], new["customers"]),
+        (t("Eigene Fotos"), cur["photos"], new["photos"]),
+        (t("Bilddateien"), cur.get("images", "–"), new["images"]),
+        (t("Zahlungen"), cur["payments"], new["payments"]),
+        (t("Im Papierkorb"), cur["trash"], new["trash"]),
+        (t("Zeitraum"), span(cur), span(new)),
+    ]
+    return "".join(f'<tr><td>{lbl}</td><td class="n">{e(str(a))}</td><td class="n"><b>{e(str(b))}</b></td></tr>'
+                   for lbl, a, b in items)
+
+
+def page_import(cur: dict[str, Any], new: dict[str, Any] | None, token: str | None, error: str | None,
+                source: str | None = None) -> str:
+    back = f'<p><a href="settings#backup">{t("← Einstellungen")}</a></p>'
+    if error or not new:
+        body = (f'{back}<h2 style="margin-top:0">{t("Sicherung einspielen")}</h2>'
+                f'<div class="banner bad">⚠ {e(error or "")}</div>'
+                f'<p class="muted">{t("Es wurde nichts verändert.")}</p>')
+        return layout(t("Sicherung einspielen"), "settings", f"<style>{DATA_CSS}</style>{body}")
+    warns = []
+    if new.get("missing"):
+        warns.append(tn(len(new["missing"]), "{n} Bild fehlt im ZIP, der Druck bleibt aber erhalten.",
+                        "{n} Bilder fehlen im ZIP, die Drucke bleiben aber erhalten."))
+    if cur.get("running"):
+        warns.append(t("Gerade läuft ein Druck. Er fehlt nach dem Einspielen, wenn er nicht im ZIP ist. Besser nach dem Druck einspielen."))
+    if new["jobs"] < cur["jobs"]:
+        warns.append(t("Das ZIP enthält weniger Drucke als jetzt erfasst sind."))
+    if isinstance(new.get("format"), int) and new["format"] > 1:
+        warns.append(t("Die Sicherung stammt von einer neueren printlog-Version."))
+    warn_html = "".join(f'<div class="banner warn">⚠ {w}</div>' for w in warns)
+    try:
+        created = fmt_date(datetime.fromisoformat(new["created"]).replace(tzinfo=None), "ts")
+    except (KeyError, TypeError, ValueError):
+        created = t("unbekannt")
+    src = e(source) if source else t("hochgeladene Datei")
+    body = f"""{back}<h2 style="margin-top:0">{t("Vorschau: Sicherung einspielen")}</h2>
+<p>{t("Quelle")}: <b>{src}</b> · {t("erstellt")} {created} · {fmt_size(new["size"])}</p>
+<p class="ok">✓ {t("Inhalt geprüft: gültige printlog-Datenbank, nur erlaubte Dateien, keine Pfade außerhalb des Datenordners.")}</p>
+{warn_html}
+<div class="wrap cmp"><table><thead><tr><th></th><th class="n">{t("Jetzt")}</th><th class="n">{t("Nach dem Einspielen")}</th></tr></thead>
+<tbody>{_cmp_rows(cur, new)}</tbody></table></div>
+<form method="post" action="import/apply" class="dcard danger confirm">
+<input type="hidden" name="token" value="{e(token or "")}">
+<p><b>{t("Der jetzige Stand wird komplett ersetzt:")}</b> {t("Drucke, Kunden, Fotos, Logo und Einstellungen kommen dann aus der Sicherung.")}
+{t("Vorher legt printlog automatisch eine Sicherung des jetzigen Stands an, die du unter Einstellungen → Daten &amp; Backup wieder herunterladen oder einspielen kannst.")}</p>
+<label class="chk"><input type="checkbox" name="confirm" value="1" required> {t("Ja, ich will diese Sicherung einspielen.")}</label>
+<div class="row"><a class="btn" href="settings#backup">{t("Abbrechen")}</a><button type="submit" class="btn danger">{t("Jetzt einspielen")}</button></div>
+</form>"""
+    return layout(t("Sicherung einspielen"), "settings", f"<style>{DATA_CSS}</style>{body}")
+
+
+def page_reset(cur: dict[str, Any], token: str, code: str, error: str | None = None) -> str:
+    err = f'<div class="banner bad">⚠ {e(error)}</div>' if error else ""
+    body = f"""<p><a href="settings#backup">{t("← Einstellungen")}</a></p>
+<h2 style="margin-top:0">{t("printlog zurücksetzen")}</h2>{err}
+<p>{t("Jetzt erfasst: {jobs} Drucke, {customers} Kunden, {photos} Fotos, {trash} im Papierkorb.",
+       jobs=cur["jobs"], customers=cur["customers"], photos=cur["photos"], trash=cur["trash"])}</p>
+<form method="post" action="reset" class="rform" autocomplete="off">
+<input type="hidden" name="token" value="{e(token)}">
+<h3>1. {t("Was soll gelöscht werden?")}</h3>
+<label class="ropt"><input type="radio" name="scope" value="history" required>
+<span><b>{t("Nur Drucke und Verlauf")}</b><br><span class="muted">{t("Alle Drucke, Fotos, Zahlungen, Übergaben und der Papierkorb. Kunden, Drucker, Kosten, Filamentpreise, Margen, Bon-Logo und Einstellungen bleiben.")}</span></span></label>
+<label class="ropt"><input type="radio" name="scope" value="all" required>
+<span><b>{t("Alles")}</b><br><span class="muted">{t("Zusätzlich Kunden, Drucker-Zuordnung, Kosten, Filamentpreise, Margen, Bon-Logo und alle übrigen Einstellungen. Nur die Sprache bleibt. Wie eine frische Installation.")}</span></span></label>
+<h3>2. {t("Zur Bestätigung den Code eintippen")}</h3>
+<p>{t("Code")}: <span class="code">{e(code)}</span></p>
+<input name="code" class="codein" maxlength="8" required placeholder="{e(code[:1])}…" autocapitalize="characters" spellcheck="false">
+<p class="muted">{t("Vorher legt printlog automatisch eine Sicherung an. Du kannst sie danach herunterladen und über „Sicherung einspielen“ zurückholen.")}</p>
+<div class="row"><a class="btn" href="settings#backup">{t("Abbrechen")}</a>
+<button type="submit" class="btn danger" disabled>{t("Endgültig zurücksetzen")}</button></div>
+</form>"""
+    script = """
+const rf=document.querySelector('form.rform'),go=rf.querySelector('button[type=submit]'),want=%s;
+function chk(){go.disabled=!(rf.querySelector('input[name=scope]:checked')&&rf.code.value.trim().toUpperCase()===want)}
+rf.addEventListener('input',chk);rf.addEventListener('change',chk);
+""" % json.dumps(code)
+    return layout(t("printlog zurücksetzen"), "settings", f"<style>{DATA_CSS}</style>{body}", script)
+
+
+DATA_CSS = """
+.dgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:12px}
+.dcard{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:12px}
+.dcard h3{margin:0 0 6px;font-size:15px}.dcard .row+h3{margin-top:18px}.dcard p{margin:0 0 10px}
+.dcard.danger{border-color:var(--bad)}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+a.btn,.btn{display:inline-block;text-decoration:none;border:1px solid var(--line);border-radius:8px;padding:8px 14px;font-weight:600;
+  background:var(--card);color:var(--fg);cursor:pointer;font-size:14px;white-space:nowrap}
+.btn.sm{padding:4px 10px;font-size:13px}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.danger{background:var(--bad);border-color:var(--bad);color:#fff}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.file{position:relative;overflow:hidden}
+.btn.file input{position:absolute;inset:0;opacity:0;cursor:pointer}
+.banner.bad{border-color:var(--bad)}.banner.warn{border-color:var(--warn)}
+.ok{color:var(--ok)}
+.cmp{max-width:620px;margin-bottom:14px}
+.confirm{max-width:620px}.confirm .chk{display:flex;gap:8px;align-items:center;margin:0 0 12px;font-weight:600}
+.rform{max-width:640px}
+.ropt{display:flex;gap:10px;align-items:flex-start;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:8px;cursor:pointer}
+.ropt:has(input:checked){border-color:var(--bad)}
+.ropt input{margin-top:3px}
+.code{font:700 22px ui-monospace,Menlo,Consolas,monospace;letter-spacing:.18em;background:var(--card);border:1px dashed var(--bad);border-radius:8px;padding:4px 12px}
+.codein{font:700 20px ui-monospace,Menlo,Consolas,monospace;letter-spacing:.18em;text-transform:uppercase;width:180px;margin-bottom:10px}
+"""

@@ -760,6 +760,69 @@ class Store:
         finally:
             dst.close()
 
+    # ---- Datensicherung: Einspielen und Zurücksetzen ------------------------
+
+    HISTORY_TABLES = ("jobs", "photos", "handovers", "payments", "trash")
+    SETTINGS_TABLES = ("customers", "printer_rates", "material_prices", "settings")
+    # Bleiben beim Zurücksetzen/Einspielen erhalten: Sprache der Oberfläche und der
+    # Zeitpunkt der letzten HA-Verbindung (sonst holt printlog alte Drucke aus dem Verlauf nach).
+    KEEP_SETTINGS = ("language", "ha_seen_ts")
+
+    def counts(self) -> dict[str, Any]:
+        """Kennzahlen für Vorschau und Zurücksetzen."""
+        c = self._conn
+        one = lambda sql: c.execute(sql).fetchone()[0]  # noqa: E731
+        return {
+            "jobs": one("SELECT COUNT(*) FROM jobs"),
+            "customers": one("SELECT COUNT(*) FROM customers"),
+            "photos": one("SELECT COUNT(*) FROM photos"),
+            "trash": one("SELECT COUNT(*) FROM trash"),
+            "payments": one("SELECT COUNT(*) FROM payments"),
+            "first_ts": one("SELECT MIN(start_ts) FROM jobs"),
+            "last_ts": one("SELECT MAX(start_ts) FROM jobs"),
+            "running": one("SELECT COUNT(*) FROM jobs WHERE state IN ('running', 'closing')"),
+        }
+
+    def image_files(self) -> set[str]:
+        """Alle Bilddateien, auf die die Datenbank verweist (Cover, Fotos, Papierkorb, Bon-Logo)."""
+        c = self._conn
+        names = {r[0] for r in c.execute("SELECT image FROM jobs WHERE image IS NOT NULL")}
+        names |= {r[0] for r in c.execute("SELECT file FROM photos")}
+        names |= {r[0] for r in c.execute("SELECT json_extract(data, '$.image') FROM trash") if r[0]}
+        logo = self.settings().get("bon_logo")
+        return names | ({logo} if logo else set())
+
+    def restore_from(self, source: Path) -> None:
+        """Ersetzt den kompletten Inhalt durch die Datenbank ``source`` (SQLite-Backup-API).
+
+        Die Verbindung bleibt dieselbe, die App muss also nicht neu starten.
+        """
+        keep = {k: v for k, v in self.settings().items() if k in self.KEEP_SETTINGS}
+        src = sqlite3.connect(f"file:{source}?mode=ro", uri=True)
+        try:
+            with self._lock:
+                src.backup(self._conn)
+        finally:
+            src.close()
+        self._conn.executescript(SCHEMA)  # ältere Sicherungen: fehlende Tabellen anlegen
+        self._migrate()
+        for k, v in keep.items():
+            self.set_setting(k, v)
+
+    def reset(self, everything: bool) -> None:
+        """Löscht alle Drucke samt Historie; mit ``everything`` auch Kunden, Preise und Einstellungen."""
+        tables = self.HISTORY_TABLES + (self.SETTINGS_TABLES if everything else ())
+        with self._lock, self._conn:
+            for table in tables:
+                if table == "settings":
+                    marks = ", ".join("?" for _ in self.KEEP_SETTINGS)
+                    self._conn.execute(f"DELETE FROM settings WHERE key NOT IN ({marks})", self.KEEP_SETTINGS)
+                else:
+                    self._conn.execute(f"DELETE FROM {table}")
+            self._conn.execute(
+                f"DELETE FROM sqlite_sequence WHERE name IN ({', '.join('?' for _ in tables)})", tables)
+        self._conn.execute("VACUUM")
+
     def material_prices(self) -> dict[str, dict[str, Any]]:
         rows = self._conn.execute("SELECT * FROM material_prices").fetchall()
         return {r["key"]: dict(r) for r in rows}
