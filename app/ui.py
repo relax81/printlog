@@ -9,15 +9,16 @@ from pathlib import Path
 from typing import Any
 
 from .db import Store
+from .i18n import N_, is_en, js, lang, t
 
 e = html.escape
 
 NAV = [
-    ("./", "Drucke", "jobs"),
-    ("stats", "Statistik", "stats"),
-    ("calendar", "Kalender", "calendar"),
-    ("customers", "Kunden", "customers"),
-    ("settings", "Einstellungen", "settings"),
+    ("./", N_("Drucke"), "jobs"),
+    ("stats", N_("Statistik"), "stats"),
+    ("calendar", N_("Kalender"), "calendar"),
+    ("customers", N_("Kunden"), "customers"),
+    ("settings", N_("Einstellungen"), "settings"),
 ]
 
 
@@ -34,8 +35,26 @@ def printer_names(store: Store) -> dict[str, str]:
 
 # ---- Formatierung ---------------------------------------------------------
 
+# Datumsformate je Sprache: Deutsch mit Punkten, Englisch mit Monatsnamen (eindeutig).
+DATE_FORMATS = {
+    "de": {"ts": "%d.%m.%y %H:%M", "date": "%d.%m.%Y", "date_s": "%d.%m.%y", "dm": "{d}.{m}.", "dm_hm": "{d}.{m}. %H:%M",
+           "ts_long": "%d.%m.%Y %H:%M"},
+    "en": {"ts": "%d %b %Y %H:%M", "date": "%d %b %Y", "date_s": "%d %b %Y", "dm": "{d} %b", "dm_hm": "{d} %b %H:%M",
+           "ts_long": "%d %b %Y %H:%M"},
+}
+
+
+def fmt_date(value: datetime | float | None, kind: str = "date") -> str:
+    """Datum/Zeit in der aktuellen Sprache. kind: ts, ts_long, date, date_s, dm, dm_hm."""
+    if value is None or value == 0:
+        return "–"
+    d = value if isinstance(value, datetime) else datetime.fromtimestamp(value)
+    fmt = DATE_FORMATS["en" if is_en() else "de"][kind]
+    return d.strftime(fmt.replace("{d}", str(d.day)).replace("{m}", str(d.month)))
+
+
 def fmt_ts(ts: float | None) -> str:
-    return datetime.fromtimestamp(ts).strftime("%d.%m.%y %H:%M") if ts else "–"
+    return fmt_date(ts, "ts") if ts else "–"
 
 
 def fmt_dur(start: float | None, end: float | None) -> str:
@@ -54,14 +73,16 @@ def fmt_hours(h: float | None) -> str:
 def fmt_num(v: float | None, digits: int, unit: str = "") -> str:
     if v is None:
         return "–"
-    s = f"{v:,.{digits}f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    s = f"{v:,.{digits}f}"
+    if not is_en():
+        s = s.replace(",", "X").replace(".", ",").replace("X", ".")
     return f"{s} {unit}".strip()
 
 
 def fmt_input(v: float | None) -> str:
     if v is None:
         return ""
-    return f"{v:g}".replace(".", ",")
+    return f"{v:g}" if is_en() else f"{v:g}".replace(".", ",")
 
 
 def parse_num(v: Any) -> float | None:
@@ -70,7 +91,13 @@ def parse_num(v: Any) -> float | None:
     v = str(v).strip().replace("€", "").replace(" ", "")
     if not v:
         return None
-    if "," in v:
+    if is_en():
+        # Englisch: Komma trennt Tausender (1,299.50), ein einzelnes Komma gilt als Dezimalzeichen
+        if re.fullmatch(r"\d{1,3}(,\d{3})+(\.\d*)?", v):
+            v = v.replace(",", "")
+        elif "," in v and "." not in v:
+            v = v.replace(",", ".")
+    elif "," in v:
         v = v.replace(".", "").replace(",", ".")
     elif re.fullmatch(r"\d{1,3}(\.\d{3})+", v):
         v = v.replace(".", "")  # deutsches Tausenderformat, z. B. 1.299
@@ -84,6 +111,11 @@ def parse_num(v: Any) -> float | None:
 def opt(value: str, label: str, current: str | None) -> str:
     sel = " selected" if value == (current or "") else ""
     return f'<option value="{e(value)}"{sel}>{e(label)}</option>'
+
+
+def bon_tagline() -> str:
+    """Gesperrte Zeile unter dem Logo auf Bon und Logo-Vorschau, z. B. „3 D - D R U C K“."""
+    return " ".join(t("3D-DRUCK"))
 
 
 # ---- Layout -----------------------------------------------------------------
@@ -194,9 +226,9 @@ document.addEventListener('mousemove',ev=>{const t=ev.target.closest('[data-tip]
 
 def layout(title: str, active: str, body: str, script: str = "") -> str:
     links = "".join(
-        f'<a href="{href}" class="{"on" if key == active else ""}">{label}</a>' for href, label, key in NAV
+        f'<a href="{href}" class="{"on" if key == active else ""}">{e(t(label))}</a>' for href, label, key in NAV
     )
-    return f"""<!doctype html><html lang="de"><head><meta charset="utf-8">
+    return f"""<!doctype html><html lang="{lang()}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{e(title)}</title>
 <link rel="manifest" href="/manifest.webmanifest">
@@ -207,7 +239,7 @@ def layout(title: str, active: str, body: str, script: str = "") -> str:
 <script>try{{if(localStorage.getItem('pl_priv')==='1')document.documentElement.classList.add('priv')}}catch(_){{}}</script>
 <style>{CSS}</style></head><body>
 <div class="top"><h1 class="logo"><a href="/" title="Printlog">{LOGO_SVG}</a></h1><nav>{links}
-<button type="button" class="eye" id="eye" title="Kalkulation aus-/einblenden (Diskret-Modus)" aria-label="Kalkulation aus- oder einblenden">{EYE_SVG}</button></nav></div>
+<button type="button" class="eye" id="eye" title="{e(t("Kalkulation aus-/einblenden (Diskret-Modus)"))}" aria-label="{e(t("Kalkulation aus- oder einblenden"))}">{EYE_SVG}</button></nav></div>
 {body}
 <div id="zoom"><img alt=""></div><div id="tip" class="tip"></div>
-<script>{BASE_JS}{script}</script></body></html>"""
+<script>{BASE_JS}{js(script)}</script></body></html>"""

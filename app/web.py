@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import csv
 import io
 import json
@@ -18,6 +19,7 @@ from aiohttp import web
 from .costing import compute, parse_materials, recompute_all
 from .db import Store
 from .export import bon_png, collect, file_name, report_pdf
+from .i18n import LANG, LANGS, is_en, resolve, t
 from .media import save_logo, clean_local_path, fetch_title, shrink_photo, title_from_url
 from .pages import (
     FILTER_KEYS,
@@ -141,7 +143,7 @@ def _save_printers(store: Store, form: Any) -> str | None:
             out.append(c)  # nicht im Formular (z. B. gerade aus einem Event gelernt)
             continue
         if form.get(f"{f}__remove"):
-            msgs.append(f"Drucker {c['key']} entfernt (seine Drucke bleiben).")
+            msgs.append(t("Drucker {key} entfernt (seine Drucke bleiben).", key=c["key"]))
             continue
         item = {"key": c["key"], **{k: str(form.get(f"{f}__{k}") or "").strip() for k in fields}}
         item["fixed_w"] = parse_num(item["fixed_w"])
@@ -149,20 +151,36 @@ def _save_printers(store: Store, form: Any) -> str | None:
     key = str(form.get("prnew__key") or "").strip().lower()
     if key:
         if not pcfg.KEY_RE.fullmatch(key):
-            msgs.append(f"Kurzname „{key}“ geht nicht: nur a–z, 0–9 und _, höchstens 20 Zeichen.")
+            msgs.append(t("Kurzname „{key}“ geht nicht: nur a–z, 0–9 und _, höchstens 20 Zeichen.", key=key))
         elif any(c["key"] == key for c in out):
-            msgs.append(f"Den Drucker „{key}“ gibt es schon.")
+            msgs.append(t("Den Drucker „{key}“ gibt es schon.", key=key))
         else:
             item = {"key": key, **{k: str(form.get(f"prnew__{k}") or "").strip() for k in fields}}
             item["fixed_w"] = parse_num(item["fixed_w"])
             out.append(pcfg.normalize(item))
-            msgs.append(f"Drucker {key} angelegt.")
+            msgs.append(t("Drucker {key} angelegt.", key=key))
     pcfg.save(store, out)
     return " ".join(msgs) or None
 
 
 def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: Any) -> None:
     routes = web.RouteTableDef()
+
+    @web.middleware
+    async def language(request: web.Request, handler: Any) -> web.StreamResponse:
+        """Sprache pro Anfrage: Einstellung (de/en) oder bei „auto“ die Sprache des Browsers."""
+        token = LANG.set(resolve(store.settings().get("language"), request.headers.get("Accept-Language")))
+        try:
+            return await handler(request)
+        finally:
+            LANG.reset(token)
+
+    app.middlewares.append(language)
+
+    async def in_thread(func: Any, *args: Any) -> Any:
+        """Im Thread ausführen, mit der Sprache dieser Anfrage."""
+        ctx = contextvars.copy_context()
+        return await asyncio.get_running_loop().run_in_executor(None, ctx.run, func, *args)
 
     # ---- Seiten ---------------------------------------------------------------
 
@@ -177,7 +195,7 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
     async def job_page(request: web.Request) -> web.Response:
         job = store.get(_job_id(request))
         if not job:
-            raise web.HTTPNotFound(text="Druck nicht gefunden")
+            raise web.HTTPNotFound(text=t("Druck nicht gefunden"))
         return _html(page_job(store, job, request.query.get("saved")))
 
     @routes.get("/go")
@@ -196,16 +214,15 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
         """Bon-Bild (für Kunden / intern) oder PDF eines Drucks; ?dl=1 als Download, ?status=0 ohne Zahlung/Übergabe."""
         job = store.get(_job_id(request))
         if not job:
-            raise web.HTTPNotFound(text="Druck nicht gefunden")
+            raise web.HTTPNotFound(text=t("Druck nicht gefunden"))
         kind = request.match_info["kind"]
         data = collect(store, job, image_dir, status=request.query.get("status") != "0")
-        loop = asyncio.get_running_loop()
         if kind in ("bon-kunde.png", "bon-intern.png"):
             variant = kind[4:-4]
-            body = await loop.run_in_executor(None, bon_png, data, variant)
+            body = await in_thread(bon_png, data, variant)
             ctype, name = "image/png", file_name(job, variant, "png")
         elif kind == "kosten.pdf":
-            body = await loop.run_in_executor(None, report_pdf, data)
+            body = await in_thread(report_pdf, data)
             ctype, name = "application/pdf", file_name(job, "kosten", "pdf")
         else:
             raise web.HTTPNotFound()
@@ -267,6 +284,9 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
             store.set_setting("trash_days", days)
         if form.get("detail_tab") in DETAIL_TABS:
             store.set_setting("detail_tab", str(form["detail_tab"]))
+        if "language" in form:
+            choice = str(form.get("language") or "")
+            store.set_setting("language", choice if choice in LANGS else "auto")
         for key in ("backup_interval", "backup_weekday", "backup_hour"):
             if key in form:
                 store.set_setting(key, str(form.get(key) or "").strip() or None)
@@ -314,18 +334,21 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
 
     @routes.get("/export.csv")
     async def export_csv(request: web.Request) -> web.Response:
+        # Deutsch: Semikolon und Dezimalkomma (Excel mit deutscher Einstellung), Englisch: Komma und Punkt.
+        en = is_en()
         buf = io.StringIO()
-        writer = csv.writer(buf, delimiter=";")
+        writer = csv.writer(buf, delimiter="," if en else ";")
         for row in csv_rows(store, _filters(request)):
             writer.writerow(
-                [str(v).replace(".", ",") if isinstance(v, float) else ("" if v is None else v) for v in row]
+                [(str(v) if en else str(v).replace(".", ",")) if isinstance(v, float) else ("" if v is None else v)
+                 for v in row]
             )
         return web.Response(
             body=("﻿" + buf.getvalue()).encode("utf-8"),
             content_type="text/csv",
             charset="utf-8",
             headers={
-                "Content-Disposition": f'attachment; filename="druckkosten_{time.strftime("%Y-%m-%d")}.csv"'
+                "Content-Disposition": f'attachment; filename="{t("druckkosten")}_{time.strftime("%Y-%m-%d")}.csv"'
             },
         )
 

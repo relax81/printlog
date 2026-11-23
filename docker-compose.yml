@@ -1,4 +1,4 @@
-# printlog – 3D print cost logger fed by Home Assistant.
+# printlog – 3D print history and cost tracking, fed by Home Assistant.
 #
 # Quick start:
 #   cp .env.example .env    # then set HA_URL and HA_TOKEN

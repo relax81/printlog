@@ -1,34 +1,85 @@
 # printlog
 
-**Cost tracking for every 3D print, fed by Home Assistant.**
+**[English](#english) · [Deutsch](#deutsch)**
 
-printlog is a small self-hosted web app that logs each print of your Bambu Lab printers automatically: when it ran,
-what it printed, how much filament from which AMS slot, how much electricity it used, and what it cost. You add
-customers, prices, payments and photos on top. It runs as a single Docker container next to Home Assistant and
-never talks to the Bambu cloud.
-
-*Deutsche Dokumentation: [docs/README.de.md](docs/README.de.md). The user interface is in German.*
+![printlog: list of prints](docs/screenshots/prints.png)
 
 ---
 
-## Features
+<a id="english"></a>
 
-- **Automatic print log** – start, end, status (finished / failed / incomplete), duration, task name and cover image of every print.
+## English
+
+**A print history for your Bambu Lab printers, with evaluation and real costs, fed by Home Assistant.**
+
+printlog is a small self-hosted web app that keeps a complete log of every print automatically: when it ran, on which
+printer, what it printed, how much filament from which AMS slot, how much electricity it used and how it ended. On top of
+that history you get statistics, a calendar, your own photos and notes, and an exact cost calculation per print, with
+selling prices, customers and payments if you need them. It runs as a single Docker container next to Home Assistant
+and never talks to the Bambu cloud.
+
+The interface is available in **English and German** (Settings → View → Language, or automatically from your browser).
+
+> **About this project:** printlog is built for my own setup (Bambu Lab printers, Home Assistant, a few smart plugs)
+> and will stay tailored to it. You are welcome to use it as it is. If you want to change it substantially, please
+> **fork it** and make it your own; larger feature pull requests will most likely not be merged. Bug reports and small
+> fixes are welcome.
+
+### Contents
+
+[Features](#features) · [Screenshots](#screenshots) · [How it works](#how-it-works) · [Requirements](#requirements) ·
+[Installation](#installation) · [Configuration](#configuration) · [Updating](#updating) · [The printlog event](#the-printlog-event) ·
+[Other printers](#other-printers) · [Troubleshooting](#troubleshooting) · [API](#api)
+
+### Features
+
+**Print history**
+
+- **Automatic log** of every print: start, end, duration, status (finished / failed / incomplete), task name, printer,
+  cover image, filament per AMS slot with colour, and kWh.
+- **Find anything again** – live search over name, material, customer, notes and project links; filters for printer,
+  month, status, material, customer and payment; table or gallery, optionally grouped by day.
+- **Your own details** – photos (camera upload, auto-resized), notes, filament notes (e.g. the exact colour name),
+  MakerWorld / Printables links with their title, a local folder path, and a short project ID per print (e.g. `PL-7K3Q`).
+- **Scrap marking** – failed prints count as scrap automatically, and you can mark any print yourself.
+- **Trash bin** with restore; deleted prints are removed for good only after a configurable number of days.
+- **Robust** – after a restart or a lost connection, printlog replays missed prints from Home Assistant's history (up to 7 days).
+
+**Evaluation**
+
+- **Statistics** by day, week or month: print hours per printer, cost split, filament by material, success rate,
+  a table per printer and a yearly heat map of print hours.
+- **Calendar** with the prints, hours, costs and thumbnails of each day.
+- **CSV export** of the current list (Excel-friendly) and a scheduled **backup** of database and images to a mounted folder.
+
+**Costs and customers**
+
 - **Real costs per print**
   - *Electricity* from a smart plug's kWh meter (start → end of cool-down), or an estimate from a fixed wattage if you have no plug.
   - *Filament* per AMS slot (grams × €/kg), priced by type (PLA, PETG …) or by exact product (e.g. "Bambu PLA Matte").
   - *Printer* depreciation, maintenance per year and wear per hour.
-- **Customers and selling prices** – two named margins, an optional margin per customer, a fixed final price per print,
-  partial payments and partial hand-overs, "gift" prints, open amounts per customer.
-- **Sharing** – a receipt-style PNG for the customer (WhatsApp etc.), an internal version with full calculation, and an A4 PDF cost sheet.
-- **Organising** – live search, filters, table / gallery / grouped by day, own photos (camera upload, auto-resized),
-  MakerWorld / Printables links, a short project ID per print (e.g. `PL-7K3Q`), scrap marking, trash bin with restore.
-- **Statistics** – day / week / month, hours per printer, cost split, filament by material, yearly heat map, calendar view.
-- **Export and backup** – CSV export (Excel-friendly), scheduled backup of database and images to a mounted folder.
+- **Selling prices** – two named margins, an optional margin per customer and a fixed final price per print.
+- **Customers** – partial payments and partial hand-overs, gifts, open amounts per customer.
+- **Sharing** – a receipt-style PNG for the customer (WhatsApp etc.), an internal version with the full calculation,
+  and an A4 PDF cost sheet, in the language of the interface.
 - **Discreet mode** – one click blurs all internal figures when a customer is watching.
-- **Robust** – after a restart or lost connection, printlog replays missed prints from Home Assistant's history (up to 7 days).
 
-## How it works
+### Screenshots
+
+| | |
+|---|---|
+| ![Print detail](docs/screenshots/print-detail.png) **Print detail** | ![Billing tab](docs/screenshots/print-billing.png) **Billing: final price, payments, hand-overs** |
+| ![Statistics](docs/screenshots/statistics.png) **Statistics** | ![Calendar](docs/screenshots/calendar.png) **Calendar** |
+| ![Customers](docs/screenshots/customers.png) **Customers** | ![Language setting](docs/screenshots/settings-language.png) **Settings → View → Language** |
+| ![Prints grouped by day](docs/screenshots/prints-by-day.png) **Grouped by day** | ![German interface](docs/screenshots/de-drucke.png) **The same list in German** |
+
+| Phone | Receipt for the customer | Internal receipt | PDF cost sheet |
+|---|---|---|---|
+| ![Phone](docs/screenshots/mobile.png) | ![Receipt](docs/screenshots/receipt-customer.png) | ![Internal receipt](docs/screenshots/receipt-internal.png) | ![PDF](docs/screenshots/cost-sheet.png) |
+
+*All screenshots use made-up demo data.*
+
+### How it works
 
 ```
  Bambu printer ──► Home Assistant ──(event "printlog")──► printlog container ──► SQLite + images
@@ -44,30 +95,31 @@ never talks to the Bambu cloud.
 
 Home Assistant stays lean: it only sends events. All logic and evaluation happen in the container.
 
-## Requirements
+### Requirements
 
 | What | Notes |
 |---|---|
-| Home Assistant | Recent version (blueprint needs 2024.10 or newer). |
+| Home Assistant | Recent version (the blueprint needs 2024.10 or newer). |
 | [Bambu Lab integration](https://github.com/greghesp/ha-bambulab) | Installed via HACS. Provides the `…_print_status`, `…_print_weight`, `…_task_name`, AMS tray sensors and `image.…_cover_image`. |
 | Smart plug per printer *(optional)* | Needs an **energy** sensor (kWh, total) and ideally a **power** sensor (W). Shelly, Tasmota, Zigbee plugs etc. all work. Without a plug, set a fixed wattage per printer in printlog. |
-| Electricity price | An entity holding €/kWh, e.g. a number helper `input_number.strompreis`. |
+| Electricity price | An entity holding €/kWh, e.g. a number helper. |
 | Docker | Docker Compose or Portainer on any host that can reach Home Assistant. |
 
 Other printer brands are not supported out of the box (see [Other printers](#other-printers)).
 
-## Installation
+### Installation
 
-### 1. Prepare Home Assistant
+#### 1. Prepare Home Assistant
 
 1. Install the **Bambu Lab** integration via HACS and add your printers.
 2. *(Optional)* Add a smart plug for each printer.
 3. Create the electricity price helper: *Settings → Devices & services → Helpers → Create helper → Number*,
-   name it e.g. "Strompreis" (entity `input_number.strompreis`), unit €/kWh, step 0.001, and set your price.
+   unit €/kWh, step 0.001, and set your price. printlog reads `input_number.strompreis` by default; if you name it
+   differently (e.g. `input_number.electricity_price`), set `PRICE_ENTITY` accordingly or pick it in the blueprint.
 4. Create a **long-lived access token**: click your user profile → *Security* → *Long-lived access tokens* → *Create token*.
    Name it `printlog` and copy it.
 
-### 2. Run the container
+#### 2. Run the container
 
 **Docker Compose**
 
@@ -86,51 +138,54 @@ Open `http://<docker-host>:8095`. `http://<docker-host>:8095/health` returns `20
 Under *Environment variables* add at least `HA_URL` and `HA_TOKEN`. Deploy. To update later: *Pull and redeploy*
 (or enable GitOps polling).
 
-### 3. Install the blueprint
+#### 3. Install the blueprint
 
-The blueprint lives at [`blueprints/automation/printlog/printlog_drucker.yaml`](blueprints/automation/printlog/printlog_drucker.yaml).
+The blueprint comes in two languages with identical function; pick one:
 
-- **Public repo or your own copy:** *Settings → Automations & scenes → Blueprints → Import blueprint* and paste the file's GitHub URL.
-- **Private repo:** copy the file to `/config/blueprints/automation/printlog/printlog_drucker.yaml` on your Home Assistant
-  (File editor or Samba app), then reload automations under *Developer tools → YAML* (called *Tools* in newer versions) or restart Home Assistant.
+- English: [`blueprints/automation/printlog/printlog_printer.yaml`](blueprints/automation/printlog/printlog_printer.yaml)
+- German: [`blueprints/automation/printlog/printlog_drucker.yaml`](blueprints/automation/printlog/printlog_drucker.yaml)
 
-### 4. Create one automation per printer
+Import it under *Settings → Automations & scenes → Blueprints → Import blueprint* with the file's GitHub URL, or copy
+the file to `/config/blueprints/automation/printlog/` on your Home Assistant and reload automations.
 
-*Settings → Automations & scenes → Blueprints → "printlog: Druck erfassen (Bambu Lab)" → Create automation*, then fill in:
+#### 4. Create one automation per printer
+
+*Settings → Automations & scenes → Blueprints → "printlog: record prints (Bambu Lab)" → Create automation*, then fill in:
 
 | Input | What to pick |
 |---|---|
-| **Kurzname** (short name) | Short unique key, lowercase, e.g. `x1c`. Prints are stored under this key, so don't change it later. |
-| **Druckstatus** (print status) | The printer's `sensor.…_print_status`. All other printer entities are found by the same name prefix. |
-| **AMS-Einheiten** (AMS units) | For each AMS, its *tray 1* sensor (`sensor.…_tray_1`), in order AMS 1, AMS 2 … Leave empty without AMS. |
-| **Externe Spule** (external spool) | `sensor.…_external_spool` *(optional)* |
-| **Energiezähler** (energy meter) | The plug's kWh sensor *(optional)* |
-| **Leistung** (power) | The plug's W sensor *(optional, used to detect the end of the cool-down)* |
-| **Strompreis** (price) | e.g. `input_number.strompreis` *(optional, otherwise printlog reads `PRICE_ENTITY` itself)* |
-| *Feinheiten* (tuning) | Standby threshold (30 W), max cool-down (5 min), meter delay (70 s). Defaults fit Shelly plugs. |
+| **Short name** | Short unique key, lowercase, e.g. `x1c`. Prints are stored under this key, so don't change it later. |
+| **Print status** | The printer's `sensor.…_print_status`. All other printer entities are found by the same name prefix. |
+| **AMS units** | For each AMS, its *tray 1* sensor (`sensor.…_tray_1`), in order AMS 1, AMS 2 … Leave empty without AMS. |
+| **External spool** | `sensor.…_external_spool` *(optional)* |
+| **Energy meter** | The plug's kWh sensor *(optional)* |
+| **Power** | The plug's W sensor *(optional, used to detect the end of the cool-down)* |
+| **Electricity price** | Your price entity *(optional, otherwise printlog reads `PRICE_ENTITY` itself)* |
+| *Fine-tuning* | Standby threshold (30 W), maximum cool-down (5 min), meter delay (70 s). Defaults fit Shelly plugs. |
 
 Repeat for every printer. Start a print: it shows up in printlog within a minute, the cover image follows shortly after.
 
-### 5. Finish the setup in printlog
+#### 5. Finish the setup in printlog
 
-Open **Einstellungen** (settings):
+Open **Settings**:
 
-- **Drucker** – printlog fills this in from the first event of each automation. A ✓ shows the live value from Home Assistant,
-  ⚠ an entity that does not exist. Set **Feste Leistung (W)** for printers without a plug. You can also add printers by hand.
-- **Kosten** – purchase price, expected lifetime in print hours, maintenance per year and wear per hour for each printer.
+- **Printer** – printlog fills this in from the first event of each automation. A ✓ shows the live value from Home Assistant,
+  ⚠ an entity that does not exist. Set **Fixed power (W)** for printers without a plug. You can also add printers by hand.
+- **Costs** – purchase price, expected lifetime in print hours, maintenance per year and wear per hour for each printer.
 - **Filament** – €/kg per filament type, optionally per exact product.
-- **Margen** – up to two named margins (e.g. private / business).
-- **Bon & PDF** – your own logo for the receipt image and PDF.
+- **Margins** – up to two named margins (e.g. private / business).
+- **Receipt & PDF** – your own logo for the receipt image and the PDF.
+- **View** – language, start tab of the detail page, how long prints stay in the trash.
 - **Backup** – schedule (needs `BACKUP_DIR`, see below).
 
-### 6. Optional extras
+#### 6. Optional extras
 
 - **Reverse proxy** (Nginx Proxy Manager, Traefik, Caddy …): point a hostname to `<docker-host>:8095` and enable WebSocket support.
-- **Home Assistant dashboard**: embed printlog with a *Webpage* card (`type: iframe`) – use the HTTPS URL if HA itself runs on HTTPS.
-- **Windows folder links**: each print can store a local folder path. *Einstellungen → Windows* has a small script that registers
+- **Home Assistant dashboard**: embed printlog with a *Webpage* card (`type: iframe`); use the HTTPS URL if HA itself runs on HTTPS.
+- **Windows folder links**: each print can store a local folder path. *Settings → Windows* has a small script that registers
   a `printlog-open:` link handler so the folder opens in Explorer.
 
-## Configuration
+### Configuration
 
 All settings are environment variables (in `.env` or the Portainer stack). Everything else is configured in the web UI.
 
@@ -147,16 +202,21 @@ All settings are environment variables (in `.env` or the Portainer stack). Every
 | `ENERGY_ENTITY` | empty | Only for upgrades from very old versions: energy entity pattern with `{printer}` placeholder. |
 | `LOG_LEVEL` | `INFO` | Python log level. |
 
+**Language:** *Settings → View → Language* switches between *Automatic* (browser language, English if neither English
+nor German is preferred), *Deutsch* and *English*. It applies to the interface, receipt images, PDF and CSV export
+(English CSV uses commas and decimal points, German CSV semicolons and decimal commas). Installations that existed
+before the language setting stay German until you change it.
+
 **Data** is stored in the Docker volume `printlog-data`: `printlog.db` (SQLite) and `images/` (cover images, photos, logo).
 **Backups** with `BACKUP_DIR` set: a database copy per run in `db/printlog-YYYY-MM-DD.db` (the last 14 are kept) and a mirror of all images in `images/`.
 
-## Updating
+### Updating
 
 Pull the new version and rebuild: `git pull && docker compose up -d --build` (Portainer: *Pull and redeploy*).
 The database is migrated automatically on start. If the blueprint changed, re-import it (or copy the file again)
 and reload automations; existing automations keep their inputs.
 
-## The `printlog` event
+### The printlog event
 
 If you want to feed printlog from something other than the blueprint, fire an event of type `printlog` with these fields:
 
@@ -175,22 +235,22 @@ If you want to feed printlog from something other than the blueprint, fire an ev
 `final` is sent after the cool-down; its meter reading is used for the kWh. Without `final` within 20 minutes,
 printlog closes the print with the reading from `stop`.
 
-## Other printers
+### Other printers
 
 printlog is built around the Bambu Lab integration (status names, AMS weights per slot, cover image). Electricity
 tracking via a smart plug or fixed wattage works for any printer, but for Prusa, Klipper/Moonraker or OctoPrint you
 would need your own automation that maps their states to `running` / `finish` / `failed` and fires the event above;
-filament weight per slot is usually not available there.
+filament weight per slot is usually not available there. Support for other brands is not planned; a fork is the way to go.
 
-## Troubleshooting
+### Troubleshooting
 
 - **`/health` returns 503** – printlog is not connected. Check `HA_URL` (reachable from the container?) and `HA_TOKEN`; see `docker logs printlog`.
 - **Prints don't appear** – check the automation's trace in Home Assistant (*Automations → … → Traces*) and that the short name is set.
-- **No kWh / "Zählerstand fehlte"** – the plug was offline or the energy sensor is wrong; check *Einstellungen → Drucker*. Set a fixed wattage as a fallback.
+- **No kWh / "Meter reading missing"** – the plug was offline or the energy sensor is wrong; check *Settings → Printer*. Set a fixed wattage as a fallback.
 - **Prints appear twice** – two automations report the same printer (e.g. an old automation next to the blueprint one). Keep only one per printer.
 - **No cover image** – the Bambu integration loads it a moment after the start; printlog fetches it again at the end of the print.
 
-## API
+### API
 
 - `GET /health` – 200 when connected to Home Assistant, otherwise 503
 - `GET /api/jobs` – prints as JSON (filters as in the UI, e.g. `?printer=x1c&month=2026-11`, plus `limit`, `offset`)
@@ -199,6 +259,247 @@ filament weight per slot is usually not available there.
 - `POST /api/jobs/{id}` – update task_name, customer_id, quantity, job_note
 - `POST /api/jobs/{id}/photos` – upload a photo (multipart field `photo`)
 - `POST /api/jobs/{id}/delete`, `POST /api/jobs/delete` (`ids=1,2,3`) – move to trash
-- `GET /export/{id}/bon-kunde.png`, `bon-intern.png`, `kosten.pdf` – share exports
+- `GET /export/{id}/bon-kunde.png`, `bon-intern.png`, `kosten.pdf` – share exports (customer receipt, internal receipt, PDF)
 
 There is no authentication in printlog itself. Keep it on your local network or put it behind a reverse proxy with access control.
+
+---
+
+<a id="deutsch"></a>
+
+## Deutsch
+
+**Eine Druck-Historie für Bambu-Lab-Drucker, mit Auswertung und echten Kosten, gespeist aus Home Assistant.**
+
+printlog ist eine kleine selbst gehostete Web-App, die jeden Druck automatisch festhält: wann er lief, auf welchem
+Drucker, was gedruckt wurde, wie viel Filament aus welchem AMS-Fach, wie viel Strom er gebraucht hat und wie er
+ausgegangen ist. Auf dieser Historie bauen Statistik, Kalender, eigene Fotos und Notizen auf, dazu eine genaue
+Kostenrechnung pro Druck, bei Bedarf mit Verkaufspreisen, Kunden und Zahlungen. Sie läuft als einzelner
+Docker-Container neben Home Assistant und spricht nie mit der Bambu-Cloud.
+
+Die Oberfläche gibt es auf **Deutsch und Englisch** (Einstellungen → Ansicht → Sprache, oder automatisch nach Browser).
+
+> **Zu diesem Projekt:** printlog ist auf mein eigenes Setup zugeschnitten (Bambu-Lab-Drucker, Home Assistant, ein paar
+> Steckdosen mit Strommessung) und bleibt das auch. Du kannst es gern so nutzen, wie es ist. Wer es stark verändern
+> möchte, legt am besten einen **Fork** an und macht ihn zu seinem eigenen; größere Feature-Pull-Requests werde ich
+> voraussichtlich nicht übernehmen. Fehlermeldungen und kleine Korrekturen sind willkommen.
+
+### Inhalt
+
+[Funktionen](#funktionen) · [Ablauf](#ablauf) · [Voraussetzungen](#voraussetzungen) · [Installation](#installation-1) ·
+[Konfiguration](#konfiguration) · [Aktualisieren](#aktualisieren) · [Ablauf pro Druck im Detail](#ablauf-pro-druck-im-detail) ·
+[Oberfläche im Detail](#oberfläche-im-detail) · [Fehlersuche](#fehlersuche) · [API](#api-1)
+
+Bilder der Oberfläche stehen oben im englischen Teil unter [Screenshots](#screenshots), darunter auch die deutsche Druckliste.
+
+### Funktionen
+
+**Druck-Historie**
+
+- **Automatisches Protokoll** jedes Drucks: Start, Ende, Dauer, Status (fertig / abgebrochen / unvollständig),
+  Auftragsname, Drucker, Vorschaubild, Filament pro AMS-Fach mit Farbe und kWh.
+- **Alles wiederfinden** – Live-Suche über Name, Material, Kunde, Notizen und Projektlinks; Filter nach Drucker, Monat,
+  Status, Material, Kunde und Zahlung; Tabelle oder Galerie, wahlweise nach Tagen gruppiert.
+- **Eigene Angaben** – Fotos (direkt mit der Kamera, automatisch verkleinert), Notizen, Filament-Notizen (z. B. der
+  genaue Farbname), MakerWorld-/Printables-Links mit Titel, ein lokaler Ordner und eine kurze Projekt-ID pro Druck (z. B. `PL-7K3Q`).
+- **Ausschuss** – abgebrochene Drucke zählen automatisch als Ausschuss, jeder Druck lässt sich auch selbst markieren.
+- **Papierkorb** mit Wiederherstellen; endgültig gelöscht wird erst nach einstellbaren Tagen.
+- **Robust** – nach einem Neustart oder Verbindungsabbruch holt printlog verpasste Drucke aus dem Verlauf von Home Assistant nach (bis 7 Tage).
+
+**Auswertung**
+
+- **Statistik** nach Tag, Woche oder Monat: Druckstunden pro Drucker, Kostenanteile, Filament nach Material,
+  Erfolgsquote, Tabelle pro Drucker und eine Jahres-Heatmap der Druckstunden.
+- **Kalender** mit Drucken, Stunden, Kosten und Vorschaubildern pro Tag.
+- **CSV-Export** der aktuellen Liste (Excel-tauglich) und geplantes **Backup** von Datenbank und Bildern in einen eingehängten Ordner.
+
+**Kosten und Kunden**
+
+- **Echte Kosten pro Druck**
+  - *Strom* aus dem kWh-Zähler einer Steckdose (Start bis Ende der Abkühlphase) oder geschätzt über eine feste Leistung, wenn keine Steckdose da ist.
+  - *Filament* pro AMS-Fach (Gramm × €/kg), Preis nach Typ (PLA, PETG …) oder nach Sorte (z. B. „Bambu PLA Matte“).
+  - *Drucker*: Abschreibung, Wartung pro Jahr und Verschleiß pro Stunde.
+- **Verkaufspreise** – zwei benannte Margen, optional eine Marge pro Kunde und ein fester Endpreis pro Druck.
+- **Kunden** – Teilzahlungen und Teilübergaben, Verschenktes, offene Beträge pro Kunde.
+- **Teilen** – ein PNG im Kassenbon-Stil für Kunden (WhatsApp usw.), eine interne Variante mit voller Kalkulation und
+  eine A4-PDF-Kostenaufstellung, jeweils in der Sprache der Oberfläche.
+- **Diskret-Modus** – ein Klick verwischt alle internen Werte, wenn ein Kunde mitschaut.
+
+### Ablauf
+
+1. Die **Bambu-Lab-Integration** in Home Assistant liefert Druckstatus, Auftragsname, Gewicht pro AMS-Fach und das Vorschaubild.
+2. Eine **Automation pro Drucker** (aus dem mitgelieferten Blueprint) schickt ein Event `printlog` beim Druckstart,
+   beim Druckende und nach der Abkühlphase noch einmal mit dem endgültigen Zählerstand.
+3. Der **printlog-Container** hört über die WebSocket-API von Home Assistant zu, speichert jeden Druck und rechnet die Kosten aus.
+
+Home Assistant bleibt schlank und schickt nur Events. Logik und Auswertung passieren im Container.
+
+### Voraussetzungen
+
+| Was | Hinweise |
+|---|---|
+| Home Assistant | Aktuelle Version (der Blueprint braucht 2024.10 oder neuer). |
+| [Bambu-Lab-Integration](https://github.com/greghesp/ha-bambulab) | Über HACS. Liefert `…_print_status`, `…_print_weight`, `…_task_name`, die AMS-Fach-Sensoren und `image.…_cover_image`. |
+| Steckdose pro Drucker *(optional)* | Braucht einen **Energie**-Sensor (kWh, Gesamtzähler) und am besten einen **Leistungs**-Sensor (W). Shelly, Tasmota, Zigbee usw. Ohne Steckdose trägst du in printlog eine feste Leistung pro Drucker ein. |
+| Strompreis | Eine Entität mit €/kWh, z. B. ein Zahlenwert-Helfer `input_number.strompreis`. |
+| Docker | Docker Compose oder Portainer auf einem Rechner, der Home Assistant erreicht. |
+
+### Installation
+
+#### 1. Home Assistant vorbereiten
+
+1. Die **Bambu-Lab**-Integration über HACS installieren und die Drucker hinzufügen.
+2. *(Optional)* Pro Drucker eine Steckdose mit Strommessung einbinden.
+3. Strompreis-Helfer anlegen: *Einstellungen → Geräte & Dienste → Helfer → Helfer erstellen → Zahlenwert*,
+   Name z. B. „Strompreis“ (Entität `input_number.strompreis`), Einheit €/kWh, Schrittweite 0,001, Preis eintragen.
+4. Ein **langlebiges Zugriffstoken** erstellen: Benutzerprofil → *Sicherheit* → *Langlebige Zugriffstokens* → *Token erstellen*,
+   Name `printlog`, Token kopieren.
+
+#### 2. Container starten
+
+**Docker Compose**
+
+```bash
+git clone https://github.com/relax81/printlog.git
+cd printlog
+cp .env.example .env      # HA_URL und HA_TOKEN eintragen
+docker compose up -d --build
+```
+
+Dann `http://<docker-host>:8095` öffnen. `http://<docker-host>:8095/health` liefert `200`, sobald printlog mit Home Assistant verbunden ist.
+
+**Portainer (Git-Stack)**
+
+*Stacks → Add stack → Repository*: Adresse dieses Repos, Branch `main`, Compose-Pfad `docker-compose.yml`.
+Unter *Environment variables* mindestens `HA_URL` und `HA_TOKEN` eintragen und deployen. Updates später mit
+*Pull and redeploy* (oder GitOps-Polling einschalten).
+
+#### 3. Blueprint installieren
+
+Den Blueprint gibt es in zwei Sprachen mit gleicher Funktion:
+
+- Deutsch: [`blueprints/automation/printlog/printlog_drucker.yaml`](blueprints/automation/printlog/printlog_drucker.yaml)
+- Englisch: [`blueprints/automation/printlog/printlog_printer.yaml`](blueprints/automation/printlog/printlog_printer.yaml)
+
+Unter *Einstellungen → Automationen & Szenen → Blueprints → Blueprint importieren* mit der GitHub-Adresse der Datei
+importieren, oder die Datei nach `/config/blueprints/automation/printlog/` kopieren und die Automationen neu laden.
+
+#### 4. Eine Automation pro Drucker anlegen
+
+*Einstellungen → Automationen & Szenen → Blueprints → „printlog: Druck erfassen (Bambu Lab)“ → Automation erstellen*:
+
+| Eingabe | Was auswählen |
+|---|---|
+| **Kurzname** | Kurz und eindeutig, Kleinbuchstaben, z. B. `x1c`. Darunter speichert printlog die Drucke, also später nicht ändern. |
+| **Druckstatus** | `sensor.…_print_status` des Druckers. Die übrigen Entitäten findet die Automation über denselben Namensanfang. |
+| **AMS-Einheiten** | Pro AMS der Sensor von Fach 1 (`sensor.…_tray_1`), in der Reihenfolge AMS 1, AMS 2 … Ohne AMS leer lassen. |
+| **Externe Spule** | `sensor.…_external_spool` *(optional)* |
+| **Energiezähler** | kWh-Sensor der Steckdose *(optional)* |
+| **Leistung** | W-Sensor der Steckdose *(optional, erkennt das Ende der Abkühlphase)* |
+| **Strompreis** | z. B. `input_number.strompreis` *(optional, sonst fragt printlog `PRICE_ENTITY` selbst ab)* |
+| *Feinheiten* | Standby-Leistung (30 W), Abkühlphase höchstens (5 min), Nachlauf für den Zähler (70 s). Die Standardwerte passen zu Shelly. |
+
+Für jeden Drucker wiederholen. Beim nächsten Druck erscheint er nach spätestens einer Minute in printlog, das Vorschaubild kurz danach.
+Wichtig beim Umstieg von einer alten Sammel-Automation: für bestehende Drucker denselben Kurznamen nehmen und die alte
+Automation erst danach ausschalten, sonst kommen Events doppelt.
+
+#### 5. Einrichtung in printlog abschließen
+
+Unter **Einstellungen**:
+
+- **Drucker** – füllt printlog mit dem ersten Event jeder Automation selbst aus. ✓ zeigt den aktuellen Wert aus Home Assistant,
+  ⚠ eine Entität, die es nicht gibt. Für Drucker ohne Steckdose **Feste Leistung (W)** eintragen. Drucker lassen sich auch von Hand anlegen.
+- **Kosten** – Anschaffungspreis, erwartete Lebensdauer in Druckstunden, Wartung pro Jahr und Verschleiß pro Stunde je Drucker.
+- **Filament** – €/kg pro Filamenttyp, optional pro Sorte.
+- **Margen** – bis zu zwei benannte Margen (z. B. Privat / Gewerbe).
+- **Bon & PDF** – eigenes Logo für Bon-Bild und PDF.
+- **Ansicht** – Sprache, Start-Tab der Detailseite, Aufbewahrung im Papierkorb.
+- **Backup** – Zeitplan (braucht `BACKUP_DIR`, siehe unten).
+
+#### 6. Optional
+
+- **Reverse Proxy** (Nginx Proxy Manager, Traefik, Caddy …): einen Hostnamen auf `<docker-host>:8095` zeigen lassen, WebSocket-Unterstützung an.
+- **Home-Assistant-Dashboard**: printlog mit einer *Webseite*-Karte (`type: iframe`) einbetten; läuft HA über HTTPS, auch printlog über HTTPS aufrufen.
+- **Ordner-Links unter Windows**: Unter *Einstellungen → Windows* gibt es ein kleines Skript, das den Link-Typ `printlog-open:`
+  einrichtet, damit „📂 Öffnen“ den Ordner eines Drucks im Explorer öffnet.
+
+### Konfiguration
+
+Umgebungsvariablen (in `.env` oder im Portainer-Stack); alles andere stellst du in der Oberfläche ein.
+
+| Variable | Standard | Zweck |
+|---|---|---|
+| `HA_URL` | `http://homeassistant.local:8123` | Adresse von Home Assistant, wie der Container sie erreicht. |
+| `HA_TOKEN` | – (Pflicht) | Langlebiges Zugriffstoken. |
+| `PRICE_ENTITY` | `input_number.strompreis` | Preis pro kWh, falls ein Event keinen Preis mitbringt. |
+| `TZ` | `Europe/Berlin` | Zeitzone für Datum, Statistik und Backup. |
+| `PRINTLOG_PORT` | `8095` | Port auf dem Docker-Host. |
+| `BACKUP_DIR` | leer (aus) | Backup-Ziel im Container, z. B. `/backup` (dort in `docker-compose.yml` einen Ordner einhängen). |
+| `BACKUP_HOUR` | `3` | Standard-Uhrzeit für den Backup-Zeitplan. |
+| `IMAGE_DELAY_S` | `60` | Sekunden bis zum Abruf des Vorschaubilds nach dem Start. |
+| `ENERGY_ENTITY` | leer | Nur für Updates von sehr alten Ständen: Muster der Energie-Entität mit Platzhalter `{printer}`. |
+| `LOG_LEVEL` | `INFO` | Log-Level. |
+
+**Sprache:** *Einstellungen → Ansicht → Sprache* wechselt zwischen *Automatisch* (Sprache des Browsers, Englisch, wenn
+weder Deutsch noch Englisch bevorzugt ist), *Deutsch* und *English*. Das gilt für Oberfläche, Bon-Bilder, PDF und
+CSV-Export (deutsches CSV mit Semikolon und Dezimalkomma, englisches mit Komma und Dezimalpunkt). Installationen, die es
+schon vor der Sprachwahl gab, bleiben deutsch, bis du es änderst.
+
+**Daten** liegen im Docker-Volume `printlog-data`: `printlog.db` (SQLite) und `images/` (Vorschaubilder, Fotos, Logo).
+**Backup** mit gesetztem `BACKUP_DIR`: pro Lauf eine Datenbank-Kopie in `db/printlog-JJJJ-MM-TT.db` (die letzten 14 bleiben)
+und ein Spiegel aller Bilder in `images/`. Täglich oder wöchentlich (Standard: sonntags 3 Uhr), Änderungen greifen ohne Neustart;
+„Jetzt sichern“ steht in den Einstellungen.
+
+### Aktualisieren
+
+Neue Version holen und neu bauen: `git pull && docker compose up -d --build` (Portainer: *Pull and redeploy*).
+Die Datenbank wird beim Start automatisch angepasst. Hat sich der Blueprint geändert, ihn neu importieren (oder die Datei
+erneut kopieren) und die Automationen neu laden; bestehende Automationen behalten ihre Eingaben.
+
+### Ablauf pro Druck im Detail
+
+| Event-Phase | Wann | Was passiert |
+|---|---|---|
+| `start` | Status wechselt auf `running` (nicht aus Pause/Offline) | Zeile anlegen, Zählerstand merken, Vorschaubild holen |
+| `stop`  | Status wechselt von `running`/`pause`/`prepare` auf `finish`/`failed` | Status fertig/abgebrochen, Zählerstand und Fortschritt merken |
+| `final` | Leistung unter Standby (Abkühlen vorbei, max. 5 min) + 70 s | kWh = Ende − Start, Kosten = kWh × Strompreis |
+
+Sonderfälle:
+
+- Container aus (Redeploy, Neustart) oder Verbindung zu HA weg: Nach jedem Verbinden liest printlog den Verlauf der
+  Druckstatus- und Zähler-Sensoren (seit der letzten Verbindung, max. 7 Tage) und holt verpasste `start`/`stop` nach denselben
+  Regeln wie die Automation nach. Bereits erfasste Events werden nicht doppelt angelegt, Drucke aus dem Papierkorb nicht neu.
+- Kein `final` innerhalb von 20 min: Abschluss mit dem Zählerstand vom `stop`.
+- Neuer Start ohne Ende davor: die alte Zeile wird „unvollständig“. Ende ohne Start: Zeile „unvollständig“ ohne kWh.
+- Steckdose offline oder Zähler zurückgesetzt: keine kWh, Hinweis in der Zeile; mit fester Leistung wird geschätzt.
+- Fehldrucke bekommen eine eigene Zeile „abgebrochen“, Filament nur anteilig bis zum Abbruch.
+
+### Oberfläche im Detail
+
+- **Drucke**: Live-Suche (Teilwörter, mehrere Wörter, Umlaute egal), Filter, Tabelle oder Galerie, „Nach Tagen“ gruppiert.
+  Ein Farbbalken zeigt die Kostenanteile, Antippen öffnet die Aufschlüsselung. „☑ Auswählen“ für Mehrfachauswahl und Löschen mit „Rückgängig“.
+- **Druckdetails**: Tabs Übersicht, Abrechnung (nur mit Kunde), Bearbeiten und Fotos. Der Start-Tab ist einstellbar.
+- **Endpreis, Zahlung, Übergabe** (nur mit Kunde, ohne Ausschuss): optionaler Endpreis, sonst Kosten + Kundenmarge.
+  Zahlungen und Übergaben sind einzelne Einträge, damit Teilzahlungen und Teilabholungen gehen. Badges in der Liste öffnen ein
+  Menü (z. B. „Alles bezahlt“).
+- **Verschenkt**: zählt weiter in Kosten und Statistik, braucht aber keine Zahlung; unter „Kunden“ mit Anzahl und Wert pro Zeitraum.
+- **Teilen** („📤 Teilen“): Bild für Kunden, Bild intern, PDF. Am Handy über das Teilen-Menü des Systems, am PC als Download.
+  Das Häkchen „Bezahlt/Übergeben mit drauf“ lässt den Zahlungsstand weg. Im Diskret-Modus nur das Kundenbild.
+- **Projekt-ID** wie `PL-7K3Q` auf Liste, Detailseite, Bon, PDF und im Dateinamen; Enter auf einer ID in der Suche öffnet den Druck.
+- **Diskret-Modus** (Auge oben rechts): verwischt Kosten, Margen und Statistik; Endpreis bzw. Kundenpreis und Zahlungsstatus bleiben sichtbar.
+- **Eigene Fotos** werden gedreht (EXIF) und auf höchstens 2560 px verkleinert.
+
+### Fehlersuche
+
+- **`/health` liefert 503** – keine Verbindung. `HA_URL` (vom Container erreichbar?) und `HA_TOKEN` prüfen, `docker logs printlog` ansehen.
+- **Drucke erscheinen nicht** – Ablaufverfolgung der Automation in Home Assistant prüfen und ob der Kurzname gesetzt ist.
+- **Keine kWh / „Zählerstand fehlte“** – Steckdose war offline oder der Energie-Sensor stimmt nicht; *Einstellungen → Drucker* prüfen, als Ersatz eine feste Leistung eintragen.
+- **Drucke doppelt** – zwei Automationen melden denselben Drucker. Pro Drucker nur eine behalten.
+- **Kein Vorschaubild** – die Integration lädt es erst kurz nach dem Start; printlog holt es am Druckende noch einmal.
+
+### API
+
+Wie im [englischen Teil](#api). Die Export-Adressen heißen unabhängig von der Sprache `export/<id>/bon-kunde.png`,
+`bon-intern.png` und `kosten.pdf`.
+
+printlog hat selbst keine Anmeldung. Nur im Heimnetz betreiben oder hinter einen Reverse Proxy mit Zugangsschutz stellen.

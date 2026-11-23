@@ -20,6 +20,7 @@ from typing import Any, Awaitable, Callable
 
 import json
 
+from .i18n import N_
 from .costing import compute, parse_materials
 from .db import Store
 from . import printers as pcfg
@@ -84,7 +85,7 @@ class Processor:
                 old["id"],
                 state="done",
                 status=STATUS_INCOMPLETE,
-                note="Kein Druckende empfangen (neuer Druck gestartet)",
+                note=N_("Kein Druckende empfangen (neuer Druck gestartet)"),
             )
             log.info("Job %s ohne Ende als unvollständig geschlossen", old["id"])
 
@@ -131,7 +132,7 @@ class Processor:
             job_id = self.store.insert(
                 printer=printer,
                 start_ts=start_ts or ts,
-                note="Druckstart nicht empfangen",
+                note=N_("Druckstart nicht empfangen"),
                 **fields,
             )
         else:
@@ -167,9 +168,9 @@ class Processor:
         has_meter = bool(cfg.get("energy")) or start_kwh is not None or end_kwh is not None
         if start_kwh is None or end_kwh is None:
             if has_meter and not any("Druckstart" in n for n in notes):
-                notes.append("Zählerstand fehlte (Plug offline?)")
+                notes.append(N_("Zählerstand fehlte (Plug offline?)"))
         elif end_kwh < start_kwh:
-            notes.append("Zähler wurde zurückgesetzt")
+            notes.append(N_("Zähler wurde zurückgesetzt"))
         else:
             kwh = round(end_kwh - start_kwh, 4)
         if kwh is None:
@@ -177,13 +178,13 @@ class Processor:
             estimate = _estimate_kwh(cfg.get("fixed_w"), job.get("start_ts"), job.get("end_ts") or final_ts)
             if estimate is not None:
                 kwh = estimate
-                notes.append(f"kWh geschätzt mit {cfg['fixed_w']:g} W")
+                notes.append(f"kWh geschätzt mit {cfg['fixed_w']:g} W")  # Übersetzung: i18n.note
             elif not has_meter and not any("Druckstart" in n for n in notes):
-                notes.append("Kein Energiezähler und kein fester Wattwert (Einstellungen → Drucker)")
+                notes.append(N_("Kein Energiezähler und kein fester Wattwert (Einstellungen → Drucker)"))
         if kwh is None:
             status = STATUS_INCOMPLETE if status == STATUS_DONE else status
             if status == STATUS_FAILED:
-                notes.append("Kosten unbekannt")
+                notes.append(N_("Kosten unbekannt"))
         cost = round(kwh * price, 4) if kwh is not None and price is not None else None
         fields = dict(
             state="done",
@@ -204,7 +205,7 @@ class Processor:
         for job in self.store.stale_closing(time.time() - FINAL_GRACE_S):
             price = job["price"] if job["price"] is not None else default_price
             self._close(job, job["end_kwh"], price, job["end_ts"],
-                        extra_note="Abkühlphase nicht gemessen")
+                        extra_note=N_("Abkühlphase nicht gemessen"))
 
 
 def _estimate_kwh(watts: float | None, start: float | None, end: float | None) -> float | None:
