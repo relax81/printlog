@@ -14,6 +14,7 @@ from .costing import KNOWN_TYPES, hourly_rate, material_notes, parse_materials
 from .db import Store, code_label
 from .i18n import LANGS, N_, is_en as lang_en, note as t_note, t, tn
 from .ui import (
+    DEMO,
     bon_tagline,
     e,
     parse_num,
@@ -1657,6 +1658,21 @@ def page_trash(store: Store, days: int, done: str | None) -> str:
 
 # ---- Einstellungen ------------------------------------------------------------
 
+def _demo_row() -> str:
+    """Einstellungen → Ansicht: Demo-Modus öffnen bzw. (in der Demo) beenden oder neu erzeugen."""
+    if DEMO.get():
+        ctl = (f'<a class="btn sm" href="../">{t("Demo beenden")}</a>'
+               f'<button type="submit" class="btn sm" formaction="demo-neu" formmethod="post">{t("Beispieldaten neu erzeugen")}</button>')
+        hint = t("Du bist im Demo-Modus. Alles hier ist erfunden und lässt sich gefahrlos ändern. Die Beispieldaten werden "
+                 "nach 12 Stunden, nach einem Neustart und beim Sprachwechsel neu erzeugt.")
+    else:
+        ctl = f'<a class="btn sm" href="demo/">{t("Demo öffnen")}</a>'
+        hint = t("Dieselbe Oberfläche mit erfundenen Beispieldaten, z. B. für Screenshots oder zum Ausprobieren. "
+                 "Die Demo hat eine eigene Datenbank: Deine echten Drucke, Home Assistant und das Backup bleiben unberührt.")
+    return (f'<div class="frow"><span class="flbl">{t("Demo-Modus")}</span><span class="fctl">{ctl}</span>'
+            f'<small class="fhint muted">{hint}</small></div>')
+
+
 def page_settings(store: Store, saved: str | None, logo: str | None = None,
                   live: dict[str, Any] | None = None, printer_msg: str | None = None,
                   safety: list[dict[str, Any]] | None = None, data_msg: dict[str, str] | None = None) -> str:
@@ -1728,7 +1744,10 @@ def page_settings(store: Store, saved: str | None, logo: str | None = None,
         f'{options([(str(h), f"{h:02d}:00") for h in range(24)], str(hour))}</select></label>'
         '</div>'
     )
-    if enabled():
+    if DEMO.get():
+        backup_html = (f'<h2>{t("Automatisches Backup")}</h2><p class="muted">'
+                       + t("Im Demo-Modus aus. Die Beispieldaten werden nie ins Backup-Ziel geschrieben.") + '</p>')
+    elif enabled():
         state = (t("noch keins") if len(last) < 3 else
                  f'{fmt_ts(float(last[0]))}: {"✓ " + e(backup_msg(last[2])) if last[1] == "ok" else "⚠ " + e(last[2])}')
         nxt = next_run(cfg, datetime.now())
@@ -1795,6 +1814,7 @@ def page_settings(store: Store, saved: str | None, logo: str | None = None,
 <span class="ig"><input class="num" id="trash_days" name="trash_days" inputmode="numeric" value="{e(cfg.get("trash_days") or "30")}"><i>{t("Tage")}</i></span>
 <a class="btn sm" href="trash">{t("Papierkorb öffnen ({n})", n=store.trash_count())}</a></span>
 <small class="fhint muted">{t("Gelöschte Drucke landen erst im Papierkorb und lassen sich dort wiederherstellen. Nach dieser Zeit werden sie samt Fotos endgültig gelöscht.")}</small></div>
+{_demo_row()}
 </div>"""),
         pane("backup", t("Daten &amp; Backup"), _data_pane(store, names, backup_html, safety or [], data_msg or {})),
         pane("windows", "Windows", f"""<h2 style="margin-top:0">{t("Ordner-Links (Windows)")}</h2>

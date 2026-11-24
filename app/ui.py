@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextvars
 import html
 import re
 from datetime import datetime
@@ -12,6 +13,9 @@ from .db import Store
 from .i18n import N_, is_en, js, lang, t
 
 e = html.escape
+
+# True, solange eine Anfrage im Demo-Modus (/demo/) läuft: Banner, Links und Abschalter richten sich danach.
+DEMO: contextvars.ContextVar[bool] = contextvars.ContextVar("printlog_demo", default=False)
 
 NAV = [
     ("./", N_("Drucke"), "jobs"),
@@ -146,6 +150,14 @@ font:14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:16px}
 a{color:var(--accent)}h1{font-size:18px;margin:0}
 .logo a{display:block;color:var(--fg);line-height:0}.logo svg{height:28px;width:auto}h2{font-size:15px;margin:20px 0 8px}
 .muted{color:var(--muted)}
+.logo{display:flex;align-items:center;gap:8px}
+.demo-pill{font:700 11px/1 system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase;text-decoration:none;
+ color:var(--bg);background:var(--warn);border-radius:6px;padding:5px 7px}
+.demo-bar{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;margin:0 0 12px;padding:8px 12px;border-radius:var(--radius);
+ border:1px solid color-mix(in srgb,var(--warn) 55%,transparent);background:color-mix(in srgb,var(--warn) 13%,var(--card));font-size:13px}
+.demo-bar b{color:var(--warn)}.demo-bar span{flex:1 1 260px;min-width:0}.demo-bar form{margin:0}
+.demo-bar a,.demo-bar button.lnk{border:0;background:none;padding:0;min-height:0;color:var(--accent);font:inherit;font-weight:600;
+ text-decoration:underline;cursor:pointer}.demo-bar button.x{color:var(--muted);text-decoration:none;font-size:15px}
 .pid{display:inline-block;font:600 11px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.04em;
 color:var(--muted);border:1px solid var(--line);border-radius:5px;padding:0 5px;margin-left:6px;vertical-align:2px;white-space:nowrap}
 .meta .pid,.badge .pid{margin-left:0;vertical-align:0}
@@ -255,10 +267,33 @@ document.addEventListener('mousemove',ev=>{const t=ev.target.closest('[data-tip]
 """
 
 
+def demo_bar() -> tuple[str, str]:
+    """Im Demo-Modus: kleines „Demo“-Schild am Logo und ein Hinweisbalken (ausblendbar, für Screenshots)."""
+    if not DEMO.get():
+        return "", ""
+    pill = f'<a class="demo-pill" href="settings#ansicht" title="{e(t("Demo-Modus: erfundene Beispieldaten"))}">{e(t("Demo"))}</a>'
+    bar = (f'<div class="demo-bar" id="demobar"><b>{e(t("Demo-Modus"))}</b>'
+           f'<span>{e(t("Erfundene Beispieldaten. Deine echten Drucke und Home Assistant bleiben unberührt."))}</span>'
+           f'<form method="post" action="demo-neu"><button type="submit" class="lnk">{e(t("Neu erzeugen"))}</button></form>'
+           f'<a href="../">{e(t("Demo beenden"))}</a>'
+           f'<button type="button" class="lnk x" id="demox" title="{e(t("Ausblenden (das Schild am Logo bleibt)"))}" aria-label="{e(t("Ausblenden"))}">✕</button></div>')
+    return pill, bar
+
+
+DEMO_JS = """
+const db=document.getElementById('demobar');
+if(db){try{if(sessionStorage.getItem('pl_demobar')==='0')db.remove()}catch(_){}
+ const x=document.getElementById('demox');if(x)x.onclick=()=>{db.remove();try{sessionStorage.setItem('pl_demobar','0')}catch(_){}}}
+"""
+
+
 def layout(title: str, active: str, body: str, script: str = "") -> str:
     links = "".join(
         f'<a href="{href}" class="{"on" if key == active else ""}">{e(t(label))}</a>' for href, label, key in NAV
     )
+    demo_pill, demo_bar_html = demo_bar()
+    if demo_pill:
+        title = f"{t('Demo')} · {title}"
     return f"""<!doctype html><html lang="{lang()}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{e(title)}</title>
@@ -269,8 +304,8 @@ def layout(title: str, active: str, body: str, script: str = "") -> str:
 <meta name="theme-color" content="#16181f"><meta name="apple-mobile-web-app-title" content="Printlog">
 <script>try{{if(localStorage.getItem('pl_priv')==='1')document.documentElement.classList.add('priv')}}catch(_){{}}</script>
 <style>{CSS}</style></head><body><div class="page">
-<div class="top"><h1 class="logo"><a href="/" title="Printlog">{LOGO_SVG}</a></h1><nav>{links}</nav>
+<div class="top"><h1 class="logo"><a href="./" title="Printlog">{LOGO_SVG}</a>{demo_pill}</h1><nav>{links}</nav>
 <button type="button" class="eye" id="eye" title="{e(t("Kalkulation aus-/einblenden (Diskret-Modus)"))}" aria-label="{e(t("Kalkulation aus- oder einblenden"))}">{EYE_SVG}</button></div>
-{body}
+{demo_bar_html}{body}
 </div><div id="zoom"><img alt=""></div><div id="tip" class="tip"></div>
-<script>{BASE_JS}{js(script)}</script></body></html>"""
+<script>{BASE_JS}{DEMO_JS if demo_pill else ""}{js(script)}</script></body></html>"""

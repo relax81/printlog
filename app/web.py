@@ -181,7 +181,8 @@ def _save_printers(store: Store, form: Any) -> str | None:
     return " ".join(msgs) or None
 
 
-def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: Any) -> None:
+def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: Any, demo: bool = False) -> None:
+    """Alle Routen. Mit ``demo`` (Demo-Modus unter /demo/) bleibt das Backup ins Netzwerkziel aus."""
     routes = web.RouteTableDef()
 
     @web.middleware
@@ -341,7 +342,7 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
     async def backup(request: web.Request) -> web.Response:
         from .backup import backup_now, enabled
 
-        if enabled():
+        if enabled() and not demo:
             await backup_now(store, image_dir)
         raise web.HTTPSeeOther("settings")
 

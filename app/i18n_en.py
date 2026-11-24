@@ -624,4 +624,22 @@ EN: dict[str, str] = {
     'Alle Drucke von {name}': 'All prints of {name}',
     'Offen sind Drucke mit Kunde, die noch nicht ganz bezahlt oder übergeben sind. Kunden mit „Keine Abrechnung“ und Ausschuss fehlen, verschenkte Drucke stehen nur hier, bis sie übergeben sind.':
         'Open means prints with a customer that are not fully paid or handed over yet. Customers with "No billing" and scrap are left out; gifted prints only show here until they are handed over.',
+    # Demo-Modus
+    'Demo': 'Demo',
+    'Demo-Modus': 'Demo mode',
+    'Demo-Modus: erfundene Beispieldaten': 'Demo mode: made-up sample data',
+    'Erfundene Beispieldaten. Deine echten Drucke und Home Assistant bleiben unberührt.':
+        'Made-up sample data. Your real prints and Home Assistant are not touched.',
+    'Neu erzeugen': 'Regenerate',
+    'Demo beenden': 'Leave demo',
+    'Ausblenden (das Schild am Logo bleibt)': 'Hide (the badge next to the logo stays)',
+    'Ausblenden': 'Hide',
+    'Demo öffnen': 'Open demo',
+    'Beispieldaten neu erzeugen': 'Regenerate sample data',
+    'Du bist im Demo-Modus. Alles hier ist erfunden und lässt sich gefahrlos ändern. Die Beispieldaten werden nach 12 Stunden, nach einem Neustart und beim Sprachwechsel neu erzeugt.':
+        'You are in demo mode. Everything here is made up and safe to change. The sample data is regenerated after 12 hours, after a restart and when you switch the language.',
+    'Dieselbe Oberfläche mit erfundenen Beispieldaten, z. B. für Screenshots oder zum Ausprobieren. Die Demo hat eine eigene Datenbank: Deine echten Drucke, Home Assistant und das Backup bleiben unberührt.':
+        'The same interface with made-up sample data, e.g. for screenshots or to try things out. The demo has its own database: your real prints, Home Assistant and the backup are not touched.',
+    'Im Demo-Modus aus. Die Beispieldaten werden nie ins Backup-Ziel geschrieben.':
+        'Off in demo mode. The sample data is never written to the backup target.',
 }
