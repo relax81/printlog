@@ -293,6 +293,7 @@ EN: dict[str, str] = {
     'Ausschuss wird nicht berechnet.': 'Scrap is not charged.',
     'Zahlung löschen': 'Delete payment',
     '{q} Stück': '{q} pieces',
+    '1 Stück': '1 piece',
     'Übergabe löschen': 'Delete hand-over',
     'Zahlung eintragen': 'Record payment',
     'Übergabe eintragen': 'Record hand-over',

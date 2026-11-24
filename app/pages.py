@@ -44,6 +44,11 @@ TODO_OPTIONS = {
 }
 
 
+
+def _pcs(q: object) -> str:
+    """„1 Stück“ / „3 Stück“ – im Englischen „1 piece“ / „3 pieces“."""
+    return t("1 Stück") if q == 1 else t("{q} Stück", q=q)
+
 def db_filters(f: dict[str, str | None]) -> dict[str, str | None]:
     """URL-Filter → Datenbankfilter (Darstellungsschalter raus, „Offenes“ übersetzt)."""
     q: dict[str, str | None] = {k: v for k, v in f.items() if k not in VIEW_KEYS}
@@ -615,7 +620,7 @@ def _todo_row(j: dict[str, Any], photo: str | None) -> str:
         acts += f'<button type="button" class="btn ho act"{_acts(title, items)}>{t("📦 Übergabe")}</button>'
     when = fmt_date(j["start_ts"], "dm") if j.get("start_ts") else "–"
     return (f'<div class="or">{_thumb(j, photo)}<div class="oname"><b><a href="{href}">{e(j["task_name"] or "–")}</a>{_pid(j)}</b>'
-            f'<span>{when} · {_ago(j.get("start_ts"))} · {t("{q} Stück", q=n)}</span></div>'
+            f'<span>{when} · {_ago(j.get("start_ts"))} · {_pcs(n)}</span></div>'
             f'{pay_html}{ho_html}<div class="oact">{acts}</div></div>')
 
 
@@ -648,7 +653,7 @@ def _todo_view(store: Store, q: dict[str, Any]) -> str:
     oldest = (datetime.now().date() - datetime.fromtimestamp(allj[0]["start_ts"] or time.time()).date()).days
     kpis = (f'<div class="kpis okpis"><div class="kpi warn"><span>{t("💶 Noch zu bekommen")}</span><b class="calc">{fmt_num(money, 2, "€")}</b>'
             f'<small>{tn(n_pay, "{n} Druck", "{n} Drucke")}</small></div>'
-            f'<div class="kpi run"><span>{t("📦 Noch zu übergeben")}</span><b>{t("{q} Stück", q=pieces)}</b><small>{tn(n_ho, "{n} Druck", "{n} Drucke")}</small></div>'
+            f'<div class="kpi run"><span>{t("📦 Noch zu übergeben")}</span><b>{_pcs(pieces)}</b><small>{tn(n_ho, "{n} Druck", "{n} Drucke")}</small></div>'
             f'<div class="kpi"><span>{t("Kunden")}</span><b>{len(groups)}</b><small>{t("mit Offenem")}</small></div>'
             f'<div class="kpi"><span>{t("Ältester Posten")}</span><b>{tn(oldest, "{n} Tag", "{n} Tage")}</b><small>{t("seit Druckstart")}</small></div></div>')
     out = []
@@ -878,7 +883,7 @@ def _job_row(j: dict[str, Any], names: dict[str, str], mg: list[tuple[str, float
         tags.append(f'<span class="tag">👤 {e(j["customer_name"])}</span>')
     q = j.get("quantity")
     if q and q > 1:
-        tags.append(f'<span class="tag">{t("{q} Stück", q=q)}</span>')
+        tags.append(f'<span class="tag">{_pcs(q)}</span>')
     url, title = j.get("project_url"), j.get("project_title")
     if url and url.startswith(("http://", "https://")):
         tags.append(f'<a class="tag" href="{e(url)}" target="_blank" rel="noopener">🔗 {e(title or t("Projekt"))}</a>')
@@ -1174,7 +1179,7 @@ def _deal_box(job: dict[str, Any], handovers: list[dict[str, Any]], payments: li
 
     pay_rows = "".join(entry(p["ts"], fmt_num(p["amount"], 2, "€"), p["note"], f'api/payments/{p["id"]}/delete', t("Zahlung löschen"))
                        for p in payments)
-    ho_rows = "".join(entry(h["ts"], t("{q} Stück", q=h["qty"]), h["note"], f'api/handovers/{h["id"]}/delete', t("Übergabe löschen"))
+    ho_rows = "".join(entry(h["ts"], _pcs(h["qty"]), h["note"], f'api/handovers/{h["id"]}/delete', t("Übergabe löschen"))
                       for h in handovers)
     price_form = (f'<form class="hof" method="post" action="api/jobs/{jid}?redirect=ab">'
                   f'<label class="lf fp">{t("Endpreis €")}<input name="final_price" inputmode="decimal" value="{fmt_input(job.get("final_price"))}" '
@@ -1306,7 +1311,7 @@ def page_job(store: Store, job: dict[str, Any], saved: str | None) -> str:
     if job.get("customer_name"):
         badges += f'<span class="bdg">👤 {e(job["customer_name"])}</span>'
     if qty > 1:
-        badges += f'<span class="bdg">{t("{q} Stück", q=qty)}</span>'
+        badges += f'<span class="bdg">{_pcs(qty)}</span>'
     per = (t("wird nach dem Druck berechnet") if total is None
            else t("{v} pro Stück", v=fmt_num(total / qty, 2, "€")) if qty > 1 else t("für den ganzen Druck"))
     kpis = (f'<div class="kp main"><span>{t("Gesamtkosten")}</span><b>{fmt_num(total, 2, "€")}</b><small>{per}</small></div>'

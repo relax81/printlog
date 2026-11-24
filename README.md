@@ -2,8 +2,6 @@
 
 **[English](#english) · [Deutsch](#deutsch)**
 
-![printlog: list of prints](docs/screenshots/prints.png)
-
 ---
 
 <a id="english"></a>
@@ -19,6 +17,8 @@ selling prices, customers and payments if you need them. It runs as a single Doc
 and never talks to the Bambu cloud.
 
 The interface is available in **English and German** (Settings → View → Language, or automatically from your browser).
+
+![printlog: list of prints](docs/screenshots/en/prints.png)
 
 > **About this project:** printlog is built for my own setup (Bambu Lab printers, Home Assistant, a few smart plugs)
 > and will stay tailored to it. You are welcome to use it as it is. If you want to change it substantially, please
@@ -79,18 +79,20 @@ The interface is available in **English and German** (Settings → View → Lang
 
 | | |
 |---|---|
-| ![Print detail](docs/screenshots/print-detail.png) **Print detail** | ![Billing tab](docs/screenshots/print-billing.png) **Billing: final price, payments, hand-overs** |
-| ![Statistics](docs/screenshots/statistics.png) **Statistics** | ![Calendar](docs/screenshots/calendar.png) **Calendar** |
-| ![Customers](docs/screenshots/customers.png) **Customers** | ![Language setting](docs/screenshots/settings-language.png) **Settings → View → Language** |
-| ![Data & backup](docs/screenshots/settings-data.png) **Settings → Data & backup** | ![Reset](docs/screenshots/settings-reset.png) **Reset with confirmation code** |
-| ![Prints grouped by day](docs/screenshots/prints-by-day.png) **Grouped by day** | ![German interface](docs/screenshots/de-drucke.png) **The same list in German** |
-| ![Open items](docs/screenshots/open-items.png) **Open items: still to be paid or handed over** | ![Demo mode](docs/screenshots/demo-mode.png) **Demo mode with made-up sample data** |
+| <a href="docs/screenshots/en/prints-filtered.png"><img src="docs/screenshots/en/prints-filtered.png" alt="Search and filter chips"></a><br>**Search and filter chips** | <a href="docs/screenshots/en/gallery.png"><img src="docs/screenshots/en/gallery.png" alt="Gallery with cover images"></a><br>**Gallery with cover images** |
+| <a href="docs/screenshots/en/open-items.png"><img src="docs/screenshots/en/open-items.png" alt="Open: still to be paid or handed over"></a><br>**Open: still to be paid or handed over** | <a href="docs/screenshots/en/print-detail.png"><img src="docs/screenshots/en/print-detail.png" alt="Print detail with costs and selling prices"></a><br>**Print detail with costs and selling prices** |
+| <a href="docs/screenshots/en/print-billing.png"><img src="docs/screenshots/en/print-billing.png" alt="Billing: final price, payments, hand-overs"></a><br>**Billing: final price, payments, hand-overs** | <a href="docs/screenshots/en/statistics.png"><img src="docs/screenshots/en/statistics.png" alt="Statistics"></a><br>**Statistics** |
+| <a href="docs/screenshots/en/calendar.png"><img src="docs/screenshots/en/calendar.png" alt="Calendar"></a><br>**Calendar** | <a href="docs/screenshots/en/customers.png"><img src="docs/screenshots/en/customers.png" alt="Customers"></a><br>**Customers** |
 
-| Phone | Receipt for the customer | Internal receipt | PDF cost sheet |
-|---|---|---|---|
-| ![Phone](docs/screenshots/mobile.png) | ![Receipt](docs/screenshots/receipt-customer.png) | ![Internal receipt](docs/screenshots/receipt-internal.png) | ![PDF](docs/screenshots/cost-sheet.png) |
+| Phone: prints | Phone: print detail | Phone: open items |
+|---|---|---|
+| <a href="docs/screenshots/en/phone-list.png"><img src="docs/screenshots/en/phone-list.png" alt="Phone: prints"></a> | <a href="docs/screenshots/en/phone-detail.png"><img src="docs/screenshots/en/phone-detail.png" alt="Phone: print detail"></a> | <a href="docs/screenshots/en/phone-open.png"><img src="docs/screenshots/en/phone-open.png" alt="Phone: open items"></a> |
 
-*All screenshots use made-up demo data (built-in demo mode, see below).*
+| Receipt for the customer | Internal receipt with calculation | PDF cost sheet |
+|---|---|---|
+| <a href="docs/screenshots/en/receipt-customer.png"><img src="docs/screenshots/en/receipt-customer.png" alt="Receipt for the customer"></a> | <a href="docs/screenshots/en/receipt-internal.png"><img src="docs/screenshots/en/receipt-internal.png" alt="Internal receipt with calculation"></a> | <a href="docs/screenshots/en/cost-sheet.png"><img src="docs/screenshots/en/cost-sheet.png" alt="PDF cost sheet"></a> |
+
+*All screenshots show made-up sample data from the built-in demo mode (see [Features](#features)). Click an image to enlarge it. To redo them, see [`docs/screenshots/capture.js`](docs/screenshots/capture.js).*
 
 ### How it works
 
@@ -323,6 +325,8 @@ Docker-Container neben Home Assistant und spricht nie mit der Bambu-Cloud.
 
 Die Oberfläche gibt es auf **Deutsch und Englisch** (Einstellungen → Ansicht → Sprache, oder automatisch nach Browser).
 
+![printlog: Liste der Drucke](docs/screenshots/de/prints.png)
+
 > **Zu diesem Projekt:** printlog ist auf mein eigenes Setup zugeschnitten (Bambu-Lab-Drucker, Home Assistant, ein paar
 > Steckdosen mit Strommessung) und bleibt das auch. Du kannst es gern so nutzen, wie es ist. Wer es stark verändern
 > möchte, legt am besten einen **Fork** an und macht ihn zu seinem eigenen; größere Feature-Pull-Requests werde ich
@@ -330,11 +334,9 @@ Die Oberfläche gibt es auf **Deutsch und Englisch** (Einstellungen → Ansicht 
 
 ### Inhalt
 
-[Funktionen](#funktionen) · [Ablauf](#ablauf) · [Voraussetzungen](#voraussetzungen) · [Installation](#installation-1) ·
+[Funktionen](#funktionen) · [Bilder](#bilder) · [Ablauf](#ablauf) · [Voraussetzungen](#voraussetzungen) · [Installation](#installation-1) ·
 [Konfiguration](#konfiguration) · [Aktualisieren](#aktualisieren) · [Ablauf pro Druck im Detail](#ablauf-pro-druck-im-detail) ·
 [Oberfläche im Detail](#oberfläche-im-detail) · [Fehlersuche](#fehlersuche) · [API](#api-1)
-
-Bilder der Oberfläche stehen oben im englischen Teil unter [Screenshots](#screenshots), darunter auch die deutsche Druckliste.
 
 ### Funktionen
 
@@ -380,6 +382,25 @@ Bilder der Oberfläche stehen oben im englischen Teil unter [Screenshots](#scree
 - **Demo-Modus** – *Einstellungen → Ansicht → Demo öffnen* zeigt die ganze App mit einem Jahr erfundener Drucke (drei
   Bambu-Drucker, Kunden mit Teilzahlungen und offenen Übergaben, Verschenktes, Ausschuss, laufende Drucke, Fotos). Praktisch
   für Screenshots und zum Ausprobieren. Die Demo hat eine eigene Datenbank; deine echten Drucke, Home Assistant und das Backup bleiben unberührt.
+
+### Bilder
+
+| | |
+|---|---|
+| <a href="docs/screenshots/de/prints-filtered.png"><img src="docs/screenshots/de/prints-filtered.png" alt="Suche und Filter-Chips"></a><br>**Suche und Filter-Chips** | <a href="docs/screenshots/de/gallery.png"><img src="docs/screenshots/de/gallery.png" alt="Galerie mit Vorschaubildern"></a><br>**Galerie mit Vorschaubildern** |
+| <a href="docs/screenshots/de/open-items.png"><img src="docs/screenshots/de/open-items.png" alt="Offen: noch zu bezahlen oder zu übergeben"></a><br>**Offen: noch zu bezahlen oder zu übergeben** | <a href="docs/screenshots/de/print-detail.png"><img src="docs/screenshots/de/print-detail.png" alt="Druckdetails mit Kosten und Verkaufspreisen"></a><br>**Druckdetails mit Kosten und Verkaufspreisen** |
+| <a href="docs/screenshots/de/print-billing.png"><img src="docs/screenshots/de/print-billing.png" alt="Abrechnung: Endpreis, Zahlungen, Übergaben"></a><br>**Abrechnung: Endpreis, Zahlungen, Übergaben** | <a href="docs/screenshots/de/statistics.png"><img src="docs/screenshots/de/statistics.png" alt="Statistik"></a><br>**Statistik** |
+| <a href="docs/screenshots/de/calendar.png"><img src="docs/screenshots/de/calendar.png" alt="Kalender"></a><br>**Kalender** | <a href="docs/screenshots/de/customers.png"><img src="docs/screenshots/de/customers.png" alt="Kunden"></a><br>**Kunden** |
+
+| Handy: Drucke | Handy: Druckdetails | Handy: Offen |
+|---|---|---|
+| <a href="docs/screenshots/de/phone-list.png"><img src="docs/screenshots/de/phone-list.png" alt="Handy: Drucke"></a> | <a href="docs/screenshots/de/phone-detail.png"><img src="docs/screenshots/de/phone-detail.png" alt="Handy: Druckdetails"></a> | <a href="docs/screenshots/de/phone-open.png"><img src="docs/screenshots/de/phone-open.png" alt="Handy: Offen"></a> |
+
+| Bon für Kunden | Bon intern mit Kalkulation | PDF-Kostenaufstellung |
+|---|---|---|
+| <a href="docs/screenshots/de/receipt-customer.png"><img src="docs/screenshots/de/receipt-customer.png" alt="Bon für Kunden"></a> | <a href="docs/screenshots/de/receipt-internal.png"><img src="docs/screenshots/de/receipt-internal.png" alt="Bon intern mit Kalkulation"></a> | <a href="docs/screenshots/de/cost-sheet.png"><img src="docs/screenshots/de/cost-sheet.png" alt="PDF-Kostenaufstellung"></a> |
+
+*Alle Bilder zeigen erfundene Beispieldaten aus dem eingebauten Demo-Modus (siehe [Funktionen](#funktionen)). Ein Klick vergrößert das Bild. Neu erstellen: [`docs/screenshots/capture.js`](docs/screenshots/capture.js).*
 
 ### Ablauf
 
