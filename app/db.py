@@ -478,6 +478,7 @@ class Store:
         q: str | None = None,
         paid: str | None = None,
         handover: str | None = None,
+        pending: str | None = None,
         since: float | None = None,
         until: float | None = None,
     ) -> tuple[str, list[Any]]:
@@ -525,6 +526,10 @@ class Store:
             clauses.append(f"{Store.DELIVERABLE_SQL} AND {Store.DELIVERED_SQL} BETWEEN 1 AND {Store.QTY_SQL} - 1")
         elif handover == "übergeben":
             clauses.append(f"{Store.DELIVERED_SQL} >= {Store.QTY_SQL}")
+        if pending:
+            # Offene Posten: noch Geld zu bekommen oder noch Stück zu übergeben
+            clauses.append(f"(({Store.PAYABLE_SQL} AND {Store.PAID_SQL} < {Store.DUE_SQL} - 0.005) OR "
+                           f"({Store.DELIVERABLE_SQL} AND {Store.DELIVERED_SQL} < {Store.QTY_SQL}))")
         if since is not None:
             clauses.append("jobs.start_ts >= ?")
             args.append(since)

@@ -38,7 +38,11 @@ The interface is available in **English and German** (Settings → View → Lang
 - **Automatic log** of every print: start, end, duration, status (finished / failed / incomplete), task name, printer,
   cover image, filament per AMS slot with colour, and kWh.
 - **Find anything again** – live search over name, material, customer, notes and project links; filters for printer,
-  month, status, material, customer and payment; table or gallery, optionally grouped by day.
+  month, status, material, customer and payment as compact chips (an active filter shows its value and an ✕ to remove it);
+  table or gallery, optionally grouped by day.
+- **Open items** – the **Open** view next to Table and Gallery lists every print that is not fully paid or handed over yet,
+  grouped by customer with the open amount and pieces per customer and buttons to record a payment or hand-over right there.
+  Customers with **No billing** and scrap are left out; gifted prints only show up until they are handed over.
 - **Your own details** – photos (camera upload, auto-resized), notes, filament notes (e.g. the exact colour name),
   MakerWorld / Printables links with their title, a local folder path, and a short project ID per print (e.g. `PL-7K3Q`).
 - **Scrap marking** – failed prints count as scrap automatically, and you can mark any print yourself.
@@ -77,6 +81,7 @@ The interface is available in **English and German** (Settings → View → Lang
 | ![Customers](docs/screenshots/customers.png) **Customers** | ![Language setting](docs/screenshots/settings-language.png) **Settings → View → Language** |
 | ![Data & backup](docs/screenshots/settings-data.png) **Settings → Data & backup** | ![Reset](docs/screenshots/settings-reset.png) **Reset with confirmation code** |
 | ![Prints grouped by day](docs/screenshots/prints-by-day.png) **Grouped by day** | ![German interface](docs/screenshots/de-drucke.png) **The same list in German** |
+| ![Open items](docs/screenshots/open-items.png) **Open items: still to be paid or handed over** | |
 
 | Phone | Receipt for the customer | Internal receipt | PDF cost sheet |
 |---|---|---|---|
@@ -326,7 +331,11 @@ Bilder der Oberfläche stehen oben im englischen Teil unter [Screenshots](#scree
 - **Automatisches Protokoll** jedes Drucks: Start, Ende, Dauer, Status (fertig / abgebrochen / unvollständig),
   Auftragsname, Drucker, Vorschaubild, Filament pro AMS-Fach mit Farbe und kWh.
 - **Alles wiederfinden** – Live-Suche über Name, Material, Kunde, Notizen und Projektlinks; Filter nach Drucker, Monat,
-  Status, Material, Kunde und Zahlung; Tabelle oder Galerie, wahlweise nach Tagen gruppiert.
+  Status, Material, Kunde und Zahlung als schmale Chips (ein aktiver Filter zeigt seinen Wert und ein ✕ zum Entfernen);
+  Tabelle oder Galerie, wahlweise nach Tagen gruppiert.
+- **Offene Posten** – die Ansicht **Offen** neben Tabelle und Galerie zeigt alle Drucke, die noch nicht ganz bezahlt oder
+  übergeben sind, nach Kunden gruppiert mit offenem Betrag und Stückzahl pro Kunde und Knöpfen, um Zahlung oder Übergabe
+  direkt einzutragen. Kunden mit **Keine Abrechnung** und Ausschuss fehlen, verschenkte Drucke stehen nur bis zur Übergabe darin.
 - **Eigene Angaben** – Fotos (direkt mit der Kamera, automatisch verkleinert), Notizen, Filament-Notizen (z. B. der
   genaue Farbname), MakerWorld-/Printables-Links mit Titel, ein lokaler Ordner und eine kurze Projekt-ID pro Druck (z. B. `PL-7K3Q`).
 - **Ausschuss** – abgebrochene Drucke zählen automatisch als Ausschuss, jeder Druck lässt sich auch selbst markieren.
@@ -530,8 +539,9 @@ Sonderfälle:
 
 ### Oberfläche im Detail
 
-- **Drucke**: Live-Suche (Teilwörter, mehrere Wörter, Umlaute egal), Filter, Tabelle oder Galerie, „Nach Tagen“ gruppiert.
-  Ein Farbbalken zeigt die Kostenanteile, Antippen öffnet die Aufschlüsselung. „☑ Auswählen“ für Mehrfachauswahl und Löschen mit „Rückgängig“.
+- **Drucke**: große Live-Suche (Teilwörter, mehrere Wörter, Umlaute egal), darunter die Filter als Chips; Ansichten Tabelle,
+  Galerie und Offen (mit Zähler). Die Icons rechts gruppieren „Nach Tagen“ und starten „Auswählen“ (Mehrfachauswahl, Löschen mit „Rückgängig“).
+  Ein Farbbalken zeigt die Kostenanteile, Antippen öffnet die Aufschlüsselung.
 - **Druckdetails**: Tabs Übersicht, Abrechnung (nur mit Kunde, nicht bei „Keine Abrechnung“), Bearbeiten und Fotos. Der Start-Tab ist einstellbar.
 - **Endpreis, Zahlung, Übergabe** (nur mit Kunde, ohne Ausschuss): optionaler Endpreis, sonst Kosten + Kundenmarge.
   Zahlungen und Übergaben sind einzelne Einträge, damit Teilzahlungen und Teilabholungen gehen. Badges in der Liste öffnen ein
