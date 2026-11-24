@@ -221,6 +221,8 @@ EN: dict[str, str] = {
     'Fotos ({n})': 'Photos ({n})',
     'Name': 'Name',
     'Stückzahl auf der Platte': 'Pieces on the plate',
+    'eins weniger': 'one less',
+    'eins mehr': 'one more',
     'Projekttitel': 'Project title',
     'Projektlink (MakerWorld, Printables …)': 'Project link (MakerWorld, Printables …)',
     'Lokaler Ordner oder 3D-Datei (Windows-Pfad)': 'Local folder or 3D file (Windows path)',
