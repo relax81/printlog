@@ -71,6 +71,9 @@ The interface is available in **English and German** (Settings → View → Lang
 - **Sharing** – a receipt-style PNG for the customer (WhatsApp etc.), an internal version with the full calculation,
   and an A4 PDF cost sheet, in the language of the interface.
 - **Discreet mode** – one click blurs all internal figures when a customer is watching.
+- **Demo mode** – *Settings → View → Open demo* shows the whole app with a year of made-up prints (three Bambu printers,
+  customers with partial payments and open hand-overs, gifts, scrap, running prints, photos). Handy for screenshots
+  and for trying printlog out. The demo has its own database; your real prints, Home Assistant and the backup are never touched.
 
 ### Screenshots
 
@@ -81,13 +84,13 @@ The interface is available in **English and German** (Settings → View → Lang
 | ![Customers](docs/screenshots/customers.png) **Customers** | ![Language setting](docs/screenshots/settings-language.png) **Settings → View → Language** |
 | ![Data & backup](docs/screenshots/settings-data.png) **Settings → Data & backup** | ![Reset](docs/screenshots/settings-reset.png) **Reset with confirmation code** |
 | ![Prints grouped by day](docs/screenshots/prints-by-day.png) **Grouped by day** | ![German interface](docs/screenshots/de-drucke.png) **The same list in German** |
-| ![Open items](docs/screenshots/open-items.png) **Open items: still to be paid or handed over** | |
+| ![Open items](docs/screenshots/open-items.png) **Open items: still to be paid or handed over** | ![Demo mode](docs/screenshots/demo-mode.png) **Demo mode with made-up sample data** |
 
 | Phone | Receipt for the customer | Internal receipt | PDF cost sheet |
 |---|---|---|---|
 | ![Phone](docs/screenshots/mobile.png) | ![Receipt](docs/screenshots/receipt-customer.png) | ![Internal receipt](docs/screenshots/receipt-internal.png) | ![PDF](docs/screenshots/cost-sheet.png) |
 
-*All screenshots use made-up demo data.*
+*All screenshots use made-up demo data (built-in demo mode, see below).*
 
 ### How it works
 
@@ -222,6 +225,7 @@ nor German is preferred), *Deutsch* and *English*. It applies to the interface, 
 before the language setting stay German until you change it.
 
 **Data** is stored in the Docker volume `printlog-data`: `printlog.db` (SQLite) and `images/` (cover images, photos, logo).
+The demo mode keeps its own copy in `demo/` (about 30 MB, safe to delete at any time).
 **Backups** with `BACKUP_DIR` set: a database copy per run in `db/printlog-YYYY-MM-DD.db` (the last 14 are kept) and a mirror of all images in `images/`.
 
 **Full backup as ZIP** (*Settings → Data & backup*): *Download ZIP* packs `printlog.db` (prints, customers, payments,
@@ -231,6 +235,14 @@ paths outside the data folder, no links, size limits, a valid printlog database 
 (now vs. after the restore) and only replaces data after you confirm. Before every restore or reset it automatically
 saves the current state as a ZIP in `sicherungen/` inside the data volume; the last ones are listed in the same tab
 for download or restoring. The language setting is kept.
+
+**Demo mode** (*Settings → View → Open demo*, or simply `/demo/`): the same interface with made-up sample data, e.g.
+for screenshots without showing your own prints, or to try printlog without a printer. A banner and a *Demo* badge next to
+the logo make clear where you are; the banner can be hidden for screenshots (the badge stays). Everything in the demo can
+be changed freely: it uses its own database and images in `demo/`, receives no Home Assistant events, never fetches
+anything from Home Assistant and never writes to the backup target. The sample data covers one year relative to today
+and is regenerated after 12 hours, after a restart, when the demo language changes, or with *Regenerate* in the banner.
+All names and contacts are invented (`example.com` addresses).
 
 **Reset** (*Settings → Data & backup → Reset …*): choose *Only prints and history* (prints, photos, payments, handovers,
 trash; customers and settings stay) or *Everything* (like a fresh installation, only the language stays) and type the
@@ -365,6 +377,9 @@ Bilder der Oberfläche stehen oben im englischen Teil unter [Screenshots](#scree
 - **Teilen** – ein PNG im Kassenbon-Stil für Kunden (WhatsApp usw.), eine interne Variante mit voller Kalkulation und
   eine A4-PDF-Kostenaufstellung, jeweils in der Sprache der Oberfläche.
 - **Diskret-Modus** – ein Klick verwischt alle internen Werte, wenn ein Kunde mitschaut.
+- **Demo-Modus** – *Einstellungen → Ansicht → Demo öffnen* zeigt die ganze App mit einem Jahr erfundener Drucke (drei
+  Bambu-Drucker, Kunden mit Teilzahlungen und offenen Übergaben, Verschenktes, Ausschuss, laufende Drucke, Fotos). Praktisch
+  für Screenshots und zum Ausprobieren. Die Demo hat eine eigene Datenbank; deine echten Drucke, Home Assistant und das Backup bleiben unberührt.
 
 ### Ablauf
 
@@ -491,6 +506,7 @@ CSV-Export (deutsches CSV mit Semikolon und Dezimalkomma, englisches mit Komma u
 schon vor der Sprachwahl gab, bleiben deutsch, bis du es änderst.
 
 **Daten** liegen im Docker-Volume `printlog-data`: `printlog.db` (SQLite) und `images/` (Vorschaubilder, Fotos, Logo).
+Der Demo-Modus hat seine eigene Kopie in `demo/` (rund 30 MB, kann jederzeit gelöscht werden).
 **Backup** mit gesetztem `BACKUP_DIR`: pro Lauf eine Datenbank-Kopie in `db/printlog-JJJJ-MM-TT.db` (die letzten 14 bleiben)
 und ein Spiegel aller Bilder in `images/`. Täglich oder wöchentlich (Standard: sonntags 3 Uhr), Änderungen greifen ohne Neustart;
 „Jetzt sichern“ steht in den Einstellungen.
@@ -502,6 +518,14 @@ akzeptiert nur die genannten Dateien (keine Pfade außerhalb des Datenordners, k
 printlog-Datenbank ohne Trigger), zeigt eine Vorschau (jetzt vs. nach dem Einspielen) und ersetzt erst nach deiner
 Bestätigung. Vor jedem Einspielen oder Zurücksetzen sichert printlog den bisherigen Stand automatisch als ZIP in
 `sicherungen/` im Daten-Volume; die letzten stehen im selben Tab zum Herunterladen oder Einspielen. Die Sprache bleibt.
+
+**Demo-Modus** (*Einstellungen → Ansicht → Demo öffnen* oder direkt `/demo/`): dieselbe Oberfläche mit erfundenen
+Beispieldaten, z. B. für Screenshots, ohne eigene Drucke zu zeigen, oder zum Ausprobieren ohne Drucker. Ein Hinweisbalken
+und ein Schild „Demo“ am Logo zeigen, wo du bist; den Balken kannst du für Screenshots ausblenden (das Schild bleibt).
+In der Demo darfst du alles ändern: Sie nutzt eine eigene Datenbank und eigene Bilder in `demo/`, bekommt keine Events
+von Home Assistant, fragt dort nichts ab und schreibt nie ins Backup-Ziel. Die Beispieldaten reichen ein Jahr bis heute
+zurück und werden nach 12 Stunden, nach einem Neustart, beim Sprachwechsel in der Demo oder mit *Neu erzeugen* im Balken
+frisch angelegt. Alle Namen und Kontakte sind erfunden (Adressen mit `example.com`).
 
 **Zurücksetzen** (*Einstellungen → Daten & Backup → Zurücksetzen …*): *Nur Drucke und Verlauf* (Drucke, Fotos, Zahlungen,
 Übergaben, Papierkorb; Kunden und Einstellungen bleiben) oder *Alles* (wie eine frische Installation, nur die Sprache

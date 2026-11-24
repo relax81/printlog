@@ -13,6 +13,7 @@ from aiohttp import web
 
 from .backup import backup_loop
 from .db import Store
+from .demo import create_demo_app
 from .ha import HomeAssistant
 from .logic import Processor
 from .recovery import Recovery
@@ -116,6 +117,10 @@ async def _stop_background(app: web.Application) -> None:
     await app["session"].close()
 
 
+async def _to_demo(_request: web.Request) -> web.Response:
+    raise web.HTTPFound("/demo/")
+
+
 def create_app() -> web.Application:
     if not HA_TOKEN:
         raise SystemExit("HA_TOKEN fehlt (Long-Lived Access Token aus Home Assistant)")
@@ -129,6 +134,9 @@ def create_app() -> web.Application:
     app["store"] = store
     app["ha"] = ha
     setup_routes(app, store, IMAGE_DIR, ha)
+    # Demo-Modus: gleiche Oberfläche mit Beispieldaten, eigene Datenbank unter DATA_DIR/demo
+    app.router.add_get("/demo", _to_demo)
+    app.add_subapp("/demo/", create_demo_app(DATA_DIR, store))
     app.on_startup.append(_start_background)
     app.on_cleanup.append(_stop_background)
     return app
