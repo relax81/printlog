@@ -16,6 +16,9 @@ e = html.escape
 
 # True, solange eine Anfrage im Demo-Modus (/demo/) läuft: Banner, Links und Abschalter richten sich danach.
 DEMO: contextvars.ContextVar[bool] = contextvars.ContextVar("printlog_demo", default=False)
+# Farbschema dieser Anfrage aus den Einstellungen: "auto" (System), "light" oder "dark"
+THEMES = {"auto": N_("Automatisch (wie das Gerät)"), "light": N_("Hell"), "dark": N_("Dunkel")}
+THEME: contextvars.ContextVar[str] = contextvars.ContextVar("printlog_theme", default="auto")
 
 NAV = [
     ("./", N_("Drucke"), "jobs"),
@@ -142,9 +145,14 @@ CSS = """
 --w-page:1440px;--w-form:960px;--w-text:80ch;--gap:12px;--gap-l:16px;--radius:12px}
 /* Touch (Handy, Tablet): größere Ziele, 16px verhindert das automatische Zoomen von iOS beim Tippen ins Feld */
 @media (pointer:coarse){:root{--ctl-h:44px;--ctl-fs:16px}}
-@media (prefers-color-scheme:dark){:root{--bg:#111315;--card:#1a1a19;--fg:#f0efec;--muted:#a3a29b;
+/* Farbschema: Einstellung „theme“ (auto/light/dark) steht als data-theme am <html>; „auto“ folgt dem System */
+:root{color-scheme:light dark}:root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#111315;--card:#1a1a19;--fg:#f0efec;--muted:#a3a29b;
 --line:#2c3036;--grid:#26292d;--ok:#4ade80;--bad:#f87171;--warn:#fbbf24;--run:#60a5fa;--accent:#2dd4bf;
 --s1:#3987e5;--s2:#d95926;--s3:#199e70;--s4:#c98500;--s5:#d55181;--s6:#0ca30c;--s7:#9085e9;--s8:#e66767}}
+:root[data-theme=dark]{--bg:#111315;--card:#1a1a19;--fg:#f0efec;--muted:#a3a29b;
+--line:#2c3036;--grid:#26292d;--ok:#4ade80;--bad:#f87171;--warn:#fbbf24;--run:#60a5fa;--accent:#2dd4bf;
+--s1:#3987e5;--s2:#d95926;--s3:#199e70;--s4:#c98500;--s5:#d55181;--s6:#0ca30c;--s7:#9085e9;--s8:#e66767}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);
 font:14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:16px}
 a{color:var(--accent)}h1{font-size:18px;margin:0}
@@ -287,6 +295,11 @@ if(db){try{if(sessionStorage.getItem('pl_demobar')==='0')db.remove()}catch(_){}
 """
 
 
+def theme_attr() -> str:
+    th = THEME.get()
+    return f' data-theme="{th}"' if th in ("light", "dark") else ""
+
+
 def layout(title: str, active: str, body: str, script: str = "") -> str:
     links = "".join(
         f'<a href="{href}" class="{"on" if key == active else ""}">{e(t(label))}</a>' for href, label, key in NAV
@@ -294,7 +307,7 @@ def layout(title: str, active: str, body: str, script: str = "") -> str:
     demo_pill, demo_bar_html = demo_bar()
     if demo_pill:
         title = f"{t('Demo')} · {title}"
-    return f"""<!doctype html><html lang="{lang()}"><head><meta charset="utf-8">
+    return f"""<!doctype html><html lang="{lang()}"{theme_attr()}><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{e(title)}</title>
 <link rel="manifest" href="/manifest.webmanifest">
