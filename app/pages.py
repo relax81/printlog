@@ -195,9 +195,9 @@ background:var(--card);border:1px solid var(--line);border-radius:10px;padding:1
 .jk .kpi b{font-size:24px;letter-spacing:-.01em}.jk .kpi small{display:block;color:var(--muted);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .jk .kpi.main{border-color:var(--accent);background:linear-gradient(135deg,color-mix(in srgb,var(--accent) 16%,transparent),transparent)}
 .jk .kpi.main b{font-size:30px}
-.jt{background:var(--card);border:1px solid var(--line);border-radius:16px;font-size:15px}
+.jt{background:var(--card);border:1px solid var(--line);border-radius:16px;font-size:15px;overflow-x:auto}
 .jr:last-child{border-radius:0 0 16px 16px}
-@media (min-width:701px){form.f select,form.f input.search,form.f .gbtn{height:40px}form.f .seg a{padding:9px 14px}}
+@media (min-width:701px){form.f .gbtn{height:var(--ctl-h)}form.f .seg a{display:flex;align-items:center;height:calc(var(--ctl-h) - 2px);padding:0 14px}}
 .jh,.jr{display:grid;grid-template-columns:64px minmax(220px,1fr) 150px 92px 132px 250px 160px;gap:16px;align-items:center;padding:0 18px;min-width:1100px}
 .jh{height:42px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700;border-bottom:1px solid var(--line)}
 .jr{padding-top:14px;padding-bottom:14px;border-bottom:1px solid var(--line);cursor:pointer;-webkit-tap-highlight-color:transparent}
@@ -246,16 +246,20 @@ a.tag{color:var(--accent)}
  background:color-mix(in srgb,var(--bg) 55%,var(--card))}
 .jday b{font-size:17px}.jday span{color:var(--muted);font-size:14px}
 .mday{display:flex;gap:8px;align-items:baseline;margin:10px 2px 0}.mday b{font-size:15px}.mday span{color:var(--muted);font-size:13px}
-.mday:first-child{margin-top:0}
+.mday:first-child{margin-top:0}.mlist .mday{grid-column:1/-1}
 .gbtn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:8px;padding:6px 12px;font-weight:600;color:var(--muted);background:var(--card);cursor:pointer}
 .gbtn.on{color:var(--accent);border-color:var(--accent)}
 .legend2{display:flex;gap:14px;font-size:12px;color:var(--muted);margin:8px 4px 0}
 .legend2 i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;vertical-align:-1px}
-@media (max-width:1150px){.jt{overflow-x:auto}.jh,.jr,.jday{min-width:880px}
- .jh,.jr{grid-template-columns:56px minmax(200px,1fr) 130px 124px 230px 150px;gap:12px;padding:0 14px}
+/* Tablet quer (z. B. 1180 px): alle Spalten, nur schmaler */
+@media (min-width:1151px) and (max-width:1300px){.jh,.jr{grid-template-columns:56px minmax(200px,1fr) 128px 86px 120px 220px 140px;gap:12px;padding-left:14px;padding-right:14px}
+ .jh,.jr,.jday{min-width:0}.jr .t,.jr .ph{width:56px;height:56px}}
+@media (max-width:1150px){.jh,.jr,.jday{min-width:880px}
+ .jh,.jr{grid-template-columns:56px minmax(200px,1fr) 130px 124px 230px 150px;gap:12px;padding-left:14px;padding-right:14px}
  .jh>:nth-child(4),.jr>:nth-child(4){display:none}.jr .t,.jr .ph{width:56px;height:56px}}
 @media (max-width:1300px){.jk{grid-template-columns:repeat(3,minmax(0,1fr))}.jk .kpi.main{grid-column:span 1}}
 @media (min-width:1301px) and (max-width:1500px){.jk .kpi b{font-size:22px}.jk .kpi.main b{font-size:27px}}
+@media (min-width:701px) and (max-width:900px){.jt,.legend2{display:none}.mlist{display:grid;grid-template-columns:1fr 1fr;gap:10px}}
 @media (max-width:700px){
 .jk{grid-template-columns:repeat(3,minmax(0,1fr))}.jk .kpi small{display:none}.jk .kpi b,.jk .kpi.main b{font-size:15px}.jk .kpi span{font-size:11px}.jk .kpi{padding:7px 9px;border-radius:10px}
 .legend2{display:none}
@@ -733,7 +737,7 @@ def _gallery_card(j: dict[str, Any], names: dict[str, str], photo: str | None) -
 # ---- Druckdetails -------------------------------------------------------------
 
 DETAIL_CSS = """
-.jd{max-width:1700px;margin:0 auto;font-size:16px;line-height:1.45}
+.jd{font-size:16px;line-height:1.45}
 .jtop{display:flex;justify-content:space-between;align-items:center;gap:10px}.jtop .jdel{margin:0}
 .jact{display:flex;gap:8px;align-items:center;margin:0 0 10px}
 .actmenu.share button{display:grid;gap:1px}.actmenu.share small{font-weight:500;color:var(--muted);font-size:12px}
@@ -782,9 +786,9 @@ DETAIL_CSS = """
 .deal small{color:var(--muted);font-size:13px}
 .ho{display:grid;grid-template-columns:80px auto 1fr auto;gap:10px;align-items:center;padding:6px 0;border-top:1px solid var(--line);font-size:14px}
 .ho form{margin:0}
-.hof{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:center}.hof .btn{height:44px}.hof input{height:44px;border-radius:10px;background:var(--bg);font-size:15px}
-.hof .amt{width:96px;text-align:right}.fpl{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;color:var(--muted)}
-.fpl input{width:120px;text-align:right}.hof input[name=note]{flex:1 1 140px;min-width:0}
+.hof{display:flex;flex-wrap:wrap;gap:8px 10px;margin-top:12px;align-items:flex-end}.hof input{background:var(--bg)}
+.hof .lf.amt{flex:0 0 104px}.hof .lf.amt input{text-align:right}.hof .lf.dt{flex:0 0 160px}.hof .lf.nt{flex:1 1 160px}
+.hof .lf.fp{flex:0 0 130px}.hof .lf.fp input{text-align:right}.hof>.muted{align-self:center}
 .facts{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:12px 16px}
 .facts span{display:block;font-size:13px;color:var(--muted)}.facts b{font-size:17px;font-weight:600;font-variant-numeric:tabular-nums}
 .mbar{display:flex;height:12px;border-radius:6px;overflow:hidden;margin:2px 0 10px;border:1px solid var(--line)}
@@ -798,36 +802,42 @@ DETAIL_CSS = """
 .mrow .g{margin-left:auto;font-variant-numeric:tabular-nums;font-weight:600;white-space:nowrap}
 .slot{font-size:12px;color:var(--muted);border:1px solid var(--line);border-radius:6px;padding:0 6px;white-space:nowrap}
 .jd .note{font-size:14px}
-.fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 16px}
-.fields label{display:grid;gap:6px;font-size:13px;font-weight:600;color:var(--muted)}.fields .full{grid-column:1/-1}
-.fields input,.fields select,.fields textarea{height:48px;padding:0 14px;border-radius:10px;font-size:16px;background:var(--bg);width:100%}
-.fields textarea{height:auto;min-height:96px;padding:12px 14px;resize:vertical}
+.fields{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:14px 16px}.fields>*{grid-column:span 3}
+.fields label{display:grid;gap:6px;font-size:13px;font-weight:600;color:var(--muted)}.fields .full{grid-column:1/-1}.fields>.c3{grid-column:span 2}
+.fields .nrow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:14px 16px;align-items:end}
+.fields .fl{display:grid;gap:6px}.fields .fl label{white-space:nowrap}
+.step{display:inline-flex;align-items:center;justify-self:start;height:var(--ctl-h);padding:3px;gap:2px;border:1px solid var(--line);border-radius:var(--ctl-r);background:var(--bg)}
+.fields .step input{width:48px;height:calc(var(--ctl-h) - 8px);padding:0;border:0;border-radius:7px;background:none;text-align:center;font-size:var(--ctl-fs);font-weight:700;font-variant-numeric:tabular-nums;-moz-appearance:textfield;appearance:textfield}
+.step input::-webkit-outer-spin-button,.step input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.step:focus-within{border-color:var(--accent)}.fields .step input:focus{outline:none}
+.step button{width:calc(var(--ctl-h) - 8px);height:calc(var(--ctl-h) - 8px);min-height:0;padding:0;border:0;border-radius:7px;background:var(--card);color:var(--fg);font-size:20px;font-weight:500;line-height:1;cursor:pointer;-webkit-tap-highlight-color:transparent;touch-action:manipulation;transition:background .12s,color .12s}
+@media (hover:hover){.step button:hover{background:var(--accent);color:var(--bg)}}.step button:active{transform:scale(.94)}
+.step button:disabled{opacity:.35;cursor:default;background:var(--card);color:var(--fg)}
+.fields input,.fields select,.fields textarea{background:var(--bg);width:100%;color:var(--fg);font-weight:400}
+.fields textarea{min-height:88px;resize:vertical}
 .fields .act{grid-column:1/-1;display:flex;justify-content:flex-end}
-.jd button.primary{height:48px;padding:0 24px;border-radius:12px;font-weight:700;font-size:15px}
+.jd button.primary{padding:0 22px;font-weight:700}
+.pane[data-pane=ed]>.box{max-width:var(--w-form)}
 .photos{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px}
 .pane .photos.lg{grid-template-columns:repeat(auto-fill,minmax(200px,1fr))}
 .photos figure{margin:0;position:relative}.photos img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:12px;cursor:zoom-in;display:block}
-.photos form{position:absolute;top:6px;right:6px}.photos button{background:rgba(0,0,0,.6);color:#fff;border:0;border-radius:8px;padding:4px 10px;font-size:16px}
+.photos form{position:absolute;top:6px;right:6px}.photos button{min-height:0;background:rgba(0,0,0,.6);color:#fff;border:0;border-radius:8px;padding:4px 10px;font-size:16px}
 .up{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:44px;border:1px solid var(--line);border-radius:12px;
- padding:0 16px;background:var(--bg);color:var(--fg);cursor:pointer;font-weight:600;font-size:15px;position:relative}
-.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--bg)}
-.btn.sm{min-height:34px;padding:0 10px;font-size:13px;font-weight:500;text-decoration:none;color:inherit}
+.jd .btn{background:var(--bg)}.jd .btn.primary{background:var(--accent)}.jd .btn.danger{background:transparent}
 .btn input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
-.jdel{display:flex;justify-content:flex-end;margin-top:14px}.btn.danger{color:var(--bad);background:transparent}
+.jdel{display:flex;justify-content:flex-end;margin-top:14px}
 .lp{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:4px}.lp code{word-break:break-all;font-size:13px}
 @media (min-width:1300px){.hero{grid-template-columns:260px minmax(0,1fr) minmax(300px,400px)}.kps{grid-template-columns:repeat(4,minmax(0,1fr))}}
 @media (max-width:1100px){.hero{grid-template-columns:200px minmax(0,1fr)}.prices{grid-column:1/-1}.ovg{grid-template-columns:1fr 1fr}}
 @media (max-width:760px){.jd{font-size:15px}.hero{grid-template-columns:1fr;padding:12px;gap:14px}
  .hero .big{aspect-ratio:auto;height:240px}.jtitle{font-size:22px}
  .kps{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.kps .main{grid-column:1/-1}.kp{padding:10px}.kp b{font-size:18px}.kp.main b{font-size:28px}
- .ovg,.fields,.dealg{grid-template-columns:1fr}.tabs{width:100%}.tabs button{flex:1;padding:10px 6px}
+ .ovg,.fields,.dealg{grid-template-columns:1fr}.fields>*,.fields>.c3{grid-column:1/-1}.fields .nrow{grid-template-columns:1fr}.tabs{width:100%}.tabs button{flex:1;padding:10px 6px}
  .hero{grid-template-columns:84px minmax(0,1fr);gap:10px 12px}.hero>div:first-child{grid-row:1}
  .hero .big{width:84px;height:84px;aspect-ratio:1;border-radius:12px}.hero .noimg{font-size:0}
  .hero>div:nth-child(2){display:contents}.jtitle{grid-column:2;grid-row:1;align-self:center;font-size:19px;margin:0}
  .hero .badges,.hero .kps,.hero .prices{grid-column:1/-1}.badges{gap:6px}.bdg{font-size:13px;padding:3px 10px}
  .kps{margin-top:0;grid-template-columns:repeat(2,minmax(0,1fr))}.kps .main{grid-column:auto}.kp.main b{font-size:24px}
- .top nav{gap:4px 12px}
  .tabs{position:sticky;top:0;z-index:6;margin:12px 0;box-shadow:0 6px 14px rgba(0,0,0,.25)}
  .ovg,.dealg{gap:10px}.dealg{margin-bottom:10px}
  .strip{display:grid;grid-template-columns:minmax(0,1fr) auto;padding:12px 14px;margin-bottom:10px;gap:10px}
@@ -855,6 +865,10 @@ document.querySelectorAll('[data-copy]').forEach(b=>b.onclick=async()=>{
 document.querySelectorAll('img.big,.photos img').forEach(i=>i.onclick=()=>z(i.src));
 document.querySelectorAll('.photos form').forEach(f=>f.onsubmit=()=>confirm(_t("Foto löschen?")));
 bindAct(()=>location.reload());
+document.querySelectorAll('.step').forEach(w=>{const i=w.querySelector('input'),bs=w.querySelectorAll('button');
+ const sync=()=>{bs[0].disabled=(parseInt(i.value)||1)<=1};
+ bs.forEach(b=>b.onclick=()=>{i.value=Math.max(1,(parseInt(i.value)||1)+ +b.dataset.step);sync()});
+ i.addEventListener('input',sync);sync()});
 (function(){let st={};try{st=JSON.parse(localStorage.getItem('pl_secs')||'{}')}catch(_){}
  const secs=[...document.querySelectorAll('.sec')];const has=k=>secs.some(x=>x.dataset.sec===k);
  secs.forEach(x=>{const k=x.dataset.sec;const def=has('pay')?k==='pay':k==='druck';
@@ -935,20 +949,22 @@ def _deal_box(job: dict[str, Any], handovers: list[dict[str, Any]], payments: li
     ho_rows = "".join(entry(h["ts"], t("{q} Stück", q=h["qty"]), h["note"], f'api/handovers/{h["id"]}/delete', t("Übergabe löschen"))
                       for h in handovers)
     price_form = (f'<form class="hof" method="post" action="api/jobs/{jid}?redirect=ab">'
-                  f'<label class="fpl">{t("Endpreis €")}<input name="final_price" inputmode="decimal" value="{fmt_input(job.get("final_price"))}" '
+                  f'<label class="lf fp">{t("Endpreis €")}<input name="final_price" inputmode="decimal" value="{fmt_input(job.get("final_price"))}" '
                   f'placeholder="{fmt_input(round(suggest, 2)) if suggest is not None else ""}"></label>'
                   f'<button class="btn">{t("Speichern")}</button></form>')
     pay_form = ""
     if due is not None and rest >= 0.005:
         pay_form = (f'<form class="hof" method="post" action="api/jobs/{jid}/pay?redirect=1">'
-                    f'<input name="amount" inputmode="decimal" value="{fmt_input(round(rest, 2))}" title="{e(t("Betrag €"))}" class="amt">'
-                    f'<input name="date" type="date" value="{today}"><input name="note" placeholder="{e(t("Notiz (optional)"))}">'
+                    f'<label class="lf amt">{t("Betrag €")}<input name="amount" inputmode="decimal" value="{fmt_input(round(rest, 2))}"></label>'
+                    f'<label class="lf dt">{t("Datum")}<input name="date" type="date" value="{today}"></label>'
+                    f'<label class="lf nt">{t("Notiz")}<input name="note" placeholder="{e(t("optional"))}"></label>'
                     f'<button class="btn primary">{t("Zahlung eintragen")}</button></form>')
     ho_form = ""
     if job.get("state") == "done" and d < n:
         ho_form = (f'<form class="hof" method="post" action="api/jobs/{jid}/handover?redirect=1">'
-                   f'<input name="qty" type="number" min="1" max="{n - d}" value="{n - d}" inputmode="numeric" title="{e(t("Stück"))}" class="amt">'
-                   f'<input name="date" type="date" value="{today}"><input name="note" placeholder="{e(t("Notiz (optional)"))}">'
+                   f'<label class="lf amt">{t("Stück")}<input name="qty" type="number" min="1" max="{n - d}" value="{n - d}" inputmode="numeric"></label>'
+                   f'<label class="lf dt">{t("Datum")}<input name="date" type="date" value="{today}"></label>'
+                   f'<label class="lf nt">{t("Notiz")}<input name="note" placeholder="{e(t("optional"))}"></label>'
                    f'<button class="btn primary">{t("Übergabe eintragen")}</button></form>')
     pay_state = (t("bezahlt") if due is not None and rest < 0.005 else
                  t("{paid} bezahlt, {rest} offen", paid=fmt_num(paid, 2, '€'), rest=fmt_num(rest, 2, '€')) if due is not None
@@ -1165,13 +1181,16 @@ def page_job(store: Store, job: dict[str, Any], saved: str | None) -> str:
 </div></section>
 {ab_pane}<section class="pane{on("ed")}" data-pane="ed"><div class="box">
 <form class="fields" method="post" action="api/jobs/{job["id"]}?redirect=1">
-<label class="full">{t("Name")}<input name="task_name" value="{e(job["task_name"] or "")}"></label>
-<label>{t("Kunde")}<select name="customer_id">{cust_opts}</select></label>
-<label>{t("Stückzahl auf der Platte")}<input name="quantity" type="number" min="1" inputmode="numeric" value="{job.get("quantity") or ""}" placeholder="1"></label>
-<label>{t("Ausschuss")}<select name="scrap">{scrap_opts}</select></label>
-<label>{t("Abrechnung")}<select name="gift">{opt("0", t("berechnen"), "1" if job.get("gift") else "0")}{opt("1", t("🎁 verschenkt (keine Zahlung)"), "1" if job.get("gift") else "0")}</select></label>
+<div class="nrow full"><label>{t("Name")}<input name="task_name" value="{e(job["task_name"] or "")}"></label>
+<div class="fl"><label for="f_qty">{t("Stückzahl auf der Platte")}</label><div class="step">
+<button type="button" data-step="-1" aria-label="{e(t("eins weniger"))}">−</button>
+<input id="f_qty" name="quantity" type="number" min="1" step="1" inputmode="numeric" value="{job.get("quantity") or ""}" placeholder="1">
+<button type="button" data-step="1" aria-label="{e(t("eins mehr"))}">+</button></div></div></div>
+<label class="c3">{t("Kunde")}<select name="customer_id">{cust_opts}</select></label>
+<label class="c3">{t("Ausschuss")}<select name="scrap">{scrap_opts}</select></label>
+<label class="c3">{t("Abrechnung")}<select name="gift">{opt("0", t("berechnen"), "1" if job.get("gift") else "0")}{opt("1", t("🎁 verschenkt (keine Zahlung)"), "1" if job.get("gift") else "0")}</select></label>
 <label>{t("Projekttitel")}<input name="project_title" value="{e(job.get("project_title") or "")}" placeholder="{e(t("wird beim Speichern aus dem Link geholt, wenn leer"))}"></label>
-<label class="full">{t("Projektlink (MakerWorld, Printables …)")}<input name="project_url" type="url" value="{e(job.get("project_url") or "")}" placeholder="https://makerworld.com/…"></label>
+<label>{t("Projektlink (MakerWorld, Printables …)")}<input name="project_url" type="url" value="{e(job.get("project_url") or "")}" placeholder="https://makerworld.com/…"></label>
 <label class="full">{t("Lokaler Ordner oder 3D-Datei (Windows-Pfad)")}<input name="local_path" value="{e(job.get("local_path") or "")}" placeholder="{e(t("z. B. D:\\3D-Druck\\Projekte\\Halter"))}" spellcheck="false"></label>
 {mat_fields}<label class="full">{t("Notiz")}<textarea name="job_note" rows="3">{e(job.get("job_note") or "")}</textarea></label>
 <div class="act"><button class="primary">{t("Speichern")}</button></div>
@@ -1229,24 +1248,23 @@ def page_customers(store: Store, saved: str | None, show: str | None = None,
 
     customers = [c for c in all_customers if not show or (show == "offen" and (c["open_n"] or c["undelivered_n"]))
                  or (show == "verschenkt" and c["id"] in gifts)]
-    rows = "".join(
-        f"""<tr><td><form method="post" action="customers" class="edit" style="margin:0">
-<input type="hidden" name="id" value="{c["id"]}">
-<input name="name" value="{e(c["name"])}" required style="width:180px">
-<input name="contact" value="{e(c["contact"] or "")}" placeholder="{e(t("Kontakt"))}" style="width:200px">
-<input name="note" value="{e(c["note"] or "")}" placeholder="{e(t("Notiz"))}" style="width:220px">
-<input name="margin_pct" class="num calc" style="width:90px" value="{fmt_input(c.get("margin_pct"))}" inputmode="decimal" placeholder="{e(t("Marge %"))}" title="{e(t("Eigene Marge in %, hat Vorrang"))}">
-{_nobill_box(c.get("no_billing"))}<button>{t("Speichern")}</button></form></td>
-<td class="n" data-l="{e(t("Drucke"))}">{c["n"]}</td>
-<td class="n" data-l="{e(t("Offen"))}">{_open_tags(c)}</td>
-<td class="n" data-l="{e(t("Bezahlt"))}">{fmt_num(c["paid_amount"], 2, "€") if c["paid_amount"] else "–"}</td>
-<td class="n" data-l="{e(t("Verschenkt"))}">{gift_tag(c)}</td>
-<td class="n calc" data-l="{e(t("Kosten"))}">{fmt_num(c["cost_total"], 2, "€")}</td>
-<td class="n" data-l="{e(t("Letzter Druck"))}">{fmt_ts(c["last_ts"]) if c["last_ts"] else "–"}</td>
-<td><a href="./?customer={c["id"]}">{t("Drucke")}</a></td>
-<td><form method="post" action="customers/{c["id"]}/delete" class="d"><button class="del" title="{e(t("Kunde löschen"))}">×</button></form></td></tr>"""
-        for c in customers
-    ) or ('<tr><td colspan="9" class="muted">' + (t("Im Zeitraum nichts verschenkt.") if show == "verschenkt" else
+    def row(c: dict[str, Any]) -> str:
+        sub = " · ".join(e(x) for x in (c["contact"], c["note"]) if x)
+        mg = c.get("margin_pct")
+        mtag = (f' <span class="otag none calc" title="{e(t("Marge %"))}">+{fmt_input(mg)} %</span>' if mg else "")
+        return (f'<tr class="crow"><td class="cn"><b>{e(c["name"])}</b>{mtag}{f"<small>{sub}</small>" if sub else ""}</td>'
+                f'<td class="n" data-l="{e(t("Drucke"))}">{c["n"]}</td>'
+                f'<td class="n wide" data-l="{e(t("Offen"))}">{_open_tags(c)}</td>'
+                f'<td class="n" data-l="{e(t("Bezahlt"))}">{fmt_num(c["paid_amount"], 2, "€") if c["paid_amount"] else "–"}</td>'
+                f'<td class="n" data-l="{e(t("Verschenkt"))}">{gift_tag(c)}</td>'
+                f'<td class="n calc" data-l="{e(t("Kosten"))}">{fmt_num(c["cost_total"], 2, "€")}</td>'
+                f'<td class="n" data-l="{e(t("Letzter Druck"))}" title="{fmt_ts(c["last_ts"]) if c["last_ts"] else ""}">{fmt_date(c["last_ts"], "date_s") if c["last_ts"] else "–"}</td>'
+                f'<td class="cact"><a class="btn sm" href="./?customer={c["id"]}">{t("Drucke")}</a>'
+                f'<button type="button" class="btn sm" data-edit="{c["id"]}" aria-expanded="false">{t("Bearbeiten")}</button></td></tr>'
+                f'<tr class="ced" id="ced{c["id"]}" hidden><td colspan="8">{_customer_form(c)}'
+                f'<form method="post" action="customers/{c["id"]}/delete" class="d" id="cdel{c["id"]}"></form></td></tr>')
+
+    rows = "".join(row(c) for c in customers) or ('<tr><td colspan="8" class="muted">' + (t("Im Zeitraum nichts verschenkt.") if show == "verschenkt" else
           t("Keine offenen Beträge oder Übergaben.") if show else t("Noch keine Kunden angelegt.")) + '</td></tr>')
     open_total = sum(c["open_amount"] or 0 for c in all_customers)
     undelivered = sum(c["undelivered_n"] or 0 for c in all_customers)
@@ -1273,21 +1291,81 @@ def page_customers(store: Store, saved: str | None, show: str | None = None,
 .otag{{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:999px;font-weight:600;font-size:13px;white-space:nowrap;text-decoration:none;
  border:1px solid color-mix(in srgb,currentColor 35%,transparent);background:color-mix(in srgb,currentColor 10%,transparent)}}
 .otag.none{{color:var(--muted)}}.otag.warn{{color:var(--warn)}}.otag.run{{color:var(--run)}}.otag.ok{{color:var(--ok)}}.otag.gift{{color:#b07cf0}}
-.gper{{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0}}.nob{{display:inline-flex;align-items:center;gap:5px;white-space:nowrap;font-size:13px}}.nob input{{width:auto;margin:0}}.gper select,.gper input{{width:auto}}td .otag{{margin:2px 0 2px 4px}}</style>
-{banner}<h2 style="margin-top:0">{t("Neuer Kunde")}</h2>
-<form method="post" action="customers" class="f">
-<input name="name" placeholder="{e(t("Name"))}" required><input name="contact" placeholder="{e(t("Kontakt (optional)"))}">
-<input name="note" placeholder="{e(t("Notiz (optional)"))}"><input name="margin_pct" class="num" inputmode="decimal" placeholder="{e(t("Marge % (optional)"))}" style="width:150px">{_nobill_box(False)}<button class="primary">{t("Anlegen")}</button></form>
-<h2>{t("Kunden")}</h2>{summary}
-<div class="wrap"><table class="stack"><thead><tr><th>{t("Name · Kontakt · Notiz")}</th><th class="n">{t("Drucke")}</th><th class="n">{t("Offen")}</th><th class="n">{t("Bezahlt")}</th><th class="n">{t("Verschenkt")}</th>
-<th class="n calc">{t("Kosten")}</th><th class="n">{t("Letzter Druck")}</th><th></th><th></th></tr></thead><tbody>{rows}</tbody></table></div>
-<p class="muted">{t("Offen = Endpreis (oder Kosten + Kundenmarge) minus eingetragene Zahlungen, ohne Ausschuss und ohne Verschenktes. Ein Klick auf ein Schild zeigt die passenden Drucke.")}</p>
-<p class="muted">{t("Verschenkt: Anzahl und Wert (Endpreis bzw. Kosten + Kundenmarge) der verschenkten Drucke im gewählten Zeitraum, nach Druckstart. Die Kosten stehen im Tooltip.")}</p>
-<p class="muted">{t("Die Marge eines Kunden gilt für alle seine Drucke und wird zusätzlich zu den allgemeinen Margen angezeigt.")}</p>
-<p class="muted">{t("Keine Abrechnung: für Eigenbedarf, z. B. Drucke für eigene Uploads. Kosten und Statistik zählen weiter, aber es gibt keine Zahlungen, keine Übergaben und nichts Offenes. Anders als „verschenkt“ (pro Druck) gilt das für alle Drucke des Kunden.")}</p>
-<p class="muted">{t("Drucke weist du auf der Detailseite eines Drucks (Tab „Bearbeiten“) einem Kunden zu. Beim Löschen eines Kunden bleiben seine Drucke erhalten, nur ohne Kunde.")}</p>"""
-    script = """document.querySelectorAll('form.d').forEach(f=>f.onsubmit=()=>confirm(_t("Kunde löschen? Die Drucke bleiben erhalten.")));"""
-    return layout(t("Kunden"), "customers", body, script)
+.gper{{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0}}.gper select,.gper input{{width:auto}}td .otag{{margin:2px 0 2px 4px}}{CUSTOMERS_CSS}</style>
+{banner}<div class="chead"><h2>{t("Kunden")}</h2>
+<button type="button" class="btn primary" id="newc" aria-expanded="{"true" if not all_customers else "false"}">+ {t("Neuer Kunde")}</button></div>
+<div class="cnew box"{"" if not all_customers else " hidden"}><h3>{t("Neuer Kunde")}</h3>{_customer_form(None)}</div>
+{summary}
+<div class="wrap"><table class="stack ctab"><thead><tr><th>{t("Name · Kontakt · Notiz")}</th><th class="n">{t("Drucke")}</th><th class="n">{t("Offen")}</th><th class="n">{t("Bezahlt")}</th><th class="n">{t("Verschenkt")}</th>
+<th class="n calc">{t("Kosten")}</th><th class="n">{t("Letzter Druck")}</th><th></th></tr></thead><tbody>{rows}</tbody></table></div>
+<div class="help muted"><p>{t("Offen = Endpreis (oder Kosten + Kundenmarge) minus eingetragene Zahlungen, ohne Ausschuss und ohne Verschenktes. Ein Klick auf ein Schild zeigt die passenden Drucke.")}</p>
+<p>{t("Verschenkt: Anzahl und Wert (Endpreis bzw. Kosten + Kundenmarge) der verschenkten Drucke im gewählten Zeitraum, nach Druckstart. Die Kosten stehen im Tooltip.")}</p>
+<p>{t("Die Marge eines Kunden gilt für alle seine Drucke und wird zusätzlich zu den allgemeinen Margen angezeigt.")}</p>
+<p>{t("Keine Abrechnung: für Eigenbedarf, z. B. Drucke für eigene Uploads. Kosten und Statistik zählen weiter, aber es gibt keine Zahlungen, keine Übergaben und nichts Offenes. Anders als „verschenkt“ (pro Druck) gilt das für alle Drucke des Kunden.")}</p>
+<p>{t("Drucke weist du auf der Detailseite eines Drucks (Tab „Bearbeiten“) einem Kunden zu. Beim Löschen eines Kunden bleiben seine Drucke erhalten, nur ohne Kunde.")}</p></div>"""
+    return layout(t("Kunden"), "customers", body, CUSTOMERS_JS)
+
+
+CUSTOMERS_CSS = """
+.chead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 12px}.chead h2{margin:0}
+.cnew{margin:0 0 14px;max-width:var(--w-form)}.cnew h3{margin:0 0 10px;font-size:14px}
+.box{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px}
+.cform{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1.2fr) minmax(0,1.6fr) 110px;gap:10px 12px;align-items:end;margin:0}
+.cform .lf.m input{text-align:right}
+.cform .cbar{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:10px}.cform .cbar .sp{flex:1}
+.nob{display:inline-flex;align-items:center;gap:8px;white-space:nowrap;font-size:14px;font-weight:600;cursor:pointer}
+.ctab td{vertical-align:middle}.ctab td.wide{white-space:normal}@media (min-width:701px){.ctab td.wide{min-width:150px}}.ctab .cn b{font-size:15px}.ctab .cn small{display:block;color:var(--muted);font-size:13px;
+ max-width:360px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ctab .cact{white-space:nowrap;text-align:right}.ctab .cact .btn+.btn{margin-left:6px}
+.ctab tr.open td{border-bottom:0;background:color-mix(in srgb,var(--accent) 6%,transparent)}
+.ctab .ced td{background:color-mix(in srgb,var(--accent) 6%,transparent);padding:4px 10px 14px}
+.ctab .ced form.d{display:none}.ctab .ced .cform{max-width:var(--w-form)}
+.btn.danger-o{color:var(--bad);background:transparent}
+.help{margin-top:14px}
+/* Tablet hochkant: Karten statt Tabelle, Kennzahlen in einer Zeile */
+@media (min-width:701px) and (max-width:1100px){
+ .ctab thead{display:none}.ctab tr.crow{display:grid;grid-template-columns:repeat(5,minmax(0,1fr)) auto;grid-auto-flow:row dense;gap:8px 14px;
+  padding:12px 14px;border-bottom:1px solid var(--line)}
+ .ctab td{border:0;padding:0;text-align:left;white-space:normal}.ctab td.cn{grid-column:1/-2}.ctab td.cact{grid-column:-2;grid-row:1}
+ .ctab td.wide{grid-column:1/-1;min-width:0}.ctab td.wide .otag{margin:2px 6px 2px 0}
+ .ctab td[data-l]:before{content:attr(data-l);display:block;font-size:11px;color:var(--muted)}
+ .ctab tr.ced{display:block}.ctab tr.ced[hidden]{display:none}.ctab .ced td{display:block;padding:4px 14px 14px}}
+@media (max-width:760px){.cform{grid-template-columns:1fr 1fr}.cform .lf:not(.m){grid-column:1/-1}}
+@media (max-width:700px){
+ .ctab tr.crow{grid-auto-flow:row dense}.ctab td.wide{grid-column:1/-1}.ctab td.wide:empty{display:none}
+ .ctab .cact{grid-column:1/-1;display:flex;gap:6px;text-align:left}.ctab .cact .btn{flex:1}.ctab .cact .btn+.btn{margin-left:0}
+ .ctab .cn small{max-width:none;white-space:normal}.ctab tr.ced{display:block}.ctab tr.ced[hidden]{display:none}
+ .ctab .ced td{display:block;padding:12px}.ctab tr.open,.ctab tr.ced{background:color-mix(in srgb,var(--accent) 6%,transparent)}.ctab tr.open td,.ctab .ced td{background:none}
+ .cform .cbar .nob{flex:1 1 100%}.cform .cbar .sp{display:none}.cform .cbar .btn{flex:1}.ctab td .otag{margin:2px 4px 2px 0}.chead .btn{padding:0 12px}}
+"""
+
+CUSTOMERS_JS = """
+document.querySelectorAll('form.d').forEach(f=>f.onsubmit=()=>confirm(_t("Kunde löschen? Die Drucke bleiben erhalten.")));
+const nb=document.getElementById('newc'),nc=document.querySelector('.cnew');
+nb.onclick=()=>{nc.hidden=!nc.hidden;nb.setAttribute('aria-expanded',!nc.hidden);if(!nc.hidden)nc.querySelector('input[name=name]').focus()};
+document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{const r=document.getElementById('ced'+b.dataset.edit),row=b.closest('tr');
+  r.hidden=!r.hidden;row.classList.toggle('open',!r.hidden);b.setAttribute('aria-expanded',!r.hidden);
+  if(!r.hidden)r.querySelector('input[name=name]').focus()});
+document.querySelectorAll('[data-cancel]').forEach(b=>b.onclick=()=>{const r=b.closest('tr.ced');r.hidden=true;
+  const row=r.previousElementSibling;row.classList.remove('open');row.querySelector('[data-edit]').setAttribute('aria-expanded','false')});
+"""
+
+
+def _customer_form(c: dict[str, Any] | None) -> str:
+    """Formular für neuen oder bestehenden Kunden (gleiche Felder, beschriftet)."""
+    c = c or {}
+    hid = f'<input type="hidden" name="id" value="{c["id"]}">' if c.get("id") else ""
+    opt_ph = f' placeholder="{e(t("optional"))}"'
+    btns = (f'<button class="btn danger-o" form="cdel{c["id"]}">{t("Kunde löschen")}</button>'
+            f'<button type="button" class="btn" data-cancel>{t("Abbrechen")}</button><button class="btn primary">{t("Speichern")}</button>'
+            if c.get("id") else f'<button class="btn primary">{t("Anlegen")}</button>')
+    return (f'<form method="post" action="customers" class="cform">{hid}'
+            f'<label class="lf">{t("Name")}<input name="name" value="{e(c.get("name") or "")}" required></label>'
+            f'<label class="lf">{t("Kontakt")}<input name="contact" value="{e(c.get("contact") or "")}"{opt_ph}></label>'
+            f'<label class="lf">{t("Notiz")}<input name="note" value="{e(c.get("note") or "")}"{opt_ph}></label>'
+            f'<label class="lf m calc" title="{e(t("Eigene Marge in %, hat Vorrang"))}">{t("Marge %")}'
+            f'<input name="margin_pct" inputmode="decimal" value="{fmt_input(c.get("margin_pct"))}"{opt_ph}></label>'
+            f'<div class="cbar">{_nobill_box(c.get("no_billing"))}<span class="sp"></span>{btns}</div></form>')
 
 
 def _nobill_box(on: Any) -> str:
@@ -1324,12 +1402,12 @@ def page_trash(store: Store, days: int, done: str | None) -> str:
                  f'<td class="n calc" data-l="{e(t("Kosten"))}">{fmt_num(j.get("cost_total"), 2, "€")}</td>'
                  f'<td data-l="{e(t("Gelöscht"))}">{fmt_ts(j["deleted_ts"])}</td>'
                  f'<td data-l="{e(t("Endgültig"))}">{t("heute") if left == 0 else t("morgen") if left == 1 else t("in {n} Tagen", n=left)}</td>'
-                 f'<td><form method="post" action="trash/restore" style="margin:0"><input type="hidden" name="ids" value="{j["id"]}">'
-                 f'<button class="btn sm">{t("↩ Wiederherstellen")}</button></form></td>'
-                 f'<td><form method="post" action="trash/purge" class="pg" style="margin:0"><input type="hidden" name="ids" value="{j["id"]}">'
+                 f'<td class="tact"><form method="post" action="trash/restore"><input type="hidden" name="ids" value="{j["id"]}">'
+                 f'<button class="btn sm">{t("↩ Wiederherstellen")}</button></form>'
+                 f'<form method="post" action="trash/purge" class="pg"><input type="hidden" name="ids" value="{j["id"]}">'
                  f'<button class="del" title="{e(t("Endgültig löschen"))}">×</button></form></td></tr>')
     if not rows:
-        rows = f'<tr><td colspan="8" class="muted">{t("Der Papierkorb ist leer.")}</td></tr>'
+        rows = f'<tr><td colspan="7" class="muted">{t("Der Papierkorb ist leer.")}</td></tr>'
     msg = ""
     if done and done[1:].isdigit():
         n = int(done[1:])
@@ -1340,10 +1418,11 @@ def page_trash(store: Store, days: int, done: str | None) -> str:
                f'<form method="post" action="trash/restore" style="margin:0"><input type="hidden" name="ids" value="{ids}"><button class="btn">{t("↩ Alle wiederherstellen")}</button></form>'
                f'<form method="post" action="trash/purge" class="pg all" style="margin:0"><input type="hidden" name="all" value="1"><button class="btn danger">{t("Papierkorb leeren")}</button></form></div>'
                if jobs else "")
-    body = f"""{msg}<p><a href="settings">{t("← Einstellungen")}</a></p><h2 style="margin-top:0">{t("Papierkorb")}</h2>
+    body = f"""<style>.tact{{display:flex;gap:6px;align-items:center;justify-content:flex-end}}.tact form{{margin:0}}
+@media (max-width:700px){{table.stack td.tact{{grid-column:1/-1;justify-content:space-between}}}}</style><div class="narrow">{msg}<p><a href="settings">{t("← Einstellungen")}</a></p><h2 style="margin-top:0">{t("Papierkorb")}</h2>
 <p class="muted">{t("Gelöschte Drucke bleiben {n} Tage hier (ändern unter Einstellungen) und werden danach samt Fotos, Zahlungen und Übergaben endgültig gelöscht.", n=days)}</p>
-{actions}<div class="wrap"><table class="stack"><thead><tr><th>{t("Druck")}</th><th>{t("Drucker")}</th><th>{t("Start")}</th><th class="n calc">{t("Kosten")}</th><th>{t("Gelöscht")}</th><th>{t("Endgültig weg")}</th><th></th><th></th></tr></thead>
-<tbody>{rows}</tbody></table></div>"""
+{actions}<div class="wrap"><table class="stack"><thead><tr><th>{t("Druck")}</th><th>{t("Drucker")}</th><th>{t("Start")}</th><th class="n calc">{t("Kosten")}</th><th>{t("Gelöscht")}</th><th>{t("Endgültig weg")}</th><th></th></tr></thead>
+<tbody>{rows}</tbody></table></div></div>"""
     script = ("document.querySelectorAll('form.pg').forEach(f=>f.onsubmit=()=>confirm(f.classList.contains('all')?"
               '_t("Papierkorb leeren? Alle Drucke darin werden endgültig gelöscht."):_t("Diesen Druck endgültig löschen?")));')
     return layout(t("Papierkorb"), "settings", body, script)
@@ -1381,26 +1460,27 @@ def page_settings(store: Store, saved: str | None, logo: str | None = None,
 
     types = sorted(set(KNOWN_TYPES) | set(store.material_types())
                    | {k for k, v in prices.items() if v["kind"] == "type"})
-    type_rows = "".join(
-        f'<tr><td>{e(ty)}</td><td class="n"><input class="num" name="type__{e(ty)}" '
-        f'value="{fmt_input(prices.get(ty, {}).get("eur_per_kg"))}" inputmode="decimal" placeholder="€/kg"></td></tr>'
-        for ty in types
-    )
+    def tile(label: str, name: str, value: Any, placeholder: str) -> str:
+        return (f'<label class="ftile"><span class="flbl">{label}</span><span class="ig"><input class="num" name="{name}" '
+                f'value="{fmt_input(value)}" inputmode="decimal" placeholder="{e(placeholder)}"><i>€/kg</i></span></label>')
+
+    type_rows = "".join(tile(e(ty), f"type__{e(ty)}", prices.get(ty, {}).get("eur_per_kg"), "–") for ty in types)
     seen = {m["name"]: m["type"] for m in store.material_names()}
     for k, v in prices.items():
         if v["kind"] == "name":
             seen.setdefault(k, None)
     name_rows = "".join(
-        f'<tr><td>{e(n)} <span class="muted">{e(ty or "")}</span></td><td class="n"><input class="num" name="name__{e(n)}" '
-        f'value="{fmt_input(prices.get(n, {}).get("eur_per_kg"))}" inputmode="decimal" placeholder="{e(t("wie Typ"))}"></td></tr>'
+        tile(f'{e(n)} <small class="muted">{e(ty or "")}</small>', f"name__{e(n)}", prices.get(n, {}).get("eur_per_kg"), t("wie Typ"))
         for n, ty in sorted(seen.items())
-    ) or f'<tr><td colspan="2" class="muted">{t("Erscheint, sobald Drucke mit Materialangaben erfasst sind.")}</td></tr>'
+    )
 
     banner = f'<div class="banner">{t("Gespeichert. {n} Drucke wurden neu berechnet.", n=e(saved))}</div>' if saved else ""
     cfg = store.settings()
     margin_rows = "".join(
-        f'<tr><td><input name="margin{i}_name" value="{e(cfg.get(f"margin{i}_name") or "")}" placeholder="{ph}" style="width:100%"></td>'
-        f'<td class="n"><input class="num" name="margin{i}_pct" value="{e(cfg.get(f"margin{i}_pct") or "")}" inputmode="decimal" placeholder="%"></td></tr>'
+        f'<div class="frow"><span class="flbl">{t("Marge {i}", i=i)}</span><span class="fctl">'
+        f'<input name="margin{i}_name" value="{e(cfg.get(f"margin{i}_name") or "")}" placeholder="{ph}" aria-label="{e(t("Name"))}" class="mname">'
+        f'<span class="ig"><input class="num" name="margin{i}_pct" value="{e(cfg.get(f"margin{i}_pct") or "")}" inputmode="decimal" '
+        f'placeholder="0" aria-label="{e(t("Aufschlag %"))}"><i>%</i></span></span></div>'
         for i, ph in ((1, t("z. B. Privat")), (2, t("z. B. Gewerbe")))
     )
     from datetime import datetime
@@ -1413,13 +1493,13 @@ def page_settings(store: Store, saved: str | None, logo: str | None = None,
         return "".join(f'<option value="{e(v)}"{" selected" if v == current else ""}>{e(lbl)}</option>' for v, lbl in items)
 
     backup_form = (
-        '<div class="wrap"><table><tbody>'
-        f'<tr><td>{t("Intervall")}</td><td><select name="backup_interval">{options([(k, t(v)) for k, v in INTERVALS.items()], interval)}</select></td></tr>'
-        f'<tr><td>{t("Wochentag")} <span class="muted">{t("(nur wöchentlich)")}</span></td><td><select name="backup_weekday">'
-        f'{options([(str(i), t(d)) for i, d in enumerate(WEEKDAYS)], str(weekday))}</select></td></tr>'
-        f'<tr><td>{t("Uhrzeit")}</td><td><select name="backup_hour">'
-        f'{options([(str(h), f"{h:02d}:00") for h in range(24)], str(hour))}</select></td></tr>'
-        '</tbody></table></div>'
+        '<div class="fbox inline">'
+        f'<label class="fcol">{t("Intervall")}<select name="backup_interval">{options([(k, t(v)) for k, v in INTERVALS.items()], interval)}</select></label>'
+        f'<label class="fcol">{t("Wochentag")} <span class="muted">{t("(nur wöchentlich)")}</span><select name="backup_weekday">'
+        f'{options([(str(i), t(d)) for i, d in enumerate(WEEKDAYS)], str(weekday))}</select></label>'
+        f'<label class="fcol">{t("Uhrzeit")}<select name="backup_hour">'
+        f'{options([(str(h), f"{h:02d}:00") for h in range(24)], str(hour))}</select></label>'
+        '</div>'
     )
     if enabled():
         state = (t("noch keins") if len(last) < 3 else
@@ -1463,31 +1543,32 @@ def page_settings(store: Store, saved: str | None, logo: str | None = None,
     panes = [
         pane("kosten", t("Kosten"), f"""<h2 style="margin-top:0">{t("Drucker: Abschreibung, Wartung und Verschleiß")}</h2>
 <p class="muted">{t("Kosten pro Druckstunde = Anschaffung ÷ Lebensdauer in Druckstunden + Wartung pro Jahr ÷ Druckstunden pro Jahr + Verschleiß pro Stunde. Leere Felder zählen nicht. „bisher“ zeigt die erfassten Druckstunden der letzten 12 Monate.")}</p>
-<div class="wrap"><table class="stack"><thead><tr><th>{t("Drucker")}</th><th class="n">{t("Anschaffung €")}</th><th class="n">{t("Lebensdauer h")}</th>
+<div class="wrap"><table class="stack rates"><thead><tr><th>{t("Drucker")}</th><th class="n">{t("Anschaffung €")}</th><th class="n">{t("Lebensdauer h")}</th>
 <th class="n">{t("Wartung €/Jahr")}</th><th class="n">{t("Druckstunden/Jahr")}</th><th class="n">{t("Verschleiß €/h")}</th><th class="n">{t("= pro Stunde")}</th></tr></thead>
 <tbody>{"".join(printer_rows)}</tbody></table></div>
 <p class="muted">{t("Der Strompreis kommt aus Home Assistant ({entity}) bzw. aus der HA-Automation und wird pro Druck zum Druckende festgehalten.", entity=price_entity)}</p>"""),
         pane("drucker", t("Drucker"), printers_html),
         pane("filament", t("Filament"), f"""<h2 style="margin-top:0">{t("Filamentpreise nach Typ")}</h2>
 <p class="muted">{t("Standardpreis pro Kilogramm, gilt für alle Filamente dieses Typs.")}</p>
-<div class="wrap"><table><thead><tr><th>{t("Typ")}</th><th class="n">€/kg</th></tr></thead><tbody>{type_rows}</tbody></table></div>
+<div class="fgrid">{type_rows}</div>
 <h2>{t("Filamentpreise nach Sorte (optional)")}</h2>
 <p class="muted">{t("Überschreibt den Typpreis für eine bestimmte Sorte, z. B. „Bambu PLA Matte“. Leer lassen = Typpreis.")}</p>
-<div class="wrap"><table><thead><tr><th>{t("Sorte")}</th><th class="n">€/kg</th></tr></thead><tbody>{name_rows}</tbody></table></div>"""),
+{f'<div class="fgrid wide">{name_rows}</div>' if name_rows else f'<p class="muted">{t("Erscheint, sobald Drucke mit Materialangaben erfasst sind.")}</p>'}"""),
         pane("margen", t("Margen"), f"""<h2 style="margin-top:0">{t("Margen")}</h2>
 <p class="muted">{t("Bis zu zwei allgemeine Aufschläge auf die Gesamtkosten. Jede Marge bekommt in der Tabelle eine eigene Spalte mit Verkaufspreis (und Preis pro Stück). Eine Marge pro Kunde stellst du unter „Kunden“ ein.")}</p>
-<div class="wrap"><table><thead><tr><th>{t("Name")}</th><th class="n">{t("Aufschlag %")}</th></tr></thead><tbody>{margin_rows}</tbody></table></div>"""),
+<div class="fbox">{margin_rows}</div>"""),
         pane("bon", t("Bon &amp; PDF"), logo_html),
-        pane("ansicht", t("Ansicht"), f"""<h2 style="margin-top:0">Sprache · Language</h2>
-<p class="muted">{t("Sprache der Oberfläche, von Bon, PDF und CSV-Export. „Automatisch“ richtet sich nach der Sprache des Browsers.")}</p>
-<p><label>{t("Sprache")} <select name="language">{lang_opts}</select></label></p>
-<h2>{t("Detailseite")}</h2>
-<p class="muted">{t("Welcher Tab beim Öffnen eines Drucks aktiv ist. Nach dem Speichern zeigt die Seite immer die Übersicht.")}</p>
-<p><label>{t("Start-Tab")} <select name="detail_tab">{"".join(opt(k, t(v), cfg.get("detail_tab") or "ov") for k, v in DETAIL_TABS.items())}</select></label></p>
-<h2>{t("Papierkorb")}</h2>
-<p class="muted">{t("Gelöschte Drucke landen erst im Papierkorb und lassen sich dort wiederherstellen. Nach dieser Zeit werden sie samt Fotos endgültig gelöscht.")}</p>
-<p><label>{t("Aufbewahren")} <input class="num" name="trash_days" inputmode="numeric" style="width:80px" value="{e(cfg.get("trash_days") or "30")}"> {t("Tage")}</label>
-· <a href="trash">{t("Papierkorb öffnen ({n})", n=store.trash_count())}</a></p>"""),
+        pane("ansicht", t("Ansicht"), f"""<h2 style="margin-top:0">{t("Ansicht")}</h2>
+<div class="fbox">
+<div class="frow"><label class="flbl" for="s_lang">Sprache · Language</label><select id="s_lang" name="language">{lang_opts}</select>
+<small class="fhint muted">{t("Sprache der Oberfläche, von Bon, PDF und CSV-Export. „Automatisch“ richtet sich nach der Sprache des Browsers.")}</small></div>
+<div class="frow"><label class="flbl" for="s_dtab">{t("Detailseite")}: {t("Start-Tab")}</label><select id="s_dtab" name="detail_tab">{"".join(opt(k, t(v), cfg.get("detail_tab") or "ov") for k, v in DETAIL_TABS.items())}</select>
+<small class="fhint muted">{t("Welcher Tab beim Öffnen eines Drucks aktiv ist. Nach dem Speichern zeigt die Seite immer die Übersicht.")}</small></div>
+<div class="frow"><label class="flbl" for="trash_days">{t("Papierkorb")}</label><span class="fctl">
+<span class="ig"><input class="num" id="trash_days" name="trash_days" inputmode="numeric" value="{e(cfg.get("trash_days") or "30")}"><i>{t("Tage")}</i></span>
+<a class="btn sm" href="trash">{t("Papierkorb öffnen ({n})", n=store.trash_count())}</a></span>
+<small class="fhint muted">{t("Gelöschte Drucke landen erst im Papierkorb und lassen sich dort wiederherstellen. Nach dieser Zeit werden sie samt Fotos endgültig gelöscht.")}</small></div>
+</div>"""),
         pane("backup", t("Daten &amp; Backup"), _data_pane(store, names, backup_html, safety or [], data_msg or {})),
         pane("windows", "Windows", f"""<h2 style="margin-top:0">{t("Ordner-Links (Windows)")}</h2>
 <p>{t("Bei jedem Druck kannst du einen lokalen Ordner oder eine Datei eintragen. „📋 Kopieren“ geht immer (dann Win+E, Strg+L, einfügen). Damit „📂 Öffnen“ direkt funktioniert, richte einmalig pro Windows-PC das Link-Protokoll ein:")}</p>
@@ -1518,12 +1599,51 @@ def page_settings(store: Store, saved: str | None, logo: str | None = None,
 
 
 SETTINGS_CSS = """
-.settings{max-width:1180px}
+.settings{max-width:960px}
+.spane>p,.spane>ol{max-width:76ch}
+.spane table.rates input.num{width:116px}
+/* Tablet hochkant: Drucker-Kosten wie am Handy als Karten (Felder sonst zu schmal für die Platzhalter) */
+@media (min-width:701px) and (max-width:1000px){.spane table.rates thead{display:none}
+ .spane table.rates tr{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px 12px;padding:12px 14px;border-bottom:1px solid var(--line)}
+ .spane table.rates tr:last-child{border-bottom:0}.spane table.rates td{border:0;padding:0;text-align:left;white-space:normal}
+ .spane table.rates td:first-child{grid-column:1/-1;font-weight:600}
+ .spane table.rates td[data-l]:before{content:attr(data-l);display:block;font-size:11px;color:var(--muted);margin-bottom:3px}
+ .spane table.rates input.num{width:100%;text-align:left}}
+.fgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(178px,1fr));gap:8px}
+.fgrid.wide{grid-template-columns:repeat(auto-fill,minmax(min(100%,290px),1fr))}
+.ftile{display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--card);border:1px solid var(--line);
+  border-radius:10px;padding:5px 5px 5px 12px;min-width:0}
+.ftile:focus-within{border-color:var(--accent)}
+.ftile .flbl{font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ftile .flbl small{font-weight:400}
+.ig{display:inline-flex;align-items:center;flex:0 0 auto;border:1px solid var(--line);border-radius:8px;background:var(--bg);overflow:hidden}
+.ig input.num{border:0;border-radius:0;background:none;width:68px;height:calc(var(--ctl-h) - 2px);padding:0 4px 0 8px}
+.ig input:focus{outline:none}
+.ig i{font-style:normal;font-size:12px;line-height:1;color:var(--muted);padding:0 9px 0 2px;white-space:nowrap}
+.fbox{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:4px 14px;max-width:680px}
+.frow{display:grid;grid-template-columns:170px minmax(0,1fr);gap:6px 14px;align-items:center;padding:9px 0}
+.frow+.frow{border-top:1px solid var(--line)}
+.frow .flbl{font-weight:600}
+.frow .fhint{grid-column:2;font-size:12px;line-height:1.4}
+.frow select{width:100%;max-width:340px}
+.fctl{display:flex;gap:8px;align-items:center;flex-wrap:wrap;min-width:0}
+.fctl .mname{flex:1 1 160px;min-width:0;max-width:260px}
+.fbox.inline{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px 16px;padding:12px 14px}
+.fcol{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600;color:var(--muted);white-space:nowrap}
+.fcol select{min-width:150px;font-weight:400;color:var(--fg)}
+@media (max-width:520px){
+ .frow{grid-template-columns:1fr;gap:6px}.frow .fhint{grid-column:1}
+ .frow select{max-width:none}
+ .fgrid{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .fgrid.wide{grid-template-columns:1fr}
+ .fgrid{gap:6px}.ftile{padding:4px 4px 4px 10px;gap:6px}.ftile .ig input.num{width:56px}.fgrid.wide .ftile .ig input.num{width:70px}
+ .fbox.inline .fcol{flex:1 1 140px}.fcol select{min-width:0;width:100%}
+}
 .stabs{display:flex;gap:4px;margin:0 0 16px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:4px;
   width:max-content;max-width:100%;overflow-x:auto;scrollbar-width:none}
 .stabs::-webkit-scrollbar{display:none}
-.stabs button{border:0;background:none;padding:8px 16px;border-radius:9px;color:var(--muted);font-weight:700;white-space:nowrap;flex:0 0 auto}
-.stabs button.on{background:var(--accent);color:#fff}
+.stabs button{border:0;background:none;min-height:0;padding:8px 16px;border-radius:9px;color:var(--muted);font-weight:700;white-space:nowrap;flex:0 0 auto}
+.stabs button.on{background:var(--accent);color:var(--bg)}
 .spane{display:none}.spane.on{display:block}
 .sbar{position:sticky;bottom:0;display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:18px;padding:12px 0;
   background:linear-gradient(transparent,var(--bg) 30%)}
@@ -1534,8 +1654,6 @@ SETTINGS_CSS = """
 .logobox .paper img{max-width:300px;max-height:85px;object-fit:contain}
 .logobox .paper span{font:11px ui-monospace,Menlo,Consolas,monospace;color:#80776a}
 .logoctl{display:flex;flex-direction:column;gap:10px;align-items:flex-start}
-.btn.file{display:inline-block;position:relative;overflow:hidden;cursor:pointer;border:1px solid var(--line);border-radius:8px;padding:8px 14px;font-weight:600}
-.btn.file input{position:absolute;inset:0;opacity:0;cursor:pointer}
 .chk{display:flex;gap:6px;align-items:center}
 .plist{display:flex;flex-direction:column;gap:12px}
 .pcard{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
@@ -1545,8 +1663,8 @@ SETTINGS_CSS = """
 .phead .prm{color:var(--bad);font-size:13px;padding-bottom:8px}
 .pcard label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted);font-weight:600}
 .pcard label.chk{flex-direction:row}
-.pcard input:not([type=checkbox]){width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px}
-.phead input:not([type=checkbox]){font-family:inherit;font-size:14px}
+.pcard input:not([type=checkbox]){width:100%;font-family:ui-monospace,Menlo,Consolas,monospace}
+.phead input:not([type=checkbox]){font-family:inherit}
 .pkey{max-width:140px}
 .pgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px 14px}
 .pcard small{font-weight:400}
@@ -1814,14 +1932,7 @@ DATA_CSS = """
 .dcard h3{margin:0 0 6px;font-size:15px}.dcard .row+h3{margin-top:18px}.dcard p{margin:0 0 10px}
 .dcard.danger{border-color:var(--bad)}
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-a.btn,.btn{display:inline-block;text-decoration:none;border:1px solid var(--line);border-radius:8px;padding:8px 14px;font-weight:600;
-  background:var(--card);color:var(--fg);cursor:pointer;font-size:14px;white-space:nowrap}
-.btn.sm{padding:4px 10px;font-size:13px}
-.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
 .btn.danger{background:var(--bad);border-color:var(--bad);color:#fff}
-.btn:disabled{opacity:.45;cursor:not-allowed}
-.btn.file{position:relative;overflow:hidden}
-.btn.file input{position:absolute;inset:0;opacity:0;cursor:pointer}
 .banner.bad{border-color:var(--bad)}.banner.warn{border-color:var(--warn)}
 .ok{color:var(--ok)}
 .cmp{max-width:620px;margin-bottom:14px}

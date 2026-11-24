@@ -132,7 +132,12 @@ EYE_SVG = ('<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="
 CSS = """
 :root{--bg:#f6f7f9;--card:#fcfcfb;--fg:#1c1f24;--muted:#6b7280;--line:#e5e7eb;--grid:#eceef1;
 --ok:#15803d;--bad:#b91c1c;--warn:#b45309;--run:#1d4ed8;--accent:#0f766e;
---s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--s4:#eda100;--s5:#e87ba4;--s6:#008300;--s7:#6250d6;--s8:#e34948}
+--s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--s4:#eda100;--s5:#e87ba4;--s6:#008300;--s7:#6250d6;--s8:#e34948;
+/* Design-System: eine Feldhöhe, eine Schriftgröße für Eingaben, feste Seitenbreiten und Abstände */
+--ctl-h:38px;--ctl-fs:14px;--ctl-r:9px;--ctl-px:11px;
+--w-page:1440px;--w-form:960px;--w-text:80ch;--gap:12px;--gap-l:16px;--radius:12px}
+/* Touch (Handy, Tablet): größere Ziele, 16px verhindert das automatische Zoomen von iOS beim Tippen ins Feld */
+@media (pointer:coarse){:root{--ctl-h:44px;--ctl-fs:16px}}
 @media (prefers-color-scheme:dark){:root{--bg:#111315;--card:#1a1a19;--fg:#f0efec;--muted:#a3a29b;
 --line:#2c3036;--grid:#26292d;--ok:#4ade80;--bad:#f87171;--warn:#fbbf24;--run:#60a5fa;--accent:#2dd4bf;
 --s1:#3987e5;--s2:#d95926;--s3:#199e70;--s4:#c98500;--s5:#d55181;--s6:#0ca30c;--s7:#9085e9;--s8:#e66767}}
@@ -145,18 +150,38 @@ a{color:var(--accent)}h1{font-size:18px;margin:0}
 color:var(--muted);border:1px solid var(--line);border-radius:5px;padding:0 5px;margin-left:6px;vertical-align:2px;white-space:nowrap}
 .meta .pid,.badge .pid{margin-left:0;vertical-align:0}
 button.pidb{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.04em;cursor:copy}
-.top{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;justify-content:space-between;margin-bottom:12px}
+.top{display:flex;gap:8px 14px;align-items:center;margin-bottom:12px}.top .logo{margin-right:auto}
 nav{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:center}
 nav a{text-decoration:none;font-weight:600;color:var(--muted)}nav a.on{color:var(--fg)}
+@media (max-width:700px){.top{display:grid;grid-template-columns:1fr auto;gap:6px 8px}
+ .top nav{grid-column:1/-1;grid-row:2;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;gap:0 14px;margin:0 -12px;padding:2px 12px 4px}
+ .top nav::-webkit-scrollbar{display:none}.top nav a{white-space:nowrap;padding:6px 0}.top nav a.on{box-shadow:inset 0 -2px var(--accent)}}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:10px}
 .kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
 .kpi b{display:block;font-size:20px;font-variant-numeric:tabular-nums}.kpi.main b{color:var(--accent)}
 .mini{display:flex;flex-wrap:wrap;gap:6px 16px;margin:0 0 12px;font-size:13px}
 form.f{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;align-items:center}
-select,button,input,textarea{background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:6px 8px;font:inherit}
+select,button,input,textarea{background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:var(--ctl-r);padding:6px var(--ctl-px);font:inherit}
+:is(input:not([type=checkbox],[type=radio],[type=file],[type=color],[type=range],[type=hidden]),select){height:var(--ctl-h);padding-top:0;padding-bottom:0;font-size:var(--ctl-fs)}
+textarea{font-size:var(--ctl-fs);padding:9px var(--ctl-px)}
+input[type=checkbox],input[type=radio]{width:18px;height:18px;margin:0;accent-color:var(--accent);flex:none}
+.btn,button.primary,form button:not(.del,.lnk,.eye){min-height:var(--ctl-h)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:var(--ctl-h);padding:0 14px;border:1px solid var(--line);
+ border-radius:var(--ctl-r);background:var(--card);color:var(--fg);font-weight:600;font-size:14px;text-decoration:none;white-space:nowrap;cursor:pointer;position:relative}
+.btn.sm{min-height:32px;padding:0 10px;font-size:13px;font-weight:500}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--bg)}
+.btn.danger{color:var(--bad);background:transparent}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.file{overflow:hidden}.btn.file input{position:absolute;inset:0;opacity:0;cursor:pointer}
+input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid color-mix(in srgb,var(--accent) 55%,transparent);outline-offset:0;border-color:var(--accent)}
+/* Beschriftetes Feld: kleine Überschrift über dem Feld */
+.lf{display:grid;gap:4px;font-size:12px;font-weight:600;color:var(--muted);min-width:0}
+.lf>:is(input,select,textarea){width:100%;color:var(--fg);font-weight:400}
+.help{max-width:var(--w-text);font-size:13px}.help p{margin:0 0 8px}
+.page{max-width:var(--w-page);margin:0 auto}.narrow{max-width:var(--w-form)}
 input.num{width:110px;text-align:right}input.qty{width:56px;text-align:right;padding:4px 6px}
 input.search{min-width:220px;flex:1 1 220px;max-width:360px}
-button{cursor:pointer}button.primary{background:var(--accent);color:#fff;border-color:var(--accent);padding:8px 14px}
+button{cursor:pointer}button.primary{background:var(--accent);color:var(--bg);border-color:var(--accent);padding:8px 14px}
 .wrap{background:var(--card);border:1px solid var(--line);border-radius:10px;overflow-x:auto}
 table{border-collapse:collapse;width:100%}table.jobs{min-width:1180px}
 th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
@@ -176,27 +201,33 @@ img.t{width:56px;height:56px;object-fit:contain;border-radius:6px;background:var
 .saved{color:var(--ok);font-size:12px}
 .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,520px),1fr));gap:12px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
-.card h3{font-size:14px;margin:0 0 6px}.legend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12px;color:var(--muted);margin-bottom:6px}
+.card h3{font-size:14px;margin:0 0 6px}.card :is(th,td){padding:8px}.legend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12px;color:var(--muted);margin-bottom:6px}
 svg text{fill:var(--muted);font-size:11px}svg .val{fill:var(--fg)}
 .tip{position:fixed;pointer-events:none;background:var(--card);border:1px solid var(--line);border-radius:8px;
 padding:6px 9px;font-size:12px;box-shadow:0 4px 14px rgba(0,0,0,.18);display:none;z-index:20;white-space:nowrap}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
-.seg a{padding:6px 12px;text-decoration:none;color:var(--muted);font-weight:600}.seg a.on{background:var(--accent);color:#fff}
+.seg a{padding:6px 12px;text-decoration:none;color:var(--muted);font-weight:600}.seg a.on{background:var(--accent);color:var(--bg)}
 .cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}
 .cal .h{font-size:12px;color:var(--muted);text-align:center}
 .cal .d{background:var(--card);border:1px solid var(--line);border-radius:8px;min-height:92px;padding:6px;font-size:12px;text-decoration:none;color:var(--fg);display:block;overflow:hidden}
 .cal .d.out{opacity:.35}.cal .d.today{border-color:var(--accent)}
-.cal .d b{font-size:13px}.cal .d .thumbs{display:flex;flex-wrap:wrap;gap:2px;margin-top:4px}
-.cal .d .thumbs img{width:22px;height:22px;object-fit:contain;border-radius:4px;background:var(--bg)}
+.cal .d b{font-size:13px;display:block;margin-bottom:2px}.cal .d .cl{line-height:1.35}.cal .d .cc{display:none}
+.cal .d .thumbs{display:flex;flex-wrap:wrap;gap:3px;margin-top:5px}
+.cal .d .thumbs img{width:28px;height:28px;object-fit:contain;border-radius:5px;background:var(--bg)}
+@media (min-width:1100px){.cal .d{min-height:104px;padding:8px 10px;font-size:13px}.cal .d b{font-size:14px}}
 .heat{display:grid;grid-auto-flow:column;grid-template-rows:repeat(7,12px);gap:3px;overflow-x:auto;padding-bottom:4px}
 .heat i{width:12px;height:12px;border-radius:3px;background:var(--grid);display:block}
-.eye{border:0;background:none;color:var(--muted);padding:2px 4px;line-height:0;cursor:pointer}
+.eye{border:0;background:none;color:var(--muted);padding:6px;margin:-6px -6px -6px 0;line-height:0;cursor:pointer;border-radius:8px}
 .eye .c{display:none}.priv .eye{color:var(--accent)}.priv .eye .o{display:none}.priv .eye .c{display:inline}
 .priv .calc{filter:blur(7px);pointer-events:none;user-select:none;-webkit-user-select:none}
 .priv .pop{display:none!important}
 #zoom{position:fixed;inset:0;background:rgba(0,0,0,.75);display:none;align-items:center;justify-content:center;z-index:9}
 #zoom img{max-width:92vw;max-height:92vh;border-radius:10px;background:#fff}
-@media (max-width:640px){body{padding:12px}.cal .d{min-height:64px}.cal .d .thumbs{display:none}}
+@media (max-width:640px){body{padding:12px}.cal{gap:4px}.cal .d{min-height:56px;padding:5px;text-align:center}
+ .cal .d .thumbs,.cal .d .cl{display:none}
+ .cal .d .cc{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;margin-top:4px;padding:0 6px;border-radius:999px;
+  background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent);font-weight:700;font-size:12px}
+ svg text{font-size:16px}}
 @media (max-width:700px){
 .kpis{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}.kpi{padding:7px 9px}.kpi span{font-size:11px}.kpi b{font-size:15px}
 table.stack thead{display:none}
@@ -237,9 +268,9 @@ def layout(title: str, active: str, body: str, script: str = "") -> str:
 <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
 <meta name="theme-color" content="#16181f"><meta name="apple-mobile-web-app-title" content="Printlog">
 <script>try{{if(localStorage.getItem('pl_priv')==='1')document.documentElement.classList.add('priv')}}catch(_){{}}</script>
-<style>{CSS}</style></head><body>
-<div class="top"><h1 class="logo"><a href="/" title="Printlog">{LOGO_SVG}</a></h1><nav>{links}
-<button type="button" class="eye" id="eye" title="{e(t("Kalkulation aus-/einblenden (Diskret-Modus)"))}" aria-label="{e(t("Kalkulation aus- oder einblenden"))}">{EYE_SVG}</button></nav></div>
+<style>{CSS}</style></head><body><div class="page">
+<div class="top"><h1 class="logo"><a href="/" title="Printlog">{LOGO_SVG}</a></h1><nav>{links}</nav>
+<button type="button" class="eye" id="eye" title="{e(t("Kalkulation aus-/einblenden (Diskret-Modus)"))}" aria-label="{e(t("Kalkulation aus- oder einblenden"))}">{EYE_SVG}</button></div>
 {body}
-<div id="zoom"><img alt=""></div><div id="tip" class="tip"></div>
+</div><div id="zoom"><img alt=""></div><div id="tip" class="tip"></div>
 <script>{BASE_JS}{js(script)}</script></body></html>"""

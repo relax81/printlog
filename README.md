@@ -63,6 +63,7 @@ The interface is available in **English and German** (Settings → View → Lang
 - **Customers** – partial payments and partial hand-overs, gifts, open amounts per customer. Tick **No billing** for
   a customer you only use for your own prints (e.g. models you upload): costs and statistics still count, but there are
   never open amounts, unpaid or not-handed-over badges, no "Billing" tab and no payment status on receipt or PDF.
+  The customer list stays compact: **Edit** opens the fields right in the row, **+ New customer** sits top right.
 - **Sharing** – a receipt-style PNG for the customer (WhatsApp etc.), an internal version with the full calculation,
   and an A4 PDF cost sheet, in the language of the interface.
 - **Discreet mode** – one click blurs all internal figures when a customer is watching.
@@ -351,6 +352,7 @@ Bilder der Oberfläche stehen oben im englischen Teil unter [Screenshots](#scree
 - **Kunden** – Teilzahlungen und Teilübergaben, Verschenktes, offene Beträge pro Kunde. Mit dem Häkchen **Keine Abrechnung**
   wird ein Kunde zum reinen Sammelplatz für Eigenbedarf (z. B. Modelle für eigene Uploads): Kosten und Statistik zählen
   weiter, aber es gibt nie Offenes, keine Badges „nicht bezahlt/nicht übergeben“, keinen Tab „Abrechnung“ und keinen Zahlungsstand auf Bon und PDF.
+  Die Kundenliste bleibt kompakt: **Bearbeiten** klappt die Felder direkt in der Zeile auf, **+ Neuer Kunde** steht oben rechts.
 - **Teilen** – ein PNG im Kassenbon-Stil für Kunden (WhatsApp usw.), eine interne Variante mit voller Kalkulation und
   eine A4-PDF-Kostenaufstellung, jeweils in der Sprache der Oberfläche.
 - **Diskret-Modus** – ein Klick verwischt alle internen Werte, wenn ein Kunde mitschaut.
@@ -542,6 +544,9 @@ Sonderfälle:
 - **Projekt-ID** wie `PL-7K3Q` auf Liste, Detailseite, Bon, PDF und im Dateinamen; Enter auf einer ID in der Suche öffnet den Druck.
 - **Diskret-Modus** (Auge oben rechts): verwischt Kosten, Margen und Statistik; Endpreis bzw. Kundenpreis und Zahlungsstatus bleiben sichtbar.
 - **Eigene Fotos** werden gedreht (EXIF) und auf höchstens 2560 px verkleinert.
+- **Layout**: Seiten höchstens 1440 px breit, Formulare (Einstellungen, Bearbeiten, Papierkorb) 960 px. Eingabefelder sind
+  überall gleich hoch, am PC 38 px, auf Handy und Tablet 44 px mit 16 px Schrift (iOS zoomt dann nicht ins Feld).
+  Am Handy wandert die Navigation in eine eigene, wischbare Zeile; der Kalender zeigt dort nur die Anzahl der Drucke pro Tag.
 
 ### Fehlersuche
 

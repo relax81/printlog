@@ -90,7 +90,7 @@ def bar_chart(keys: list[str], labels: list[str], series: list[tuple[str, str, s
     step_v = _nice_step(max(totals) if totals else 0)
     ticks = max(1, math.ceil((max(totals) if totals else 0) / step_v - 1e-9))
     vmax = step_v * ticks
-    left, bottom, top = 44, 22, 8
+    left, bottom, top = 50, 22, 8
     width = 640
     plot_w = width - left - 6
     plot_h = height - bottom - top
@@ -301,8 +301,8 @@ def page_calendar(store: Store, month: str | None) -> str:
                 f'<img src="images/{e(photos.get(j["id"]) or j["image"])}" alt="" loading="lazy">'
                 for j in js[:6] if photos.get(j["id"]) or j.get("image")
             )
-            info = (f'<div>{tn(len(js), "{n} Druck", "{n} Drucke")}</div>'
-                    f'<div class="muted">{fmt_hours(hours)} · <span class="calc">{fmt_num(cost, 2, "€")}</span></div>'
+            info = (f'<span class="cc">{len(js)}</span><div class="cl">{tn(len(js), "{n} Druck", "{n} Drucke")}</div>'
+                    f'<div class="muted cl">{fmt_hours(hours)} · <span class="calc">{fmt_num(cost, 2, "€")}</span></div>'
                     f'<div class="thumbs">{thumbs}</div>')
             tip = "<br>".join(e(j["task_name"] or "–") for j in js[:10])
             cells.append(f'<a class="{cls}" href="./?day={k}" data-tip="{e(tip)}"><b>{d.day}</b>{info}</a>')
