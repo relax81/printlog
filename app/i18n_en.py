@@ -81,6 +81,7 @@ EN: dict[str, str] = {
     'pro Stück': 'per piece',
     'Gesamt': 'Total',
     'Datum': 'Date',
+    'optional': 'optional',
     'Notiz': 'Note',
     'Stück': 'Pieces',
     'Ordner': 'Folder',
