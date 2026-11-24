@@ -1381,26 +1381,27 @@ def page_settings(store: Store, saved: str | None, logo: str | None = None,
 
     types = sorted(set(KNOWN_TYPES) | set(store.material_types())
                    | {k for k, v in prices.items() if v["kind"] == "type"})
-    type_rows = "".join(
-        f'<tr><td>{e(ty)}</td><td class="n"><input class="num" name="type__{e(ty)}" '
-        f'value="{fmt_input(prices.get(ty, {}).get("eur_per_kg"))}" inputmode="decimal" placeholder="€/kg"></td></tr>'
-        for ty in types
-    )
+    def tile(label: str, name: str, value: Any, placeholder: str) -> str:
+        return (f'<label class="ftile"><span class="flbl">{label}</span><span class="ig"><input class="num" name="{name}" '
+                f'value="{fmt_input(value)}" inputmode="decimal" placeholder="{e(placeholder)}"><i>€/kg</i></span></label>')
+
+    type_rows = "".join(tile(e(ty), f"type__{e(ty)}", prices.get(ty, {}).get("eur_per_kg"), "–") for ty in types)
     seen = {m["name"]: m["type"] for m in store.material_names()}
     for k, v in prices.items():
         if v["kind"] == "name":
             seen.setdefault(k, None)
     name_rows = "".join(
-        f'<tr><td>{e(n)} <span class="muted">{e(ty or "")}</span></td><td class="n"><input class="num" name="name__{e(n)}" '
-        f'value="{fmt_input(prices.get(n, {}).get("eur_per_kg"))}" inputmode="decimal" placeholder="{e(t("wie Typ"))}"></td></tr>'
+        tile(f'{e(n)} <small class="muted">{e(ty or "")}</small>', f"name__{e(n)}", prices.get(n, {}).get("eur_per_kg"), t("wie Typ"))
         for n, ty in sorted(seen.items())
-    ) or f'<tr><td colspan="2" class="muted">{t("Erscheint, sobald Drucke mit Materialangaben erfasst sind.")}</td></tr>'
+    )
 
     banner = f'<div class="banner">{t("Gespeichert. {n} Drucke wurden neu berechnet.", n=e(saved))}</div>' if saved else ""
     cfg = store.settings()
     margin_rows = "".join(
-        f'<tr><td><input name="margin{i}_name" value="{e(cfg.get(f"margin{i}_name") or "")}" placeholder="{ph}" style="width:100%"></td>'
-        f'<td class="n"><input class="num" name="margin{i}_pct" value="{e(cfg.get(f"margin{i}_pct") or "")}" inputmode="decimal" placeholder="%"></td></tr>'
+        f'<div class="frow"><span class="flbl">{t("Marge {i}", i=i)}</span><span class="fctl">'
+        f'<input name="margin{i}_name" value="{e(cfg.get(f"margin{i}_name") or "")}" placeholder="{ph}" aria-label="{e(t("Name"))}" class="mname">'
+        f'<span class="ig"><input class="num" name="margin{i}_pct" value="{e(cfg.get(f"margin{i}_pct") or "")}" inputmode="decimal" '
+        f'placeholder="0" aria-label="{e(t("Aufschlag %"))}"><i>%</i></span></span></div>'
         for i, ph in ((1, t("z. B. Privat")), (2, t("z. B. Gewerbe")))
     )
     from datetime import datetime
@@ -1413,13 +1414,13 @@ def page_settings(store: Store, saved: str | None, logo: str | None = None,
         return "".join(f'<option value="{e(v)}"{" selected" if v == current else ""}>{e(lbl)}</option>' for v, lbl in items)
 
     backup_form = (
-        '<div class="wrap"><table><tbody>'
-        f'<tr><td>{t("Intervall")}</td><td><select name="backup_interval">{options([(k, t(v)) for k, v in INTERVALS.items()], interval)}</select></td></tr>'
-        f'<tr><td>{t("Wochentag")} <span class="muted">{t("(nur wöchentlich)")}</span></td><td><select name="backup_weekday">'
-        f'{options([(str(i), t(d)) for i, d in enumerate(WEEKDAYS)], str(weekday))}</select></td></tr>'
-        f'<tr><td>{t("Uhrzeit")}</td><td><select name="backup_hour">'
-        f'{options([(str(h), f"{h:02d}:00") for h in range(24)], str(hour))}</select></td></tr>'
-        '</tbody></table></div>'
+        '<div class="fbox inline">'
+        f'<label class="fcol">{t("Intervall")}<select name="backup_interval">{options([(k, t(v)) for k, v in INTERVALS.items()], interval)}</select></label>'
+        f'<label class="fcol">{t("Wochentag")} <span class="muted">{t("(nur wöchentlich)")}</span><select name="backup_weekday">'
+        f'{options([(str(i), t(d)) for i, d in enumerate(WEEKDAYS)], str(weekday))}</select></label>'
+        f'<label class="fcol">{t("Uhrzeit")}<select name="backup_hour">'
+        f'{options([(str(h), f"{h:02d}:00") for h in range(24)], str(hour))}</select></label>'
+        '</div>'
     )
     if enabled():
         state = (t("noch keins") if len(last) < 3 else
@@ -1463,31 +1464,32 @@ def page_settings(store: Store, saved: str | None, logo: str | None = None,
     panes = [
         pane("kosten", t("Kosten"), f"""<h2 style="margin-top:0">{t("Drucker: Abschreibung, Wartung und Verschleiß")}</h2>
 <p class="muted">{t("Kosten pro Druckstunde = Anschaffung ÷ Lebensdauer in Druckstunden + Wartung pro Jahr ÷ Druckstunden pro Jahr + Verschleiß pro Stunde. Leere Felder zählen nicht. „bisher“ zeigt die erfassten Druckstunden der letzten 12 Monate.")}</p>
-<div class="wrap"><table class="stack"><thead><tr><th>{t("Drucker")}</th><th class="n">{t("Anschaffung €")}</th><th class="n">{t("Lebensdauer h")}</th>
+<div class="wrap"><table class="stack rates"><thead><tr><th>{t("Drucker")}</th><th class="n">{t("Anschaffung €")}</th><th class="n">{t("Lebensdauer h")}</th>
 <th class="n">{t("Wartung €/Jahr")}</th><th class="n">{t("Druckstunden/Jahr")}</th><th class="n">{t("Verschleiß €/h")}</th><th class="n">{t("= pro Stunde")}</th></tr></thead>
 <tbody>{"".join(printer_rows)}</tbody></table></div>
 <p class="muted">{t("Der Strompreis kommt aus Home Assistant ({entity}) bzw. aus der HA-Automation und wird pro Druck zum Druckende festgehalten.", entity=price_entity)}</p>"""),
         pane("drucker", t("Drucker"), printers_html),
         pane("filament", t("Filament"), f"""<h2 style="margin-top:0">{t("Filamentpreise nach Typ")}</h2>
 <p class="muted">{t("Standardpreis pro Kilogramm, gilt für alle Filamente dieses Typs.")}</p>
-<div class="wrap"><table><thead><tr><th>{t("Typ")}</th><th class="n">€/kg</th></tr></thead><tbody>{type_rows}</tbody></table></div>
+<div class="fgrid">{type_rows}</div>
 <h2>{t("Filamentpreise nach Sorte (optional)")}</h2>
 <p class="muted">{t("Überschreibt den Typpreis für eine bestimmte Sorte, z. B. „Bambu PLA Matte“. Leer lassen = Typpreis.")}</p>
-<div class="wrap"><table><thead><tr><th>{t("Sorte")}</th><th class="n">€/kg</th></tr></thead><tbody>{name_rows}</tbody></table></div>"""),
+{f'<div class="fgrid wide">{name_rows}</div>' if name_rows else f'<p class="muted">{t("Erscheint, sobald Drucke mit Materialangaben erfasst sind.")}</p>'}"""),
         pane("margen", t("Margen"), f"""<h2 style="margin-top:0">{t("Margen")}</h2>
 <p class="muted">{t("Bis zu zwei allgemeine Aufschläge auf die Gesamtkosten. Jede Marge bekommt in der Tabelle eine eigene Spalte mit Verkaufspreis (und Preis pro Stück). Eine Marge pro Kunde stellst du unter „Kunden“ ein.")}</p>
-<div class="wrap"><table><thead><tr><th>{t("Name")}</th><th class="n">{t("Aufschlag %")}</th></tr></thead><tbody>{margin_rows}</tbody></table></div>"""),
+<div class="fbox">{margin_rows}</div>"""),
         pane("bon", t("Bon &amp; PDF"), logo_html),
-        pane("ansicht", t("Ansicht"), f"""<h2 style="margin-top:0">Sprache · Language</h2>
-<p class="muted">{t("Sprache der Oberfläche, von Bon, PDF und CSV-Export. „Automatisch“ richtet sich nach der Sprache des Browsers.")}</p>
-<p><label>{t("Sprache")} <select name="language">{lang_opts}</select></label></p>
-<h2>{t("Detailseite")}</h2>
-<p class="muted">{t("Welcher Tab beim Öffnen eines Drucks aktiv ist. Nach dem Speichern zeigt die Seite immer die Übersicht.")}</p>
-<p><label>{t("Start-Tab")} <select name="detail_tab">{"".join(opt(k, t(v), cfg.get("detail_tab") or "ov") for k, v in DETAIL_TABS.items())}</select></label></p>
-<h2>{t("Papierkorb")}</h2>
-<p class="muted">{t("Gelöschte Drucke landen erst im Papierkorb und lassen sich dort wiederherstellen. Nach dieser Zeit werden sie samt Fotos endgültig gelöscht.")}</p>
-<p><label>{t("Aufbewahren")} <input class="num" name="trash_days" inputmode="numeric" style="width:80px" value="{e(cfg.get("trash_days") or "30")}"> {t("Tage")}</label>
-· <a href="trash">{t("Papierkorb öffnen ({n})", n=store.trash_count())}</a></p>"""),
+        pane("ansicht", t("Ansicht"), f"""<h2 style="margin-top:0">{t("Ansicht")}</h2>
+<div class="fbox">
+<div class="frow"><label class="flbl" for="s_lang">Sprache · Language</label><select id="s_lang" name="language">{lang_opts}</select>
+<small class="fhint muted">{t("Sprache der Oberfläche, von Bon, PDF und CSV-Export. „Automatisch“ richtet sich nach der Sprache des Browsers.")}</small></div>
+<div class="frow"><label class="flbl" for="s_dtab">{t("Detailseite")}: {t("Start-Tab")}</label><select id="s_dtab" name="detail_tab">{"".join(opt(k, t(v), cfg.get("detail_tab") or "ov") for k, v in DETAIL_TABS.items())}</select>
+<small class="fhint muted">{t("Welcher Tab beim Öffnen eines Drucks aktiv ist. Nach dem Speichern zeigt die Seite immer die Übersicht.")}</small></div>
+<div class="frow"><label class="flbl" for="trash_days">{t("Papierkorb")}</label><span class="fctl">
+<span class="ig"><input class="num" id="trash_days" name="trash_days" inputmode="numeric" value="{e(cfg.get("trash_days") or "30")}"><i>{t("Tage")}</i></span>
+<a class="btn sm" href="trash">{t("Papierkorb öffnen ({n})", n=store.trash_count())}</a></span>
+<small class="fhint muted">{t("Gelöschte Drucke landen erst im Papierkorb und lassen sich dort wiederherstellen. Nach dieser Zeit werden sie samt Fotos endgültig gelöscht.")}</small></div>
+</div>"""),
         pane("backup", t("Daten &amp; Backup"), _data_pane(store, names, backup_html, safety or [], data_msg or {})),
         pane("windows", "Windows", f"""<h2 style="margin-top:0">{t("Ordner-Links (Windows)")}</h2>
 <p>{t("Bei jedem Druck kannst du einen lokalen Ordner oder eine Datei eintragen. „📋 Kopieren“ geht immer (dann Win+E, Strg+L, einfügen). Damit „📂 Öffnen“ direkt funktioniert, richte einmalig pro Windows-PC das Link-Protokoll ein:")}</p>
@@ -1518,7 +1520,39 @@ def page_settings(store: Store, saved: str | None, logo: str | None = None,
 
 
 SETTINGS_CSS = """
-.settings{max-width:1180px}
+.settings{max-width:960px}
+.spane>p,.spane>ol{max-width:76ch}
+.spane table.rates input.num{width:104px}
+.fgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(178px,1fr));gap:8px}
+.fgrid.wide{grid-template-columns:repeat(auto-fill,minmax(min(100%,290px),1fr))}
+.ftile{display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--card);border:1px solid var(--line);
+  border-radius:10px;padding:5px 5px 5px 12px;min-width:0}
+.ftile:focus-within{border-color:var(--accent)}
+.ftile .flbl{font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ftile .flbl small{font-weight:400}
+.ig{display:inline-flex;align-items:center;flex:0 0 auto;border:1px solid var(--line);border-radius:8px;background:var(--bg);overflow:hidden}
+.ig input.num{border:0;border-radius:0;background:none;width:68px;padding:6px 4px 6px 8px}
+.ig input:focus{outline:none}
+.ig i{font-style:normal;font-size:12px;line-height:1;color:var(--muted);padding:0 9px 0 2px;white-space:nowrap}
+.fbox{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:4px 14px;max-width:680px}
+.frow{display:grid;grid-template-columns:170px minmax(0,1fr);gap:6px 14px;align-items:center;padding:9px 0}
+.frow+.frow{border-top:1px solid var(--line)}
+.frow .flbl{font-weight:600}
+.frow .fhint{grid-column:2;font-size:12px;line-height:1.4}
+.frow select{width:100%;max-width:340px}
+.fctl{display:flex;gap:8px;align-items:center;flex-wrap:wrap;min-width:0}
+.fctl .mname{flex:1 1 160px;min-width:0;max-width:260px}
+.fbox.inline{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px 16px;padding:12px 14px}
+.fcol{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600;color:var(--muted);white-space:nowrap}
+.fcol select{min-width:150px;font-size:14px;font-weight:400;color:var(--fg)}
+@media (max-width:520px){
+ .frow{grid-template-columns:1fr;gap:6px}.frow .fhint{grid-column:1}
+ .frow select{max-width:none}
+ .fgrid{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .fgrid.wide{grid-template-columns:1fr}
+ .fgrid{gap:6px}.ftile{padding:4px 4px 4px 10px;gap:6px}.ftile .ig input.num{width:56px}.fgrid.wide .ftile .ig input.num{width:70px}
+ .fbox.inline .fcol{flex:1 1 140px}.fcol select{min-width:0;width:100%}
+}
 .stabs{display:flex;gap:4px;margin:0 0 16px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:4px;
   width:max-content;max-width:100%;overflow-x:auto;scrollbar-width:none}
 .stabs::-webkit-scrollbar{display:none}
