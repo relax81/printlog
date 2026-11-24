@@ -798,8 +798,17 @@ DETAIL_CSS = """
 .mrow .g{margin-left:auto;font-variant-numeric:tabular-nums;font-weight:600;white-space:nowrap}
 .slot{font-size:12px;color:var(--muted);border:1px solid var(--line);border-radius:6px;padding:0 6px;white-space:nowrap}
 .jd .note{font-size:14px}
-.fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 16px}
-.fields label{display:grid;gap:6px;font-size:13px;font-weight:600;color:var(--muted)}.fields .full{grid-column:1/-1}
+.fields{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:14px 16px}.fields>*{grid-column:span 3}
+.fields label{display:grid;gap:6px;font-size:13px;font-weight:600;color:var(--muted)}.fields .full{grid-column:1/-1}.fields>.c3{grid-column:span 2}
+.fields .nrow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:14px 16px;align-items:end}
+.fields .fl{display:grid;gap:6px}.fields .fl label{white-space:nowrap}
+.step{display:inline-flex;align-items:center;justify-self:start;height:48px;padding:4px;gap:2px;border:1px solid var(--line);border-radius:12px;background:var(--bg)}
+.fields .step input{width:56px;height:38px;padding:0;border:0;border-radius:8px;background:none;text-align:center;font-size:18px;line-height:38px;font-weight:700;font-variant-numeric:tabular-nums;-moz-appearance:textfield;appearance:textfield}
+.step input::-webkit-outer-spin-button,.step input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.step:focus-within{border-color:var(--accent)}.fields .step input:focus{outline:none}
+.step button{width:38px;height:38px;padding:0;border:0;border-radius:9px;background:var(--card);color:var(--fg);font-size:22px;font-weight:500;line-height:1;cursor:pointer;-webkit-tap-highlight-color:transparent;touch-action:manipulation;transition:background .12s,color .12s}
+@media (hover:hover){.step button:hover{background:var(--accent);color:#fff}}.step button:active{transform:scale(.94)}
+.step button:disabled{opacity:.35;cursor:default;background:var(--card);color:var(--fg)}
 .fields input,.fields select,.fields textarea{height:48px;padding:0 14px;border-radius:10px;font-size:16px;background:var(--bg);width:100%}
 .fields textarea{height:auto;min-height:96px;padding:12px 14px;resize:vertical}
 .fields .act{grid-column:1/-1;display:flex;justify-content:flex-end}
@@ -821,7 +830,7 @@ DETAIL_CSS = """
 @media (max-width:760px){.jd{font-size:15px}.hero{grid-template-columns:1fr;padding:12px;gap:14px}
  .hero .big{aspect-ratio:auto;height:240px}.jtitle{font-size:22px}
  .kps{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.kps .main{grid-column:1/-1}.kp{padding:10px}.kp b{font-size:18px}.kp.main b{font-size:28px}
- .ovg,.fields,.dealg{grid-template-columns:1fr}.tabs{width:100%}.tabs button{flex:1;padding:10px 6px}
+ .ovg,.fields,.dealg{grid-template-columns:1fr}.fields>*,.fields>.c3{grid-column:1/-1}.fields .nrow{grid-template-columns:1fr}.tabs{width:100%}.tabs button{flex:1;padding:10px 6px}
  .hero{grid-template-columns:84px minmax(0,1fr);gap:10px 12px}.hero>div:first-child{grid-row:1}
  .hero .big{width:84px;height:84px;aspect-ratio:1;border-radius:12px}.hero .noimg{font-size:0}
  .hero>div:nth-child(2){display:contents}.jtitle{grid-column:2;grid-row:1;align-self:center;font-size:19px;margin:0}
@@ -855,6 +864,10 @@ document.querySelectorAll('[data-copy]').forEach(b=>b.onclick=async()=>{
 document.querySelectorAll('img.big,.photos img').forEach(i=>i.onclick=()=>z(i.src));
 document.querySelectorAll('.photos form').forEach(f=>f.onsubmit=()=>confirm(_t("Foto löschen?")));
 bindAct(()=>location.reload());
+document.querySelectorAll('.step').forEach(w=>{const i=w.querySelector('input'),bs=w.querySelectorAll('button');
+ const sync=()=>{bs[0].disabled=(parseInt(i.value)||1)<=1};
+ bs.forEach(b=>b.onclick=()=>{i.value=Math.max(1,(parseInt(i.value)||1)+ +b.dataset.step);sync()});
+ i.addEventListener('input',sync);sync()});
 (function(){let st={};try{st=JSON.parse(localStorage.getItem('pl_secs')||'{}')}catch(_){}
  const secs=[...document.querySelectorAll('.sec')];const has=k=>secs.some(x=>x.dataset.sec===k);
  secs.forEach(x=>{const k=x.dataset.sec;const def=has('pay')?k==='pay':k==='druck';
@@ -1165,13 +1178,16 @@ def page_job(store: Store, job: dict[str, Any], saved: str | None) -> str:
 </div></section>
 {ab_pane}<section class="pane{on("ed")}" data-pane="ed"><div class="box">
 <form class="fields" method="post" action="api/jobs/{job["id"]}?redirect=1">
-<label class="full">{t("Name")}<input name="task_name" value="{e(job["task_name"] or "")}"></label>
-<label>{t("Kunde")}<select name="customer_id">{cust_opts}</select></label>
-<label>{t("Stückzahl auf der Platte")}<input name="quantity" type="number" min="1" inputmode="numeric" value="{job.get("quantity") or ""}" placeholder="1"></label>
-<label>{t("Ausschuss")}<select name="scrap">{scrap_opts}</select></label>
-<label>{t("Abrechnung")}<select name="gift">{opt("0", t("berechnen"), "1" if job.get("gift") else "0")}{opt("1", t("🎁 verschenkt (keine Zahlung)"), "1" if job.get("gift") else "0")}</select></label>
+<div class="nrow full"><label>{t("Name")}<input name="task_name" value="{e(job["task_name"] or "")}"></label>
+<div class="fl"><label for="f_qty">{t("Stückzahl auf der Platte")}</label><div class="step">
+<button type="button" data-step="-1" aria-label="{e(t("eins weniger"))}">−</button>
+<input id="f_qty" name="quantity" type="number" min="1" step="1" inputmode="numeric" value="{job.get("quantity") or ""}" placeholder="1">
+<button type="button" data-step="1" aria-label="{e(t("eins mehr"))}">+</button></div></div></div>
+<label class="c3">{t("Kunde")}<select name="customer_id">{cust_opts}</select></label>
+<label class="c3">{t("Ausschuss")}<select name="scrap">{scrap_opts}</select></label>
+<label class="c3">{t("Abrechnung")}<select name="gift">{opt("0", t("berechnen"), "1" if job.get("gift") else "0")}{opt("1", t("🎁 verschenkt (keine Zahlung)"), "1" if job.get("gift") else "0")}</select></label>
 <label>{t("Projekttitel")}<input name="project_title" value="{e(job.get("project_title") or "")}" placeholder="{e(t("wird beim Speichern aus dem Link geholt, wenn leer"))}"></label>
-<label class="full">{t("Projektlink (MakerWorld, Printables …)")}<input name="project_url" type="url" value="{e(job.get("project_url") or "")}" placeholder="https://makerworld.com/…"></label>
+<label>{t("Projektlink (MakerWorld, Printables …)")}<input name="project_url" type="url" value="{e(job.get("project_url") or "")}" placeholder="https://makerworld.com/…"></label>
 <label class="full">{t("Lokaler Ordner oder 3D-Datei (Windows-Pfad)")}<input name="local_path" value="{e(job.get("local_path") or "")}" placeholder="{e(t("z. B. D:\\3D-Druck\\Projekte\\Halter"))}" spellcheck="false"></label>
 {mat_fields}<label class="full">{t("Notiz")}<textarea name="job_note" rows="3">{e(job.get("job_note") or "")}</textarea></label>
 <div class="act"><button class="primary">{t("Speichern")}</button></div>
