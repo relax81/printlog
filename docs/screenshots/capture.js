@@ -1,17 +1,17 @@
 // Screenshots für die README aus dem Demo-Modus.
-// Aufruf (App läuft lokal auf Port 8095): node docs/screenshots/capture.js <en|de> <ausgabeordner> <druck-id>
-// Danach: python3 docs/screenshots/shrink.py <ausgabeordner> docs/screenshots/<en|de>
+// Aufruf (App läuft lokal auf Port 8095): node docs/screenshots/capture.js <en|de> <ausgabeordner> <druck-id> [light|dark]
+// Danach: python3 docs/screenshots/shrink.py <ausgabeordner> docs/screenshots/<en|de>[-dark]
 // PDF vorher in ein Bild umwandeln: pdftoppm -r 90 -png -singlefile <ausgabeordner>/raw-kosten.pdf <ausgabeordner>/raw-cost
 // Druck-ID: ein fertiger Druck mit Kunde, Fotos und mehreren Filamenten (die Demo-Daten sind fest vorgegeben, z. B. 26).
 const prevMonth = () => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 7); };
 const { chromium, devices } = require('playwright');
-const [lang, out, job] = process.argv.slice(2);
+const [lang, out, job, scheme = 'light'] = process.argv.slice(2);
 const base = 'http://127.0.0.1:8095/demo/';
 const hdr = { 'Accept-Language': lang };
 (async () => {
   const b = await chromium.launch();
   const init = () => { try { sessionStorage.setItem('pl_demobar', '0') } catch (_) {} };
-  const ctx = await b.newContext({ viewport: { width: 1440, height: 900 }, locale: lang, extraHTTPHeaders: hdr });
+  const ctx = await b.newContext({ viewport: { width: 1440, height: 900 }, locale: lang, colorScheme: scheme, extraHTTPHeaders: hdr });
   await ctx.addInitScript(init);
   const p = await ctx.newPage();
   await p.goto(base); await p.waitForTimeout(500); // trigger seed in this language
@@ -31,7 +31,7 @@ const hdr = { 'Accept-Language': lang };
   await shot('calendar', `calendar?month=${prevMonth()}`, { h: 950 });
   await shot('customers', 'customers', { h: 900 });
   // phone
-  const ph = await b.newContext({ ...devices['iPhone 13'], locale: lang, extraHTTPHeaders: hdr });
+  const ph = await b.newContext({ ...devices['iPhone 13'], locale: lang, colorScheme: scheme, extraHTTPHeaders: hdr });
   await ph.addInitScript(init);
   const q = await ph.newPage();
   for (const [n, u] of [['phone-list', ''], ['phone-detail', `job?id=${job}`], ['phone-open', '?view=todo']]) {

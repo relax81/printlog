@@ -19,6 +19,8 @@ for n in desk:
 for n in ['phone-list','phone-detail','phone-open']:
     im = Image.open(f'{src}/{n}.png').convert('RGB'); im = im.resize((585, int(im.height*585/im.width)), Image.LANCZOS); save(im, n)
 for a,b in [('raw-bon-kunde','receipt-customer'),('raw-bon-intern','receipt-internal'),('raw-cost','cost-sheet')]:
+    if dst.endswith('-dark') or not os.path.exists(f'{src}/{a}.png'):
+        continue  # Bon und PDF sehen in beiden Farbschemata gleich aus
     im = Image.open(f'{src}/{a}.png').convert('RGB')
     if im.width > 600: im = im.resize((600, int(im.height*600/im.width)), Image.LANCZOS)
     save(im, b)

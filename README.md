@@ -16,9 +16,10 @@ that history you get statistics, a calendar, your own photos and notes, and an e
 selling prices, customers and payments if you need them. It runs as a single Docker container next to Home Assistant
 and never talks to the Bambu cloud.
 
-The interface is available in **English and German** (Settings → View → Language, or automatically from your browser).
+The interface is available in **English and German** (Settings → View → Language, or automatically from your browser),
+in a **light and a dark** colour scheme (Settings → View → Colour scheme, or automatically like the device).
 
-![printlog: list of prints](docs/screenshots/en/prints.png)
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/prints.png"><img src="docs/screenshots/en/prints.png" alt="printlog: list of prints"></picture>
 
 > **About this project:** printlog is built for my own setup (Bambu Lab printers, Home Assistant, a few smart plugs)
 > and will stay tailored to it. You are welcome to use it as it is. If you want to change it substantially, please
@@ -79,20 +80,20 @@ The interface is available in **English and German** (Settings → View → Lang
 
 | | |
 |---|---|
-| <a href="docs/screenshots/en/prints-filtered.png"><img src="docs/screenshots/en/prints-filtered.png" alt="Search and filter chips"></a><br>**Search and filter chips** | <a href="docs/screenshots/en/gallery.png"><img src="docs/screenshots/en/gallery.png" alt="Gallery with cover images"></a><br>**Gallery with cover images** |
-| <a href="docs/screenshots/en/open-items.png"><img src="docs/screenshots/en/open-items.png" alt="Open: still to be paid or handed over"></a><br>**Open: still to be paid or handed over** | <a href="docs/screenshots/en/print-detail.png"><img src="docs/screenshots/en/print-detail.png" alt="Print detail with costs and selling prices"></a><br>**Print detail with costs and selling prices** |
-| <a href="docs/screenshots/en/print-billing.png"><img src="docs/screenshots/en/print-billing.png" alt="Billing: final price, payments, hand-overs"></a><br>**Billing: final price, payments, hand-overs** | <a href="docs/screenshots/en/statistics.png"><img src="docs/screenshots/en/statistics.png" alt="Statistics"></a><br>**Statistics** |
-| <a href="docs/screenshots/en/calendar.png"><img src="docs/screenshots/en/calendar.png" alt="Calendar"></a><br>**Calendar** | <a href="docs/screenshots/en/customers.png"><img src="docs/screenshots/en/customers.png" alt="Customers"></a><br>**Customers** |
+| <a href="docs/screenshots/en/prints-filtered.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/prints-filtered.png"><img src="docs/screenshots/en/prints-filtered.png" alt="Search and filter chips"></picture></a><br>**Search and filter chips** | <a href="docs/screenshots/en/gallery.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/gallery.png"><img src="docs/screenshots/en/gallery.png" alt="Gallery with cover images"></picture></a><br>**Gallery with cover images** |
+| <a href="docs/screenshots/en/open-items.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/open-items.png"><img src="docs/screenshots/en/open-items.png" alt="Open: still to be paid or handed over"></picture></a><br>**Open: still to be paid or handed over** | <a href="docs/screenshots/en/print-detail.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/print-detail.png"><img src="docs/screenshots/en/print-detail.png" alt="Print detail with costs and selling prices"></picture></a><br>**Print detail with costs and selling prices** |
+| <a href="docs/screenshots/en/print-billing.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/print-billing.png"><img src="docs/screenshots/en/print-billing.png" alt="Billing: final price, payments, hand-overs"></picture></a><br>**Billing: final price, payments, hand-overs** | <a href="docs/screenshots/en/statistics.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/statistics.png"><img src="docs/screenshots/en/statistics.png" alt="Statistics"></picture></a><br>**Statistics** |
+| <a href="docs/screenshots/en/calendar.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/calendar.png"><img src="docs/screenshots/en/calendar.png" alt="Calendar"></picture></a><br>**Calendar** | <a href="docs/screenshots/en/customers.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/customers.png"><img src="docs/screenshots/en/customers.png" alt="Customers"></picture></a><br>**Customers** |
 
 | Phone: prints | Phone: print detail | Phone: open items |
 |---|---|---|
-| <a href="docs/screenshots/en/phone-list.png"><img src="docs/screenshots/en/phone-list.png" alt="Phone: prints"></a> | <a href="docs/screenshots/en/phone-detail.png"><img src="docs/screenshots/en/phone-detail.png" alt="Phone: print detail"></a> | <a href="docs/screenshots/en/phone-open.png"><img src="docs/screenshots/en/phone-open.png" alt="Phone: open items"></a> |
+| <a href="docs/screenshots/en/phone-list.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/phone-list.png"><img src="docs/screenshots/en/phone-list.png" alt="Phone: prints"></picture></a> | <a href="docs/screenshots/en/phone-detail.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/phone-detail.png"><img src="docs/screenshots/en/phone-detail.png" alt="Phone: print detail"></picture></a> | <a href="docs/screenshots/en/phone-open.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/phone-open.png"><img src="docs/screenshots/en/phone-open.png" alt="Phone: open items"></picture></a> |
 
 | Receipt for the customer | Internal receipt with calculation | PDF cost sheet |
 |---|---|---|
 | <a href="docs/screenshots/en/receipt-customer.png"><img src="docs/screenshots/en/receipt-customer.png" alt="Receipt for the customer"></a> | <a href="docs/screenshots/en/receipt-internal.png"><img src="docs/screenshots/en/receipt-internal.png" alt="Internal receipt with calculation"></a> | <a href="docs/screenshots/en/cost-sheet.png"><img src="docs/screenshots/en/cost-sheet.png" alt="PDF cost sheet"></a> |
 
-*All screenshots show made-up sample data from the built-in demo mode (see [Features](#features)). Click an image to enlarge it. To redo them, see [`docs/screenshots/capture.js`](docs/screenshots/capture.js).*
+*All screenshots show made-up sample data from the built-in demo mode (see [Features](#features)). Light or dark images follow your GitHub theme. Click an image to enlarge it. To redo them, see [`docs/screenshots/capture.js`](docs/screenshots/capture.js).*
 
 ### How it works
 
@@ -190,7 +191,7 @@ Open **Settings**:
 - **Filament** – €/kg per filament type, optionally per exact product.
 - **Margins** – up to two named margins (e.g. private / business).
 - **Receipt & PDF** – your own logo for the receipt image and the PDF.
-- **View** – language, start tab of the detail page, how long prints stay in the trash.
+- **View** – language, colour scheme (automatic / light / dark), start tab of the detail page, how long prints stay in the trash.
 - **Data & backup** – ZIP backup and restore, CSV export, backup schedule (needs `BACKUP_DIR`, see below), reset.
 
 #### 6. Optional extras
@@ -323,9 +324,10 @@ ausgegangen ist. Auf dieser Historie bauen Statistik, Kalender, eigene Fotos und
 Kostenrechnung pro Druck, bei Bedarf mit Verkaufspreisen, Kunden und Zahlungen. Sie läuft als einzelner
 Docker-Container neben Home Assistant und spricht nie mit der Bambu-Cloud.
 
-Die Oberfläche gibt es auf **Deutsch und Englisch** (Einstellungen → Ansicht → Sprache, oder automatisch nach Browser).
+Die Oberfläche gibt es auf **Deutsch und Englisch** (Einstellungen → Ansicht → Sprache, oder automatisch nach Browser),
+in **hell und dunkel** (Einstellungen → Ansicht → Farbschema, oder automatisch wie das Gerät).
 
-![printlog: Liste der Drucke](docs/screenshots/de/prints.png)
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/prints.png"><img src="docs/screenshots/de/prints.png" alt="printlog: Liste der Drucke"></picture>
 
 > **Zu diesem Projekt:** printlog ist auf mein eigenes Setup zugeschnitten (Bambu-Lab-Drucker, Home Assistant, ein paar
 > Steckdosen mit Strommessung) und bleibt das auch. Du kannst es gern so nutzen, wie es ist. Wer es stark verändern
@@ -387,20 +389,20 @@ Die Oberfläche gibt es auf **Deutsch und Englisch** (Einstellungen → Ansicht 
 
 | | |
 |---|---|
-| <a href="docs/screenshots/de/prints-filtered.png"><img src="docs/screenshots/de/prints-filtered.png" alt="Suche und Filter-Chips"></a><br>**Suche und Filter-Chips** | <a href="docs/screenshots/de/gallery.png"><img src="docs/screenshots/de/gallery.png" alt="Galerie mit Vorschaubildern"></a><br>**Galerie mit Vorschaubildern** |
-| <a href="docs/screenshots/de/open-items.png"><img src="docs/screenshots/de/open-items.png" alt="Offen: noch zu bezahlen oder zu übergeben"></a><br>**Offen: noch zu bezahlen oder zu übergeben** | <a href="docs/screenshots/de/print-detail.png"><img src="docs/screenshots/de/print-detail.png" alt="Druckdetails mit Kosten und Verkaufspreisen"></a><br>**Druckdetails mit Kosten und Verkaufspreisen** |
-| <a href="docs/screenshots/de/print-billing.png"><img src="docs/screenshots/de/print-billing.png" alt="Abrechnung: Endpreis, Zahlungen, Übergaben"></a><br>**Abrechnung: Endpreis, Zahlungen, Übergaben** | <a href="docs/screenshots/de/statistics.png"><img src="docs/screenshots/de/statistics.png" alt="Statistik"></a><br>**Statistik** |
-| <a href="docs/screenshots/de/calendar.png"><img src="docs/screenshots/de/calendar.png" alt="Kalender"></a><br>**Kalender** | <a href="docs/screenshots/de/customers.png"><img src="docs/screenshots/de/customers.png" alt="Kunden"></a><br>**Kunden** |
+| <a href="docs/screenshots/de/prints-filtered.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/prints-filtered.png"><img src="docs/screenshots/de/prints-filtered.png" alt="Suche und Filter-Chips"></picture></a><br>**Suche und Filter-Chips** | <a href="docs/screenshots/de/gallery.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/gallery.png"><img src="docs/screenshots/de/gallery.png" alt="Galerie mit Vorschaubildern"></picture></a><br>**Galerie mit Vorschaubildern** |
+| <a href="docs/screenshots/de/open-items.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/open-items.png"><img src="docs/screenshots/de/open-items.png" alt="Offen: noch zu bezahlen oder zu übergeben"></picture></a><br>**Offen: noch zu bezahlen oder zu übergeben** | <a href="docs/screenshots/de/print-detail.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/print-detail.png"><img src="docs/screenshots/de/print-detail.png" alt="Druckdetails mit Kosten und Verkaufspreisen"></picture></a><br>**Druckdetails mit Kosten und Verkaufspreisen** |
+| <a href="docs/screenshots/de/print-billing.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/print-billing.png"><img src="docs/screenshots/de/print-billing.png" alt="Abrechnung: Endpreis, Zahlungen, Übergaben"></picture></a><br>**Abrechnung: Endpreis, Zahlungen, Übergaben** | <a href="docs/screenshots/de/statistics.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/statistics.png"><img src="docs/screenshots/de/statistics.png" alt="Statistik"></picture></a><br>**Statistik** |
+| <a href="docs/screenshots/de/calendar.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/calendar.png"><img src="docs/screenshots/de/calendar.png" alt="Kalender"></picture></a><br>**Kalender** | <a href="docs/screenshots/de/customers.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/customers.png"><img src="docs/screenshots/de/customers.png" alt="Kunden"></picture></a><br>**Kunden** |
 
 | Handy: Drucke | Handy: Druckdetails | Handy: Offen |
 |---|---|---|
-| <a href="docs/screenshots/de/phone-list.png"><img src="docs/screenshots/de/phone-list.png" alt="Handy: Drucke"></a> | <a href="docs/screenshots/de/phone-detail.png"><img src="docs/screenshots/de/phone-detail.png" alt="Handy: Druckdetails"></a> | <a href="docs/screenshots/de/phone-open.png"><img src="docs/screenshots/de/phone-open.png" alt="Handy: Offen"></a> |
+| <a href="docs/screenshots/de/phone-list.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/phone-list.png"><img src="docs/screenshots/de/phone-list.png" alt="Handy: Drucke"></picture></a> | <a href="docs/screenshots/de/phone-detail.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/phone-detail.png"><img src="docs/screenshots/de/phone-detail.png" alt="Handy: Druckdetails"></picture></a> | <a href="docs/screenshots/de/phone-open.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/phone-open.png"><img src="docs/screenshots/de/phone-open.png" alt="Handy: Offen"></picture></a> |
 
 | Bon für Kunden | Bon intern mit Kalkulation | PDF-Kostenaufstellung |
 |---|---|---|
 | <a href="docs/screenshots/de/receipt-customer.png"><img src="docs/screenshots/de/receipt-customer.png" alt="Bon für Kunden"></a> | <a href="docs/screenshots/de/receipt-internal.png"><img src="docs/screenshots/de/receipt-internal.png" alt="Bon intern mit Kalkulation"></a> | <a href="docs/screenshots/de/cost-sheet.png"><img src="docs/screenshots/de/cost-sheet.png" alt="PDF-Kostenaufstellung"></a> |
 
-*Alle Bilder zeigen erfundene Beispieldaten aus dem eingebauten Demo-Modus (siehe [Funktionen](#funktionen)). Ein Klick vergrößert das Bild. Neu erstellen: [`docs/screenshots/capture.js`](docs/screenshots/capture.js).*
+*Alle Bilder zeigen erfundene Beispieldaten aus dem eingebauten Demo-Modus (siehe [Funktionen](#funktionen)). Helle oder dunkle Bilder richten sich nach deinem GitHub-Design. Ein Klick vergrößert das Bild. Neu erstellen: [`docs/screenshots/capture.js`](docs/screenshots/capture.js).*
 
 ### Ablauf
 
@@ -490,7 +492,7 @@ Unter **Einstellungen**:
 - **Filament** – €/kg pro Filamenttyp, optional pro Sorte.
 - **Margen** – bis zu zwei benannte Margen (z. B. Privat / Gewerbe).
 - **Bon & PDF** – eigenes Logo für Bon-Bild und PDF.
-- **Ansicht** – Sprache, Start-Tab der Detailseite, Aufbewahrung im Papierkorb.
+- **Ansicht** – Sprache, Farbschema (automatisch / hell / dunkel), Start-Tab der Detailseite, Aufbewahrung im Papierkorb.
 - **Daten & Backup** – ZIP-Sicherung und Einspielen, CSV-Export, Backup-Zeitplan (braucht `BACKUP_DIR`, siehe unten), Zurücksetzen.
 
 #### 6. Optional

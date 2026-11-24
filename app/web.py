@@ -42,7 +42,7 @@ from .pages import (
     results,
 )
 from .stats import page_calendar, page_stats
-from .ui import STATIC_DIR, parse_num, printer_names
+from .ui import STATIC_DIR, THEME, THEMES, parse_num, printer_names
 
 log = logging.getLogger("printlog.web")
 
@@ -188,10 +188,13 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
     @web.middleware
     async def language(request: web.Request, handler: Any) -> web.StreamResponse:
         """Sprache pro Anfrage: Einstellung (de/en) oder bei „auto“ die Sprache des Browsers."""
-        token = LANG.set(resolve(store.settings().get("language"), request.headers.get("Accept-Language")))
+        cfg = store.settings()
+        token = LANG.set(resolve(cfg.get("language"), request.headers.get("Accept-Language")))
+        theme = THEME.set(cfg.get("theme") if cfg.get("theme") in THEMES else "auto")
         try:
             return await handler(request)
         finally:
+            THEME.reset(theme)
             LANG.reset(token)
 
     app.middlewares.append(language)
@@ -309,6 +312,8 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
         if "language" in form:
             choice = str(form.get("language") or "")
             store.set_setting("language", choice if choice in LANGS else "auto")
+        if "theme" in form:
+            store.set_setting("theme", str(form["theme"]) if form.get("theme") in THEMES else "auto")
         for key in ("backup_interval", "backup_weekday", "backup_hour"):
             if key in form:
                 store.set_setting(key, str(form.get(key) or "").strip() or None)

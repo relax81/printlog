@@ -15,6 +15,7 @@ from .db import Store, code_label
 from .i18n import LANGS, N_, is_en as lang_en, note as t_note, t, tn
 from .ui import (
     DEMO,
+    THEMES,
     bon_tagline,
     e,
     parse_num,
@@ -1813,6 +1814,8 @@ def page_settings(store: Store, saved: str | None, logo: str | None = None,
 <div class="fbox">
 <div class="frow"><label class="flbl" for="s_lang">Sprache · Language</label><select id="s_lang" name="language">{lang_opts}</select>
 <small class="fhint muted">{t("Sprache der Oberfläche, von Bon, PDF und CSV-Export. „Automatisch“ richtet sich nach der Sprache des Browsers.")}</small></div>
+<div class="frow"><label class="flbl" for="s_theme">{t("Farbschema")}</label><select id="s_theme" name="theme">{"".join(opt(k, t(v), cfg.get("theme") or "auto") for k, v in THEMES.items())}</select>
+<small class="fhint muted">{t("Hell oder dunkel, für alle Geräte. „Automatisch“ richtet sich nach der Einstellung des Geräts.")}</small></div>
 <div class="frow"><label class="flbl" for="s_dtab">{t("Detailseite")}: {t("Start-Tab")}</label><select id="s_dtab" name="detail_tab">{"".join(opt(k, t(v), cfg.get("detail_tab") or "ov") for k, v in DETAIL_TABS.items())}</select>
 <small class="fhint muted">{t("Welcher Tab beim Öffnen eines Drucks aktiv ist. Nach dem Speichern zeigt die Seite immer die Übersicht.")}</small></div>
 <div class="frow"><label class="flbl" for="trash_days">{t("Papierkorb")}</label><span class="fctl">
