@@ -2602,7 +2602,7 @@ def page_customers(store: Store, saved: str | None, show: str | None = None,
         sub = " · ".join(e(x) for x in (c["contact"], c["note"]) if x)
         mg = c.get("margin_pct")
         mtag = (f' <span class="otag none calc" title="{e(t("Marge %"))}">+{fmt_input(mg)} %</span>' if mg else "")
-        return (f'<tr class="crow"><td class="cn"><a class="cname" href="./?customer={c["id"]}" title="{e(t("Drucke von {name}", name=c["name"]))}"><b>{e(c["name"])}</b></a>{mtag}{f"<small>{sub}</small>" if sub else ""}</td>'
+        return (f'<tr class="crow"><td class="cn"><a class="cname" href="customer?id={c["id"]}" title="{e(t("Kundenseite mit Statistik"))}"><b>{e(c["name"])}</b></a>{mtag}{f"<small>{sub}</small>" if sub else ""}</td>'
                 f'<td class="n" data-l="{e(t("Drucke"))}">{c["n"]}</td>'
                 f'<td class="n wide" data-l="{e(t("Offen"))}">{_open_tags(c)}</td>'
                 f'<td class="n" data-l="{e(t("Bezahlt"))}">{fmt_num(c["paid_amount"], 2, "€") if c["paid_amount"] else "–"}</td>'
@@ -2696,6 +2696,7 @@ nb.onclick=()=>{nc.hidden=!nc.hidden;nb.setAttribute('aria-expanded',!nc.hidden)
 document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{const r=document.getElementById('ced'+b.dataset.edit),row=b.closest('tr');
   r.hidden=!r.hidden;row.classList.toggle('open',!r.hidden);b.setAttribute('aria-expanded',!r.hidden);
   if(!r.hidden)r.querySelector('input[name=name]').focus()});
+{const ed=new URLSearchParams(location.search).get('edit'),b=ed&&document.querySelector('[data-edit="'+ed+'"]');if(b){b.click();b.closest('tr').scrollIntoView({block:'center'})}}
 document.querySelectorAll('[data-cancel]').forEach(b=>b.onclick=()=>{const r=b.closest('tr.ced');r.hidden=true;
   const row=r.previousElementSibling;row.classList.remove('open');row.querySelector('[data-edit]').setAttribute('aria-expanded','false')});
 """

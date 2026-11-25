@@ -123,6 +123,9 @@ in a **light and a dark** colour scheme (Settings → View → Colour scheme, or
 - **Customers** – partial payments and partial hand-overs, gifts, open amounts per customer. Tick **No billing** for
   a customer you only use for your own prints (e.g. models you upload): costs and statistics still count, but there are
   never open amounts, unpaid or not-handed-over badges, no "Billing" tab and no payment status on receipt or PDF.
+  Click a name for the **customer page**: orders, revenue, paid/open, own costs, profit and gifts (all time, this year or
+  last 12 months), revenue per month, print hours, filament, average days until paid, oldest open amount, failed prints,
+  hand-overs, recent orders, filament used and models printed more than once.
   The customer list stays compact: **Edit** opens the fields right in the row, **+ New customer** sits top right.
 - **Sharing** – a receipt-style PNG for the customer (WhatsApp etc.), an internal version with the full calculation,
   and an A4 PDF cost sheet, in the language of the interface.
@@ -506,6 +509,9 @@ in **hell und dunkel** (Einstellungen → Ansicht → Farbschema, oder automatis
 - **Kunden** – Teilzahlungen und Teilübergaben, Verschenktes, offene Beträge pro Kunde. Mit dem Häkchen **Keine Abrechnung**
   wird ein Kunde zum reinen Sammelplatz für Eigenbedarf (z. B. Modelle für eigene Uploads): Kosten und Statistik zählen
   weiter, aber es gibt nie Offenes, keine Badges „nicht bezahlt/nicht übergeben“, keinen Tab „Abrechnung“ und keinen Zahlungsstand auf Bon und PDF.
+  Ein Klick auf den Namen öffnet die **Kundenseite**: Aufträge, Umsatz, bezahlt/offen, Selbstkosten, Gewinn und Verschenktes
+  (gesamt, dieses Jahr oder letzte 12 Monate), Umsatz pro Monat, Druckstunden, Filament, Ø Tage bis Zahlung, ältester offener
+  Betrag, Fehldrucke, Übergaben, letzte Aufträge, verwendetes Filament und öfter gedruckte Modelle.
   Die Kundenliste bleibt kompakt: **Bearbeiten** klappt die Felder direkt in der Zeile auf, **+ Neuer Kunde** steht oben rechts.
 - **Teilen** – ein PNG im Kassenbon-Stil für Kunden (WhatsApp usw.), eine interne Variante mit voller Kalkulation und
   eine A4-PDF-Kostenaufstellung, jeweils in der Sprache der Oberfläche.
