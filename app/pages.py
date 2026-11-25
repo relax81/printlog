@@ -213,7 +213,7 @@ JOBS_CSS = """
 #selbar .del{background:var(--bad);color:#fff;border-color:var(--bad);font-weight:700}#selbar .del:disabled{opacity:.4}
 @media(max-width:700px){#selbar{gap:6px;padding:8px 10px}#selbar .none{display:none}#selbar .sp{display:none}#selbar b{flex:1}}
 body.selmode{padding-bottom:90px}
-#selbar{width:min(780px,calc(100vw - 24px))}#selbar button{white-space:nowrap}
+#selbar{width:min(960px,calc(100vw - 24px))}#selbar button{white-space:nowrap}
 #selbar .pjbtn{background:var(--accent);color:var(--bg);border-color:var(--accent);font-weight:700}#selbar .pjbtn:disabled{opacity:.4}
 .dlgbg{position:fixed;inset:0;background:#000a;z-index:60;display:flex;align-items:center;justify-content:center;padding:16px}
 .dlgbg[hidden]{display:none}
@@ -428,7 +428,7 @@ const picked=new Set(),sb=document.getElementById('selbar'),selBtn=form.querySel
 const ITEMS='.jr[data-href],.gcard,.mcard';
 function idOf(el){const m=(el.dataset.href||el.getAttribute('href')||'').match(/id=(\\d+)/);return m?m[1]:null}
 function markPicked(){document.querySelectorAll(ITEMS).forEach(el=>el.classList.toggle('picked',picked.has(idOf(el))));
-  sb.querySelector('.n').textContent=picked.size;sb.querySelector('.del').disabled=!picked.size;sb.querySelector('.pjbtn').disabled=!picked.size}
+  sb.querySelector('.n').textContent=picked.size;sb.querySelector('.del').disabled=!picked.size;sb.querySelector('.pjbtn').disabled=!picked.size;sb.querySelector('.kbtn').disabled=!picked.size}
 function setSel(on){document.body.classList.toggle('selmode',on);selBtn.classList.toggle('on',on);sb.hidden=!on;if(!on)picked.clear();markPicked()}
 selBtn.onclick=()=>setSel(!document.body.classList.contains('selmode'));
 document.addEventListener('click',ev=>{if(!document.body.classList.contains('selmode')||ev.target.closest('.xp'))return;
@@ -466,6 +466,17 @@ df.onsubmit=async ev=>{ev.preventDefault();const fd=new FormData(df);fd.append('
   try{const r=await fetch('api/projects',{method:'POST',body:fd});const d=await r.json();if(d.id){location.href='job?id='+d.id;return}}catch(_){}
   btn.disabled=false};
 let toastTimer=null;
+function showToast(msg,undo){toast.querySelector('span').textContent=msg;toast.hidden=false;
+  clearTimeout(toastTimer);toastTimer=setTimeout(()=>toast.hidden=true,10000);
+  toast.querySelector('button').onclick=async()=>{toast.hidden=true;await undo();refresh()}}
+// Kunde zuordnen: Chip in der Zeile/Karte oder „Kunde zuweisen“ in der Auswahlleiste
+function assigned(d,what){refresh();
+  showToast(d.customer_id?what+' → '+d.name:_t("{what}: Kunde entfernt").replace('{what}',what),()=>KP.undo(d.prev))}
+document.addEventListener('click',ev=>{kpChip(ev,(d,el)=>{const c=el.closest('[data-kname]')||el.closest('.kchip')&&el.closest('.kchip').querySelector('[data-kname]');
+  assigned(d,(c&&c.dataset.kname)||_t("Druck"))})},true);
+sb.querySelector('.kbtn').onclick=ev=>{ev.stopPropagation();const ids=[...picked];if(!ids.length)return;
+  const n=ids.length==1?_t("1 Druck"):_t("{n} Drucke").replace('{n}',ids.length);
+  KP.open(sb.querySelector('.kbtn'),{ids,title:n,prefix:_t("Kunde zuweisen für")+' ',bulk:true,done:d=>{setSel(false);assigned(d,n)}})};
 sb.querySelector('.del').onclick=async()=>{const n=picked.size;if(!n)return;
   if(!confirm((n==1?_t("1 Druck in den Papierkorb legen? Du kannst ihn dort wiederherstellen."):_t("{n} Drucke in den Papierkorb legen? Du kannst sie dort wiederherstellen.").replace('{n}',n))))return;
   const fd=new FormData();fd.append('ids',[...picked].join(','));
@@ -476,6 +487,180 @@ sb.querySelector('.del').onclick=async()=>{const n=picked.size;if(!n)return;
   toast.querySelector('button').onclick=async()=>{const f2=new FormData();f2.append('ids',ids.join(','));f2.append('json','1');
     await fetch('trash/restore',{method:'POST',body:f2});toast.hidden=true;refresh()}};
 bind();
+"""
+
+
+# ---- Kunden-Schnellauswahl -------------------------------------------------------
+# Chip „👤 ＋ Kunde“ bzw. „👤 Name ▾“ in Liste, Handy-Karten und Detailkopf; die Auswahlleiste
+# hat „👤 Kunde zuweisen“. Alle öffnen dasselbe Fenster (KPICK_JS), Antippen speichert sofort.
+
+def customer_picker(customers: list[dict[str, Any]]) -> str:
+    """Kundenliste für das Auswahlfenster (zuletzt benutzte zuerst unter „Zuletzt“)."""
+    data = [{"id": c["id"], "name": c["name"], "last": c.get("last_ts") or 0, "ago": _ago(c["last_ts"]) if c.get("last_ts") else ""}
+            for c in customers]
+    raw = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
+    return f'<script type="application/json" id="kdata">{raw}</script>'
+
+
+def add_suggestions(store: Store, jobs: list[dict[str, Any]]) -> None:
+    """Hängt an Drucke ohne Kunde den Vorschlag (_sug) für das gleiche Modell."""
+    todo = [j for j in jobs if not j.get("customer_id") and j.get("kind") != "project"]
+    if not todo:
+        return
+    sug = store.customer_suggestions([j.get("task_name") or "" for j in todo])
+    for j in todo:
+        s = sug.get(j.get("task_name") or "")
+        if s:
+            j["_sug"] = s
+
+
+def cust_chip(j: dict[str, Any], cls: str = "tag") -> str:
+    """Kunden-Chip: antippen öffnet die Schnellauswahl; mit Vorschlag übernimmt ✓ ihn direkt."""
+    attrs = f'data-kid="{j["id"]}" data-kname="{e(j.get("task_name") or "")}"'
+    if j.get("customer_id") and j.get("customer_name"):
+        return (f'<span role="button" tabindex="0" class="{cls} kset kc" {attrs} data-cur="{j["customer_id"]}" '
+                f'title="{e(t("Kunde ändern"))}">👤 {e(j["customer_name"])}</span>')
+    s = j.get("_sug")
+    if s:
+        why = tn(s[2], "gleiches Modell {n}×", "gleiches Modell {n}×")
+        return (f'<span class="kchip sug" title="{e(t("Vorschlag: {why}", why=why))}">'
+                f'<span role="button" tabindex="0" class="kc" {attrs} data-sug="{s[0]}" data-why="{e(why)}">👤 {e(s[1])}<i>?</i></span>'
+                f'<span role="button" tabindex="0" class="kok" data-kid="{j["id"]}" data-sug="{s[0]}" '
+                f'aria-label="{e(t("{name} übernehmen", name=s[1]))}" title="{e(t("{name} übernehmen", name=s[1]))}">✓</span></span>')
+    return f'<span role="button" tabindex="0" class="kchip kc" {attrs}>👤 {t("＋ Kunde")}</span>'
+
+
+KPICK_CSS = """
+.kchip{display:inline-flex;align-items:center;gap:6px;padding:2px 11px;border-radius:999px;font-size:13px;font-weight:700;white-space:nowrap;cursor:pointer;
+ border:1.5px dashed color-mix(in srgb,var(--accent) 60%,var(--line));color:var(--accent);background:transparent;-webkit-tap-highlight-color:transparent;max-width:100%}
+.kchip:hover{background:color-mix(in srgb,var(--accent) 10%,transparent)}
+.kchip.sug{border-style:solid;background:color-mix(in srgb,var(--accent) 12%,transparent);padding:0;gap:0;overflow:hidden}
+.kchip.sug .kc{padding:2px 6px 2px 11px;overflow:hidden;text-overflow:ellipsis}.kchip.sug i{font-style:normal;color:var(--muted);font-weight:600;margin-left:3px}
+.kchip.sug .kok{background:var(--accent);color:var(--bg);border-radius:999px;min-width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;margin:1px 2px 1px 0}
+.kchip.sug .kok:hover{filter:brightness(1.12)}
+.kset{cursor:pointer}.kset:after{content:"▾";color:var(--muted);font-size:11px;margin-left:2px}.kset:hover{border-color:var(--accent)}
+.kc.act,.kchip:has(.kc.act){outline:2px solid var(--accent);outline-offset:2px}
+.selmode .kc,.selmode .kok{pointer-events:none}
+#selbar .kbtn{font-weight:700;color:var(--accent);border-color:var(--accent)}#selbar .kbtn:disabled{opacity:.4}#selbar .bs{display:none}
+@media (max-width:700px){#selbar .bl{display:none}#selbar .bs{display:inline}#selbar .kbtn{font-size:14px}#selbar .all{display:none}
+ #selbar{flex-wrap:nowrap}#selbar b{font-size:14px;line-height:1.2}#selbar button{padding-left:10px;padding-right:10px}}
+.mcard .kchip{margin-top:6px;width:max-content;font-size:14px;padding:4px 12px}.mcard .kchip.sug{padding:0}.mcard .kchip.sug .kok{min-width:28px;height:28px}
+.badges .kchip{font-size:14px;padding:5px 13px}.badges .kchip.sug{padding:0}.badges .kchip.sug .kc{padding:5px 8px 5px 13px}.badges .kchip.sug .kok{min-width:28px;height:28px;margin:2px 3px 2px 0}
+#kpop{position:absolute;z-index:70;width:340px;max-width:calc(100vw - 16px);background:var(--card);border:1px solid var(--line);border-radius:16px;
+ box-shadow:0 24px 70px rgba(0,0,0,.45);padding:12px;font-size:14px;display:flex;flex-direction:column}
+#kpop[hidden],#kbg[hidden]{display:none}
+#kpop .hd{font-size:12.5px;color:var(--muted);margin:0 4px 8px;line-height:1.35}#kpop .hd b{color:var(--fg)}
+#kpop .srch{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:11px;padding:0 12px;background:var(--bg);margin-bottom:6px}
+#kpop .srch:focus-within{border-color:var(--accent)}
+#kpop .srch input{flex:1;border:0;background:transparent;color:var(--fg);font:inherit;padding:10px 0;outline:0;min-width:0}
+#kpop .lst{overflow:auto;max-height:min(360px,50vh);overscroll-behavior:contain}
+#kpop .lbl{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:700;margin:10px 6px 4px}
+#kpop .it{display:flex;align-items:center;gap:10px;padding:8px;border-radius:10px;font-weight:600;color:var(--fg);cursor:pointer;width:100%;
+ border:1px solid transparent;background:none;font:inherit;font-weight:600;text-align:left}
+#kpop .it:hover,#kpop .it.hl{background:color-mix(in srgb,var(--fg) 7%,transparent)}
+#kpop .it .av{width:28px;height:28px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:800;color:#111;flex:none}
+#kpop .it span.n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#kpop .it small{margin-left:auto;color:var(--muted);font-weight:500;font-size:12px;white-space:nowrap;padding-left:8px}
+#kpop .it.sg{background:color-mix(in srgb,var(--accent) 13%,transparent);border-color:color-mix(in srgb,var(--accent) 45%,var(--line))}
+#kpop .it.sg small,#kpop .it.cur small{color:var(--accent)}
+#kpop .it.nw{color:var(--accent)}
+#kpop .ft{display:flex;gap:8px;margin-top:10px;border-top:1px solid var(--line);padding-top:10px}
+#kpop .ft button{flex:1;border:1px solid var(--line);border-radius:10px;padding:9px;font-weight:700;font-size:13.5px;background:var(--bg);color:var(--fg);cursor:pointer}
+#kpop .ft .nwb{color:var(--accent)}#kpop .ft button[hidden]{display:none}
+#kpop .nwf{display:flex;gap:8px;margin-top:10px;border-top:1px solid var(--line);padding-top:10px}#kpop .nwf[hidden]{display:none}
+#kpop .nwf input{flex:1;min-width:0;border:1px solid var(--accent);border-radius:10px;background:var(--bg);color:var(--fg);font:inherit;padding:9px 12px}
+#kpop .nwf button{border:0;border-radius:10px;background:var(--accent);color:var(--bg);font-weight:800;padding:9px 14px;cursor:pointer}
+#kpop .none{color:var(--muted);padding:10px 8px}
+#kbg{position:fixed;inset:0;z-index:69;background:transparent}
+@media (max-width:700px){
+ #kbg{background:rgba(0,0,0,.55)}
+ #kpop{position:fixed;left:0!important;right:0;bottom:0;top:auto!important;width:auto;max-width:none;border-radius:22px 22px 0 0;padding:10px 16px calc(18px + env(safe-area-inset-bottom));font-size:16px}
+ #kpop:before{content:"";display:block;width:44px;height:5px;border-radius:3px;background:var(--line);margin:0 auto 12px}
+ #kpop .it{padding:11px 8px}#kpop .it .av{width:34px;height:34px;font-size:13px}#kpop .lst{max-height:46vh}
+ #kpop .srch input{font-size:16px}}
+"""
+
+KPICK_JS = r"""
+// Kunden-Schnellauswahl: ein Fenster für Listen-Chips, Detailkopf und Mehrfachauswahl
+const KP=(()=>{
+  let custs=[];try{custs=JSON.parse(document.getElementById('kdata').textContent)}catch(_){}
+  const COL=['#7dd3fc','#fda4af','#fcd34d','#a5b4fc','#fdba74','#86efac','#f0abfc','#5eead4','#fca5a5','#c4b5fd'];
+  const col=n=>{let h=0;for(const ch of n)h=(h*31+ch.charCodeAt(0))>>>0;return COL[h%COL.length]};
+  const ini=n=>n.replace(/[^\p{L}\p{N}\s-]/gu,'').split(/[\s-]+/).filter(Boolean).slice(0,2).map(x=>x[0]).join('').toUpperCase();
+  const bg=document.createElement('div');bg.id='kbg';bg.hidden=true;
+  const pop=document.createElement('div');pop.id='kpop';pop.hidden=true;pop.setAttribute('role','dialog');
+  pop.innerHTML='<div class="hd"></div><label class="srch">🔍<input type="search" autocomplete="off" placeholder='+JSON.stringify(_t("Kunde suchen …"))+'></label>'+
+    '<div class="lst"></div><div class="ft"><button type="button" class="nwb">'+_t("＋ Neuer Kunde")+'</button><button type="button" class="nob">'+_t("Ohne Kunde")+'</button></div>'+
+    '<form class="nwf" hidden><input name="n" maxlength="120" required placeholder='+JSON.stringify(_t("Name des Kunden"))+'><button>'+_t("Anlegen")+'</button></form>';
+  document.body.append(bg,pop);
+  const q=pop.querySelector('input[type=search]'),lst=pop.querySelector('.lst'),nwf=pop.querySelector('.nwf');
+  let cur=null,anchor=null;
+  function item(c,small,cls){const b=document.createElement('button');b.type='button';b.className='it'+(cls?' '+cls:'');b.dataset.id=c.id;
+    const av=document.createElement('span');av.className='av';av.style.background=col(c.name);av.textContent=ini(c.name);
+    const n=document.createElement('span');n.className='n';n.textContent=c.name;b.append(av,n);
+    if(small){const s=document.createElement('small');s.textContent=small;b.append(s)}return b}
+  function label(txt){const d=document.createElement('div');d.className='lbl';d.textContent=txt;return d}
+  function render(){lst.textContent='';const term=q.value.trim().toLowerCase();const cid=cur.cur?+cur.cur:null;
+    if(term){const m=custs.filter(c=>c.name.toLowerCase().includes(term));
+      m.forEach((c,i)=>lst.append(item(c,c.id===cid?'✓':'',(i===0?'hl ':'')+(c.id===cid?'cur':''))));
+      if(!custs.some(c=>c.name.toLowerCase()===term)){const b=document.createElement('button');b.type='button';b.className='it nw'+(m.length?'':' hl');
+        b.dataset.new=q.value.trim();b.textContent=_t("＋ „{name}“ als neuen Kunden anlegen").replace('{name}',q.value.trim());lst.append(b)}
+      return}
+    const sug=cur.sug?custs.find(c=>c.id===+cur.sug):null;
+    if(sug){lst.append(label(_t("Vorschlag")),item(sug,cur.why||'','sg'+(sug.id===cid?' cur':'')))}
+    const rec=custs.filter(c=>c.last&&c!==sug).sort((a,b)=>b.last-a.last).slice(0,3);
+    if(rec.length){lst.append(label(_t("Zuletzt")));rec.forEach(c=>lst.append(item(c,c.id===cid?'✓ '+c.ago:c.ago,c.id===cid?'cur':'')))}
+    lst.append(label(_t("Alle Kunden")));
+    if(!custs.length){const d=document.createElement('div');d.className='none';d.textContent=_t("Noch keine Kunden.");lst.append(d)}
+    custs.forEach(c=>lst.append(item(c,c.id===cid?'✓':'',c.id===cid?'cur':'')))}
+  function place(){if(innerWidth<=700){pop.style.left='';pop.style.top='';return}
+    const r=anchor.getBoundingClientRect(),w=pop.offsetWidth,h=pop.offsetHeight;
+    let left=Math.min(Math.max(8,r.left),innerWidth-w-8),top=r.bottom+8;
+    if(top+h>innerHeight-8&&r.top-h-8>8)top=r.top-h-8;else if(top+h>innerHeight-8)top=Math.max(8,innerHeight-h-8);
+    pop.style.left=(left+scrollX)+'px';pop.style.top=(top+scrollY)+'px'}
+  function open(a,opt){close();anchor=a;cur=opt;a.classList.add('act');
+    const hd=pop.querySelector('.hd');hd.textContent='';
+    if(opt.title){hd.append(opt.prefix||_t("Kunde für")+' ');const b=document.createElement('b');b.textContent=opt.title;hd.append(b)}
+    q.value='';nwf.hidden=true;pop.querySelector('.ft').hidden=false;pop.querySelector('.nob').hidden=!opt.cur&&!opt.bulk;
+    render();bg.hidden=false;pop.hidden=false;place();
+    if(matchMedia('(pointer:fine)').matches)q.focus()}
+  function close(){if(pop.hidden)return;pop.hidden=true;bg.hidden=true;if(anchor)anchor.classList.remove('act');anchor=null}
+  async function save(fd){const o=cur;close();fd.append('ids',o.ids.join(','));
+    try{const r=await fetch('api/customers/assign',{method:'POST',body:fd});if(!r.ok)return;const d=await r.json();
+      if(d.customer_id&&!custs.some(c=>c.id===d.customer_id))custs.push({id:d.customer_id,name:d.name,last:0,ago:''});
+      const c=custs.find(x=>x.id===d.customer_id);if(c){c.last=Date.now()/1000;c.ago=_t("heute")}
+      custs.sort((a,b)=>a.name.localeCompare(b.name));o.done&&o.done(d)}catch(_){}}
+  function pick(id){const fd=new FormData();fd.append('customer_id',id==null?'':id);save(fd)}
+  lst.addEventListener('click',ev=>{const b=ev.target.closest('.it');if(!b)return;
+    if(b.dataset.new!==undefined){const fd=new FormData();fd.append('new_name',b.dataset.new);save(fd)}else pick(+b.dataset.id)});
+  q.addEventListener('input',render);
+  q.addEventListener('keydown',ev=>{if(ev.key==='Enter'){ev.preventDefault();const b=lst.querySelector('.it.hl')||lst.querySelector('.it');if(b)b.click()}});
+  pop.querySelector('.nob').onclick=()=>pick(null);
+  pop.querySelector('.nwb').onclick=()=>{nwf.hidden=false;pop.querySelector('.ft').hidden=true;const i=nwf.querySelector('input');i.value=q.value.trim();i.focus()};
+  nwf.onsubmit=ev=>{ev.preventDefault();const n=nwf.querySelector('input').value.trim();if(!n)return;const fd=new FormData();fd.append('new_name',n);save(fd)};
+  bg.onclick=close;document.addEventListener('keydown',ev=>{if(ev.key==='Escape')close()});
+  addEventListener('resize',()=>{if(!pop.hidden&&anchor)place()});
+  // Rückgängig: frühere Kunden wiederherstellen (nach Kunde gruppiert)
+  async function undo(prev){const by=new Map();prev.forEach(([id,c])=>{const k=c==null?'':String(c);by.set(k,[...(by.get(k)||[]),id])});
+    for(const [c,ids] of by){const fd=new FormData();fd.append('ids',ids.join(','));fd.append('customer_id',c);
+      await fetch('api/customers/assign',{method:'POST',body:fd})}}
+  return {open,close,pick,save,undo};
+})();
+// Chips: Antippen öffnet die Auswahl, ✓ übernimmt den Vorschlag
+function kpChip(ev,done){
+  if(document.body.classList.contains('selmode'))return false;
+  const ok=ev.target.closest('.kok');
+  if(ok){ev.preventDefault();ev.stopPropagation();const fd=new FormData();fd.append('customer_id',ok.dataset.sug);
+    KP.open(ok,{ids:[ok.dataset.kid],done:d=>done&&done(d,ok)});KP.save(fd);return true}
+  const c=ev.target.closest('.kc');if(!c)return false;ev.preventDefault();ev.stopPropagation();
+  KP.open(c,{ids:[c.dataset.kid],title:c.dataset.kname,cur:c.dataset.cur,sug:c.dataset.sug,why:c.dataset.why,done:d=>done&&done(d,c)});return true}
+document.addEventListener('keydown',ev=>{if((ev.key==='Enter'||ev.key===' ')&&ev.target.matches('.kc,.kok')){ev.preventDefault();ev.target.click()}});
+"""
+
+
+KPICK_DETAIL_JS = """
+// Detailseite: nach dem Zuordnen neu laden (Preise, Abrechnung, Tabs ändern sich)
+document.addEventListener('click',ev=>{kpChip(ev,d=>{const u=new URL(location.href);u.searchParams.set('saved','1');u.hash='';location.replace(u)})},true);
 """
 
 
@@ -557,12 +742,13 @@ def page_jobs(store: Store, f: dict[str, str | None], connected: bool) -> str:
 </form>
 <div id="results">{results(store, f)}</div>
 <div id="selbar" hidden><b>{t('<span class="n">0</span> ausgewählt')}</b><button type="button" class="all">{t("Alle")}</button>
-<button type="button" class="none">{t("Keine")}</button><span class="sp"></span><button type="button" class="cancel">{t("Abbrechen")}</button>
-<button type="button" class="btn pjbtn" disabled title="{e(t("Ausgewählte Drucke zu einem Projekt zusammenfassen"))}">{t("📦 Projekt bilden")}</button>
-<button type="button" class="btn danger del" disabled>{t("🗑 Löschen")}</button></div>
-{_project_dialog(store, customers)}
+<button type="button" class="none">{t("Keine")}</button><span class="sp"></span><button type="button" class="cancel" title="{e(t("Abbrechen"))}"><span class="bl">{t("Abbrechen")}</span><span class="bs">✕</span></button>
+<button type="button" class="btn kbtn" disabled title="{e(t("Ausgewählten Drucken einen Kunden zuweisen"))}">👤 <span class="bl">{t("Kunde zuweisen")}</span><span class="bs">{t("Kunde")}</span></button>
+<button type="button" class="btn pjbtn" disabled title="{e(t("Ausgewählte Drucke zu einem Projekt zusammenfassen"))}">📦 <span class="bl">{t("Projekt bilden")}</span></button>
+<button type="button" class="btn danger del" disabled title="{e(t("Löschen"))}">🗑 <span class="bl">{t("Löschen")}</span></button></div>
+{_project_dialog(store, customers)}{customer_picker(customers)}
 <div id="toast" hidden><span></span><button type="button">{t("Rückgängig")}</button></div>"""
-    return layout("Printlog", "jobs", f"<style>{MOS_CSS}{JOBS_CSS}{ACT_CSS}{TODO_CSS}</style>" + body, ACT_JS + JOBS_JS)
+    return layout("Printlog", "jobs", f"<style>{MOS_CSS}{JOBS_CSS}{ACT_CSS}{TODO_CSS}{KPICK_CSS}</style>" + body, ACT_JS + KPICK_JS + JOBS_JS)
 
 
 def _project_dialog(store: Store, customers: list[dict[str, Any]]) -> str:
@@ -594,6 +780,7 @@ def results(store: Store, f: dict[str, str | None]) -> str:
     if f.get("view") == "todo":
         return marker + _todo_view(store, q)
     jobs, kids, via = group_projects(store, store.list_jobs(**q))
+    add_suggestions(store, jobs)
     summary = store.summary(**q)
     mat_sum = store.material_summary(**q)
     names = printer_names(store)
@@ -1127,9 +1314,7 @@ def _project_rows(p: dict[str, Any], kids: list[dict[str, Any]], names: dict[str
                   grouped: bool, open_: bool) -> str:
     """Projektzeile in der Tabelle, darunter (aufklappbar) seine Drucke."""
     href = f'job?id={p["id"]}'
-    tags = []
-    if p.get("customer_name"):
-        tags.append(f'<span class="tag">👤 {e(p["customer_name"])}</span>')
+    tags = [cust_chip(p)]
     if p.get("quantity"):
         tags.append(f'<span class="tag">{_pcs(p["quantity"])}</span>')
     if p.get("job_note"):
@@ -1162,9 +1347,7 @@ def _job_row(j: dict[str, Any], names: dict[str, str], mg: list[tuple[str, float
              parent: dict[str, Any] | None = None, last: bool = False, hidden: bool = False) -> str:
     href = f'job?id={j["id"]}'
     grams = j["filament_g"] if j.get("filament_g") is not None else j["weight_g"]
-    tags = []
-    if j.get("customer_name") and not parent:
-        tags.append(f'<span class="tag">👤 {e(j["customer_name"])}</span>')
+    tags = [] if parent else [cust_chip(j)]
     q = j.get("quantity")
     if q and q > 1:
         tags.append(f'<span class="tag">{_pcs(q)}</span>')
@@ -1232,7 +1415,8 @@ def _mobile_card(j: dict[str, Any], names: dict[str, str], photo: str | None,
                 f'<div><div class="mt">{e(j["task_name"] or "–")}</div><div class="mp">📦 {t("Projekt")} · {tn(len(kids), "{n} Druck", "{n} Drucke")}</div></div>'
                 f'<div class="mr"><b class="calc">{fmt_num(j.get("cost_total"), 2, "€")}</b>'
                 f'<div class="s s-{e(status.split()[0])}">{e(t(status))}</div><div class="mcb">{customer_badges(j)}</div></div>'
-                f'<div class="mm">{project_chips(kids)}<div class="meta">{"".join(f"<span>{m}</span>" for m in meta)}</div></div></a>')
+                f'<div class="mm">{project_chips(kids)}<div class="meta">{"".join(f"<span>{m}</span>" for m in meta)}</div>'
+                f'{"" if j.get("customer_id") else cust_chip(j)}</div></a>')
     status = _status_of(j)
     grams = j["filament_g"] if j.get("filament_g") is not None else j["weight_g"]
     extra = ""
@@ -1265,7 +1449,8 @@ def _mobile_card(j: dict[str, Any], names: dict[str, str], photo: str | None,
         + f'</div><div class="mr"><b class="calc">{fmt_num(j.get("cost_total"), 2, "€")}</b><span class="calc">{per}</span>'
         f'<div class="s s-{e(status.split()[0])}">{e(t(status))}</div>{extra}{scrap}'
         f'<div class="mcb">{customer_badges(j)}</div></div>'
-        f'<div class="mm">{chips}<div class="meta">{"".join(f"<span>{m}</span>" for m in meta)}</div></div></a>'
+        f'<div class="mm">{chips}<div class="meta">{"".join(f"<span>{m}</span>" for m in meta)}</div>'
+        f'{"" if j.get("customer_id") or j.get("project_id") else cust_chip(j)}</div></a>'
     )
 
 
@@ -1749,6 +1934,9 @@ def page_job(store: Store, job: dict[str, Any], saved: str | None) -> str:
     tone = _STATUS_TONE.get(status.split()[0], "")
     extra = " " + t("bei {p} %", p=int(job["progress"])) if job["status"] == "abgebrochen" and job["progress"] is not None else ""
     badges = f'<span class="bdg st st-{tone}">{e(t(status))}{extra}</span>'
+    if not parent:
+        add_suggestions(store, [job])
+        badges += cust_chip(job, "bdg")
     if job.get("code"):
         badges += (f'<button type="button" class="bdg pidb" data-copy="{e(code_label(job["code"]))}" '
                    f'title="{e(t("Projekt-ID: tippe sie in die Suche, um den Druck wiederzufinden. Klick kopiert."))}">'
@@ -1767,7 +1955,7 @@ def page_job(store: Store, job: dict[str, Any], saved: str | None) -> str:
         badges += (f'<a class="bdg pjb" href="job?id={parent["id"]}" title="{e(t("Gehört zum Projekt {name}", name=parent.get("task_name") or ""))}">'
                    f'📦 {e(code_label(parent.get("code")))}</a>')
     badges += f'<span class="bdg">🖨 {e(names.get(job["printer"], job["printer"]))}</span>'
-    if job.get("customer_name"):
+    if parent and job.get("customer_name"):
         badges += f'<span class="bdg">👤 {e(job["customer_name"])}</span>'
     if qty > 1:
         badges += f'<span class="bdg">{_pcs(qty)}</span>'
@@ -1925,7 +2113,8 @@ def page_job(store: Store, job: dict[str, Any], saved: str | None) -> str:
 <section class="pane{on("ph")}" data-pane="ph"><div class="box">{_upload_form(job["id"])}
 {f'<div class="photos lg">{_photo_tiles(photos)}</div>' if photos else f'<p class="muted">{t("Noch keine eigenen Fotos.")}</p>'}</div></section>
 </div>"""
-    return layout(job["task_name"] or t("Druck"), "jobs", f"<style>{MOS_CSS}{DETAIL_CSS}{PROJ_CSS}{ACT_CSS}</style>" + body, ACT_JS + DETAIL_JS + SHARE_JS)
+    return layout(job["task_name"] or t("Druck"), "jobs", f"<style>{MOS_CSS}{DETAIL_CSS}{PROJ_CSS}{ACT_CSS}{KPICK_CSS}</style>" + body + customer_picker(customers),
+                  ACT_JS + DETAIL_JS + SHARE_JS + KPICK_JS + KPICK_DETAIL_JS)
 
 
 # ---- Projekt (mehrere Drucke als ein Auftrag) -------------------------------------
@@ -2094,13 +2283,12 @@ def page_project(store: Store, p: dict[str, Any], saved: str | None) -> str:
 
     tone = _STATUS_TONE.get(status.split()[0], "")
     badges = f'<span class="bdg st st-{tone}">{e(t(status))}</span>'
+    badges += cust_chip(p, "bdg")
     badges += f'<span class="bdg pjb">📦 {t("Projekt")} · {tn(len(kids), "{n} Druck", "{n} Drucke")}</span>'
     if p.get("code"):
         badges += (f'<button type="button" class="bdg pidb" data-copy="{e(code_label(p["code"]))}" '
                    f'title="{e(t("Projekt-ID: tippe sie in die Suche, um das Projekt wiederzufinden. Klick kopiert."))}">'
                    f'# {e(code_label(p["code"]))}</button>')
-    if p.get("customer_name"):
-        badges += f'<span class="bdg">👤 {e(p["customer_name"])}</span>'
     if p.get("quantity"):
         badges += f'<span class="bdg">{_pcs(qty)}</span>'
     sub = (t("inkl. {n} Fehldruck", n=n_fd) if n_fd == 1 else t("inkl. {n} Fehldrucke", n=n_fd)) if n_fd else \
@@ -2175,8 +2363,8 @@ def page_project(store: Store, p: dict[str, Any], saved: str | None) -> str:
 <p>{t("Die Drucke bleiben erhalten und werden wieder einzeln geführt. Zahlungen gehen an den ersten Druck.")}</p></form></section>
 <section class="pane" data-pane="ph"><div class="box">{_upload_form(p["id"])}{all_photos}{kid_box}</div></section>
 </div>"""
-    return layout(p["task_name"] or t("Projekt"), "jobs", f"<style>{MOS_CSS}{DETAIL_CSS}{PROJ_CSS}{ACT_CSS}</style>" + body,
-                  ACT_JS + DETAIL_JS + SHARE_JS)
+    return layout(p["task_name"] or t("Projekt"), "jobs", f"<style>{MOS_CSS}{DETAIL_CSS}{PROJ_CSS}{ACT_CSS}{KPICK_CSS}</style>" + body
+                  + customer_picker(customers), ACT_JS + DETAIL_JS + SHARE_JS + KPICK_JS + KPICK_DETAIL_JS)
 
 
 # ---- Kunden -------------------------------------------------------------------

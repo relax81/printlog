@@ -55,6 +55,20 @@ const hdr = { 'Accept-Language': lang };
     await p.screenshot({ path: `${out}/project-list.png`, clip: { x: 0, y: r.y - 8, width: 1440, height: r.h + 16 }, fullPage: true });
     await shot('project-detail', `job?id=${proj}`, { full: true });
   }
+  {
+    // Kunde zuordnen: Chip mit Vorschlag antippen, Schnellauswahl offen
+    await p.setViewportSize({ width: 1440, height: 900 });
+    await p.evaluate(() => sessionStorage.removeItem('pl_open'));
+    await p.goto(base); await p.waitForLoadState('networkidle'); await p.waitForTimeout(600);
+    const chip = await p.$('.jr .kchip.sug .kc');
+    await p.evaluate(el => scrollTo(0, el.closest('.jr').getBoundingClientRect().top + scrollY - 130), chip);
+    await chip.click(); await p.waitForTimeout(300);
+    const r = await p.evaluate(() => { const pop = document.getElementById('kpop').getBoundingClientRect();
+      const rows = [...document.querySelectorAll('.jr')].filter(el => { const b = el.getBoundingClientRect(); return b.bottom > pop.top - 60 && b.top < pop.bottom; });
+      const top = Math.min(pop.top, rows[0].getBoundingClientRect().top), bottom = Math.max(pop.bottom, rows[rows.length - 1].getBoundingClientRect().bottom);
+      return { y: top + scrollY, h: bottom - top }; });
+    await p.screenshot({ path: `${out}/assign-customer.png`, clip: { x: 0, y: r.y - 8, width: 1440, height: r.h + 16 }, fullPage: true });
+  }
   // phone
   const ph = await b.newContext({ ...devices['iPhone 13'], locale: lang, colorScheme: scheme, extraHTTPHeaders: hdr });
   await ph.addInitScript(init);

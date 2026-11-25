@@ -16,7 +16,7 @@ for n in desk:
     im = Image.open(f'{src}/{n}.png').convert('RGB')
     if n in ('statistics','calendar','customers','print-billing','print-detail'): im = trim_bottom(im)
     save(im, n)
-for n in ['failed-print', 'failed-print-stats', 'project-list', 'project-detail']:
+for n in ['failed-print', 'failed-print-stats', 'project-list', 'project-detail', 'assign-customer']:
     if os.path.exists(f'{src}/{n}.png'):
         im = Image.open(f'{src}/{n}.png').convert('RGB')
         save(trim_bottom(im) if n == 'project-detail' else im, n)
