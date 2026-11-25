@@ -251,7 +251,7 @@ document.querySelectorAll('.lgbar').forEach(bar=>{const s=bar.querySelector('inp
   bar.querySelectorAll('.chs').forEach(ch=>ch.addEventListener('click',ev=>{const b=ev.target.closest('button');if(!b)return;
     ch.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));
     const v=b.dataset.v===undefined?null:b.dataset.v;if(ch.dataset.k==='g')g=v;else l=v;apply()}))});
-document.querySelectorAll('a.abs').forEach(a=>a.textContent=a.href);
+document.querySelectorAll('a.abs').forEach(a=>{const u=new URL(a.href);a.textContent=u.pathname+u.search});
 document.querySelectorAll('[data-copy]').forEach(b=>b.addEventListener('click',()=>{try{navigator.clipboard.writeText(b.dataset.copy);
   const o=b.textContent;b.textContent=_t("Kopiert");setTimeout(()=>b.textContent=o,1200)}catch(_){}}));
 """
