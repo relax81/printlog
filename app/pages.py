@@ -215,10 +215,10 @@ JOBS_CSS = """
 body.selmode{padding-bottom:90px}
 #selbar{width:min(960px,calc(100vw - 24px))}#selbar button{white-space:nowrap}
 #selbar .pjbtn{background:var(--accent);color:var(--bg);border-color:var(--accent);font-weight:700}#selbar .pjbtn:disabled{opacity:.4}
-.dlgbg{position:fixed;inset:0;background:#000a;z-index:60;display:flex;align-items:center;justify-content:center;padding:16px}
+.dlgbg{position:fixed;inset:0;height:100%;height:100dvh;background:#000a;z-index:60;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box}
 .dlgbg[hidden]{display:none}
 .dlg{background:var(--card);border:1px solid var(--line);border-radius:18px;box-shadow:0 30px 80px #000c;width:min(720px,100%);padding:20px 22px;
- max-height:calc(100vh - 32px);overflow:auto;box-sizing:border-box}
+ max-height:calc(100vh - 32px);max-height:calc(100dvh - 32px);overflow:auto;overscroll-behavior:contain;box-sizing:border-box}
 .dlg h3{margin:0 0 4px;font-size:20px}.dlg .sub{color:var(--muted);font-size:14px;margin:0 0 14px}
 .dlg .seg2{display:flex;border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-bottom:14px}
 .dlg .seg2 button{flex:1;border:0;border-radius:0;background:none;padding:10px 6px;font-weight:700;color:var(--muted);font-size:15px;cursor:pointer}
