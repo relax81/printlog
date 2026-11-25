@@ -10,6 +10,7 @@ from typing import Any
 
 from .costing import parse_materials
 from .db import Store
+from .defects import DEFECTS
 from .i18n import N_, t, tn
 from .ui import e, fmt_date, fmt_hours, fmt_num, layout, printer_names
 
@@ -19,7 +20,9 @@ PERIODS = {
     "month": (N_("Monat"), 12),  # letzte 12 Monate
 }
 MATERIAL_ORDER = ["PLA", "PETG", "ABS", "ASA", "TPU", "PA", "PC"]
-COST_SERIES = [("cost_energy", N_("Strom")), ("cost_filament", N_("Filament")), ("cost_printer", N_("Drucker"))]
+# Kosten-Grafik: gute Drucke nach Art, Fehldrucke als eigener (roter) Anteil
+COST_SERIES = [("good_energy", N_("Strom")), ("good_filament", N_("Filament")), ("good_printer", N_("Drucker")),
+               ("scrap_cost", N_("Fehldrucke"))]
 WEEKDAYS = [N_("Mo"), N_("Di"), N_("Mi"), N_("Do"), N_("Fr"), N_("Sa"), N_("So")]
 MONTHS = [N_("Januar"), N_("Februar"), N_("März"), N_("April"), N_("Mai"), N_("Juni"), N_("Juli"), N_("August"),
           N_("September"), N_("Oktober"), N_("November"), N_("Dezember")]
@@ -148,6 +151,57 @@ def _fmt_eur(v: float, axis: bool) -> str:
     return fmt_num(v, 0 if axis and v == int(v) else 2, "€")
 
 
+DEFECT_CSS = """
+.fdcard .rows{display:grid;gap:9px}.fdcard .r{display:grid;grid-template-columns:minmax(120px,200px) minmax(0,1fr) 36px 80px;gap:10px;align-items:center;
+ font-size:14px;text-decoration:none;color:var(--fg)}
+.fdcard .r .b{height:12px;border-radius:6px;background:color-mix(in srgb,var(--fg) 7%,transparent);overflow:hidden}
+.fdcard .r .b i{display:block;height:100%;background:var(--bad);border-radius:6px}.fdcard .r.na .b i{background:var(--muted)}
+.fdcard .r .n{text-align:right;color:var(--muted)}.fdcard .r .c{text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
+.fdk{display:grid;grid-template-columns:1fr 1fr;gap:10px}.fdk>div{border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.fdk span{display:block;font-size:13px;color:var(--muted)}.fdk b{font-size:22px;font-variant-numeric:tabular-nums}.fdk small{display:block;font-size:12px;color:var(--muted)}
+.fdk .bad b{color:var(--bad)}.fdk .ok b{color:var(--ok)}.fdhint{font-size:13px;color:var(--muted);margin:12px 0 0}
+@media (max-width:700px){.fdcard .r{grid-template-columns:minmax(0,1fr) 30px 70px}.fdcard .r .b{grid-column:1/-1;grid-row:2}}
+"""
+
+
+def _defect_cards(store: Store, since: float, until: float, cost_all: float) -> str:
+    """Zwei Karten: Fehldrucke nach Ursache und was sie gekostet haben (gleicher Zeitraum wie oben)."""
+    st = store.defect_stats(since, until)
+    if not st["rows"]:
+        return (f'<div class="card" style="margin-top:12px"><h3>{t("Fehldrucke")}</h3>'
+                f'<p class="muted" style="margin:0">{t("Im Zeitraum keine Fehldrucke. 🎉")}</p></div>')
+    merged: dict[str | None, dict[str, float]] = {}
+    for r in st["rows"]:
+        k = r["defect"] if r["defect"] in DEFECTS else None
+        m = merged.setdefault(k, {"n": 0, "cost": 0.0, "charged": 0.0, "n_charged": 0, "n_full": 0})
+        for f in m:
+            m[f] += r[f] or 0
+    order = [k for k in DEFECTS if k in merged] + ([None] if None in merged else [])
+    top = max(merged[k]["cost"] for k in order) or 1
+    lines = ""
+    for k in order:
+        m = merged[k]
+        lbl = f"{DEFECTS[k][0]} {t(DEFECTS[k][1])}" if k else t("Ursache nicht angegeben")
+        lines += (f'<a class="r{"" if k else " na"}" href="./?status=fd:{k or "none"}"><span>{e(lbl)}</span>'
+                  f'<span class="b"><i style="width:{m["cost"] / top * 100:.1f}%"></i></span><span class="n">{int(m["n"])}×</span>'
+                  f'<span class="c">{fmt_num(m["cost"], 2, "€")}</span></a>')
+    n = sum(m["n"] for m in merged.values())
+    cost = sum(m["cost"] for m in merged.values())
+    chg = sum(m["charged"] for m in merged.values())
+    n_chg = int(sum(m["n_charged"] for m in merged.values()))
+    n_full = int(sum(m["n_full"] for m in merged.values()))
+    share = f' · {fmt_num(cost / cost_all * 100, 1)} % {t("aller Kosten")}' if cost_all else ""
+    rp = st["reprints"]
+    kp = (f'<div class="bad"><span>{t("Fehldruck-Kosten")}</span><b>{fmt_num(cost, 2, "€")}</b><small>{tn(int(n), "{n} Druck", "{n} Drucke")}{share}</small></div>'
+          f'<div class="ok"><span>{t("davon berechnet")}</span><b>{fmt_num(chg, 2, "€")}</b>'
+          f'<small>{", ".join(x for x in (t("{n} anteilig", n=n_chg - n_full) if n_chg > n_full else "", t("{n} voll", n=n_full) if n_full else "") if x) or t("nichts berechnet")}</small></div>'
+          f'<div><span>{t("Ungedeckt")}</span><b>{fmt_num(max(cost - chg, 0), 2, "€")}</b><small>{t("trägst du selbst")}</small></div>'
+          f'<div><span>{t("Nachdrucke")}</span><b>{int(rp["n"] or 0)}</b><small>{t("{v} zusätzlich", v=fmt_num(rp["cost"], 2, "€"))}</small></div>')
+    return (f'<style>{DEFECT_CSS}</style><div class="grid2" style="margin-top:12px"><div class="card fdcard"><h3>{t("Fehldrucke nach Ursache")}</h3><div class="rows">{lines}</div>'
+            f'<p class="fdhint">{t("„Kundenwunsch geändert“ zählt nicht gegen die Erfolgsquote, es lag ja nicht am Druck.")}</p></div>'
+            f'<div class="card"><h3>{t("Was Fehldrucke gekostet haben")}</h3><div class="fdk">{kp}</div></div></div>')
+
+
 def page_stats(store: Store, period: str) -> str:
     if period not in PERIODS:
         period = "month"
@@ -166,7 +220,7 @@ def page_stats(store: Store, period: str) -> str:
     for r in rows:
         for key, _ in COST_SERIES:
             costs[(r["bucket"], key)] += r[key] or 0
-    cost_series = [(k, t(lbl), _series_color(i)) for i, (k, lbl) in enumerate(COST_SERIES)]
+    cost_series = [(k, t(lbl), "var(--bad)" if k == "scrap_cost" else _series_color(i)) for i, (k, lbl) in enumerate(COST_SERIES)]
 
     types_seen = {r["mtype"] for r in mrows}
     mat_order = [t for t in MATERIAL_ORDER if t in types_seen] + sorted(types_seen - set(MATERIAL_ORDER))
@@ -226,6 +280,7 @@ def page_stats(store: Store, period: str) -> str:
 <table class="stack"><thead><tr><th>{t("Drucker")}</th><th class="n">{t("Drucke")}</th><th class="n">{t("Stunden")}</th><th class="n">{t("Erfolg")}</th>
 <th class="n">{t("Filament")}</th><th class="n">{t("Energie")}</th><th class="n">{t("Kosten")}</th></tr></thead><tbody>{printer_rows}</tbody></table></div></div>
 </div>
+{_defect_cards(store, since.timestamp(), until.timestamp(), tot["cost_total"])}
 <h2>{t("Druckstunden pro Tag, letzte 12 Monate")}</h2>
 <div class="card">{heatmap(store)}</div>"""
     return layout(t("Statistik"), "stats", f'<div class="calc">{body}</div>')

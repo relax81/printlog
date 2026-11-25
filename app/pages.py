@@ -12,6 +12,7 @@ from typing import Any
 
 from .costing import KNOWN_TYPES, hourly_rate, material_notes, parse_materials
 from .db import Store, code_label
+from .defects import DEFECTS, apply_charge, charge_src, charge_text, charged, defect_label, no_charge
 from .i18n import LANGS, N_, is_en as lang_en, note as t_note, t, tn
 from .ui import (
     DEMO,
@@ -425,7 +426,9 @@ def page_jobs(store: Store, f: dict[str, str | None], connected: bool) -> str:
     )
     status_opts = opt("", t("Alle Status"), f["status"]) + "".join(
         opt(s, t(s), f["status"]) for s in ("fertig", "abgebrochen", "unvollständig")
-    ) + opt("ausschuss", t("nur Ausschuss"), f["status"]) + opt("gut", t("ohne Ausschuss"), f["status"])
+    ) + opt("ausschuss", t("nur Fehldrucke"), f["status"]) + "".join(
+        opt(f"fd:{k}", t("Fehldruck: {x}", x=t(name)), f["status"]) for k, (_, name) in DEFECTS.items()
+    ) + opt("fd:none", t("Fehldruck: Ursache fehlt"), f["status"]) + opt("gut", t("ohne Fehldrucke"), f["status"])
     mat_opts = opt("", t("Alle Materialien"), f["material"]) + "".join(
         opt(m, m, f["material"]) for m in store.material_types()
     )
@@ -487,7 +490,8 @@ def results(store: Store, f: dict[str, str | None]) -> str:
         (t("🧵 Filament"), fmt_num(tot["cost_filament"], 2, "€"), fmt_num((tot["weight"] or 0) / 1000, 2, "kg"), False, True),
         (t("🖨 Drucker"), fmt_num(tot["cost_printer"], 2, "€"), t("Abschr. + Wartung"), False, True),
         (t("Drucke"), str(n), " ", False, False),
-        (t("Ausschuss"), fmt_num(tot["scrap_cost"], 2, "€"), tn(tot["scrap_n"], "{n} Druck", "{n} Drucke"), False, True),
+        (t("Fehldrucke"), fmt_num(tot["scrap_cost"], 2, "€"), tn(tot["scrap_n"], "{n} Druck", "{n} Drucke")
+         + (" · " + t("{v} berechnet", v=fmt_num(tot["scrap_charged"], 2, "€")) if tot.get("scrap_charged", 0) >= 0.005 else ""), False, True),
     ]
     kpi_html = "".join(
         f'<div class="kpi{" main" if main else ""}"><span class="muted">{e(k)}</span><b class="{"calc" if calc else ""}">{e(v)}</b><small class="calc">{e(sub)}</small></div>'
@@ -582,7 +586,7 @@ TODO_CSS = """
 
 def _open_state(j: dict[str, Any]) -> tuple[bool, bool]:
     """(Geld offen, Stück offen) für die Ansicht „Offen“."""
-    if not billable(j) or j.get("is_scrap"):
+    if not billable(j) or no_charge(j):
         return False, False
     due = amount_due(j)
     pay = not j.get("gift") and due is not None and (j.get("paid") or 0) < due - 0.005
@@ -667,8 +671,8 @@ def _todo_view(store: Store, q: dict[str, Any]) -> str:
                    f'<span class="av" style="background:var(--s{i % 8 + 1})">{e(name[:1].upper())}</span>{e(name)}</a>'
                    f'<span class="muted" style="font-size:13px">{tn(len(items), "{n} Druck", "{n} Drucke")}</span><span class="sum">{tags}</span></header>'
                    f'{"".join(_todo_row(j, photos.get(j["id"])) for j in items)}</section>')
-    hint = t("Offen sind Drucke mit Kunde, die noch nicht ganz bezahlt oder übergeben sind. Kunden mit „Keine Abrechnung“ und Ausschuss fehlen, "
-             "verschenkte Drucke stehen nur hier, bis sie übergeben sind.")
+    hint = t("Offen sind Drucke mit Kunde, die noch nicht ganz bezahlt oder übergeben sind. Kunden mit „Keine Abrechnung“ und Fehldrucke, "
+             "die nicht berechnet werden, fehlen. Verschenkte Drucke stehen nur hier, bis sie übergeben sind.")
     return f'{kpis}{"".join(out)}<p class="ohint">{hint}</p>'
 
 
@@ -752,10 +756,24 @@ def _prices(j: dict[str, Any], mg: list[tuple[str, float]]) -> str:
 def _status_badges(j: dict[str, Any]) -> str:
     status = _status_of(j)
     tone = _STATUS_TONE.get(status.split()[0], "none")
-    out = f'<span class="bdg st-{tone}">{e(t(status))}</span>'
-    if j.get("is_scrap") and j["status"] != "abgebrochen":
-        out += f'<span class="bdg st-bad">{t("Ausschuss")}</span>'
+    out = f'<span class="bdg st-{tone}">{e(t(status))}</span>' + defect_badges(j)
     return out + customer_badges(j)
+
+
+def defect_badges(j: dict[str, Any], cls: str = "bdg") -> str:
+    """Fehldruck mit Ursache und ggf. Berechnung; bei Abbruch ohne Ursache ein leiser Hinweis."""
+    if not j.get("is_scrap"):
+        return ""
+    lbl = defect_label(j)
+    if lbl:
+        out = f'<span class="{cls} st-bad" title="{e(t("Fehldruck"))}">{e(lbl)}</span>'
+    elif j["status"] != "abgebrochen":
+        out = f'<span class="{cls} st-bad">{t("⚠ Fehldruck")}</span>'
+    else:
+        out = f'<span class="{cls} st-none" title="{e(t("Fehldruck ohne Ursache: in den Details auswählen"))}">{t("Ursache?")}</span>'
+    if charged(j) and billable(j):
+        out += f'<span class="{cls} st-warn">{e(charge_text(j))}</span>'
+    return out
 
 
 def billable(j: dict[str, Any]) -> bool:
@@ -763,11 +781,17 @@ def billable(j: dict[str, Any]) -> bool:
     return bool(j.get("customer_id")) and not j.get("customer_nobill")
 
 
-def amount_due(j: dict[str, Any]) -> float | None:
-    """Was der Kunde zahlen soll: Endpreis, sonst Kosten + Kundenmarge."""
+def base_due(j: dict[str, Any]) -> float | None:
+    """Normaler Preis: Endpreis, sonst Kosten + Kundenmarge."""
     if j.get("final_price") is not None:
         return j["final_price"]
     return _price(j, j.get("customer_margin") or 0)
+
+
+def amount_due(j: dict[str, Any]) -> float | None:
+    """Was der Kunde zahlen soll: normaler Preis, bei einem berechneten Fehldruck anteilig bzw. fester Betrag."""
+    base = base_due(j)
+    return apply_charge(j, base) if charged(j) else base
 
 
 def _acts(title: str, items: list[tuple[str, str, dict[str, str] | None]]) -> str:
@@ -818,10 +842,10 @@ def _ho_menu(j: dict[str, Any]) -> tuple[str, str, str, list[Any]]:
 
 
 def customer_badges(j: dict[str, Any], cls: str = "bdg") -> str:
-    """Zahlung und Übergabe als antippbare Badges (nur Drucke mit Kunde, kein Ausschuss)."""
+    """Zahlung und Übergabe als antippbare Badges (nur Drucke mit Kunde, kein unberechneter Fehldruck)."""
     if j.get("gift") and not billable(j) and not j.get("is_scrap"):
         return f'<span class="{cls} st-gift">{t("🎁 verschenkt")}</span>'
-    if not billable(j) or j.get("is_scrap"):
+    if not billable(j) or no_charge(j):
         return ""
     jid = j["id"]
     out = ""
@@ -908,7 +932,7 @@ def _job_row(j: dict[str, Any], names: dict[str, str], mg: list[tuple[str, float
     cls = "jr"
     if j["state"] in ("running", "closing"):
         cls += " run"
-    if j.get("is_scrap"):
+    if no_charge(j):
         cls += " scrap"
     return (
         f'<div class="{cls}" data-href="{href}">{_thumb(j)}'
@@ -927,7 +951,11 @@ def _mobile_card(j: dict[str, Any], names: dict[str, str], photo: str | None) ->
     extra = ""
     if j["status"] == "abgebrochen" and j["progress"] is not None:
         extra = f'<div class="note">{t("bei {p} %", p=int(j["progress"]))}</div>'
-    scrap = f'<div class="s s-abgebrochen">{t("Ausschuss")}</div>' if j.get("is_scrap") and j["status"] != "abgebrochen" else ""
+    scrap = ""
+    if j.get("is_scrap") and (j["status"] != "abgebrochen" or j.get("defect")):
+        scrap = f'<div class="s s-abgebrochen">{e(defect_label(j) or t("Fehldruck"))}</div>'
+    if charged(j) and billable(j):
+        scrap += f'<div class="note">{e(charge_text(j))}</div>'
     q = j.get("quantity")
     meta = [e(names.get(j["printer"], j["printer_name"] or j["printer"])), fmt_ts(j["start_ts"])]
     if j["end_ts"]:
@@ -985,7 +1013,7 @@ DETAIL_CSS = """
 .hero .big{width:100%;aspect-ratio:1;object-fit:contain;background:var(--bg);border-radius:14px;border:1px solid var(--line);cursor:zoom-in;display:block}
 .hero .noimg{display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:14px;cursor:default}
 .jtitle{font-size:28px;line-height:1.15;margin:2px 0 10px;letter-spacing:-.01em;overflow-wrap:anywhere}
-.badges{display:flex;flex-wrap:wrap;gap:8px}
+.badges{display:flex;flex-wrap:wrap;gap:8px}a.bdg{text-decoration:none}
 .bdg{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:999px;background:var(--bg);
  border:1px solid var(--line);font-size:14px;font-weight:600;white-space:nowrap}
 .bdg.st:before{content:"";width:8px;height:8px;border-radius:50%;background:currentColor}
@@ -1060,6 +1088,35 @@ DETAIL_CSS = """
 .jd .btn{background:var(--bg)}.jd .btn.primary{background:var(--accent)}.jd .btn.danger{background:transparent}
 .btn input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
 .jdel{display:flex;justify-content:flex-end;margin-top:14px}
+.fdbox{border-color:color-mix(in srgb,var(--bad) 45%,var(--line));background:color-mix(in srgb,var(--bad) 6%,var(--card));margin-bottom:16px}
+.fdbox .fdh{display:flex;align-items:center;flex-wrap:wrap;gap:6px 12px;margin:0 0 14px}.fdbox .fdh>b{font-size:17px;color:var(--bad)}
+.fdbox .fdh .sp{flex:1}.fdbox .fdh form{margin:0}
+.fdg{display:grid;grid-template-columns:1.15fr 1fr 1.1fr;gap:22px}.fdg>div{min-width:0}
+.fdg h4{margin:0 0 8px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.cats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:0}
+.cat{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:9px 4px;min-height:64px;border:1px solid var(--line);
+ border-radius:12px;background:var(--card);font-weight:600;font-size:13px;text-align:center;color:var(--muted);cursor:pointer;-webkit-tap-highlight-color:transparent}
+.cat i{font-style:normal;font-size:20px;line-height:1.1}.cat:hover{border-color:color-mix(in srgb,var(--bad) 60%,var(--line))}
+.cat.on{border-color:var(--bad);color:var(--fg);background:color-mix(in srgb,var(--bad) 18%,var(--card));box-shadow:0 0 0 1px var(--bad)}
+.bseg{display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;margin:0 0 10px}
+.bseg button{flex:1;border:0;border-radius:0;background:none;padding:10px 4px;font-weight:600;color:var(--muted);font-size:14px;cursor:pointer;min-height:44px}
+.bseg button+button{border-left:1px solid var(--line)}.bseg button.on{background:var(--accent);color:var(--bg)}
+.amt{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 10px}.amt input[name=defect_value]{width:90px;text-align:right;font-size:17px}
+.amt .u{display:flex;border:1px solid var(--line);border-radius:var(--ctl-r);overflow:hidden}
+.amt .u label{display:flex;align-items:center;padding:0 12px;min-height:38px;font-weight:600;color:var(--muted);cursor:pointer}
+.amt .u input{position:absolute;opacity:0;pointer-events:none}.amt .u label:has(input:checked){background:color-mix(in srgb,var(--accent) 25%,var(--card));color:var(--fg)}
+.res{display:grid;grid-template-columns:1fr 1fr;gap:10px}.res span{display:block;font-size:13px;color:var(--muted)}
+.res b{font-size:20px;font-variant-numeric:tabular-nums}.res small{display:block;font-size:12px;color:var(--muted)}.res .bad b{color:var(--bad)}.res .ok b{color:var(--ok)}
+.fdnote{font-size:14px;line-height:1.45;margin:0 0 10px;padding:9px 11px;border-left:3px solid var(--bad);white-space:pre-wrap;
+ background:color-mix(in srgb,var(--fg) 4%,transparent);border-radius:0 8px 8px 0}
+.fdph{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 10px}.fdph img,.fdph a.add{width:62px;height:62px;border-radius:10px;border:1px solid var(--line);object-fit:cover}
+.fdph a.add{display:flex;align-items:center;justify-content:center;font-size:22px;color:var(--muted);text-decoration:none}
+.rp{display:flex;align-items:center;gap:10px;padding:8px 11px;border:1px solid var(--line);border-radius:10px;font-size:14px;margin-bottom:8px}
+.rp img{width:36px;height:36px;border-radius:8px;border:1px solid var(--line);object-fit:contain}.rp a.nm{color:var(--fg);text-decoration:none}
+.rp b{display:block}.rp small{color:var(--muted)}.rp form{margin:0 0 0 auto}.rp .del{min-height:32px}
+.rpf{display:flex;gap:8px;margin:0}.rpf select{flex:1;min-width:0}
+@media (max-width:1100px){.fdg{grid-template-columns:1fr 1fr}.fdg>div:last-child{grid-column:1/-1}}
+@media (max-width:760px){.fdg{grid-template-columns:1fr;gap:16px}.fdg>div:last-child{grid-column:auto}.fdbox .fdh .muted{flex-basis:100%;order:3}}
 .lp{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:4px}.lp code{word-break:break-all;font-size:13px}
 @media (min-width:1300px){.hero{grid-template-columns:260px minmax(0,1fr) minmax(300px,400px)}.kps{grid-template-columns:repeat(4,minmax(0,1fr))}}
 @media (max-width:1100px){.hero{grid-template-columns:200px minmax(0,1fr)}.prices{grid-column:1/-1}.ovg{grid-template-columns:1fr 1fr}}
@@ -1159,9 +1216,10 @@ def _deal_box(job: dict[str, Any], handovers: list[dict[str, Any]], payments: li
     """Box „Preis, Zahlung & Übergabe“ auf der Detailseite (nur mit Kunde, der abgerechnet wird)."""
     if not billable(job):
         return ""
-    if job.get("is_scrap"):
+    if no_charge(job):
         return (f'<div class="dealg"><div class="box"><h3>{t("Zahlung &amp; Übergabe")}</h3>'
-                f'<p class="muted" style="margin:0">{t("Ausschuss wird nicht berechnet.")}</p></div></div>')
+                f'<p class="muted" style="margin:0">{t("Fehldruck, wird nicht berechnet.")} '
+                f'<a href="#ov" data-goto="ov">{t("Ändern im Fehldruck-Kasten →")}</a></p></div></div>')
     jid = job["id"]
     n = job.get("quantity") or 1
     d = job.get("delivered") or 0
@@ -1172,6 +1230,11 @@ def _deal_box(job: dict[str, Any], handovers: list[dict[str, Any]], payments: li
     suggest = _price(job, job.get("customer_margin") or 0)
     src = (t("Endpreis") if job.get("final_price") is not None
            else t("Vorschlag: Kosten + {p} % Kundenmarge", p=fmt_input(job.get("customer_margin") or 0)))
+    fd_note = ""
+    if charged(job):
+        src = charge_src(job, base_due(job))
+        fd_note = (f'<div class="fdnote">⚠ {e(t("Fehldruck"))}{" · " + e(defect_label(job)) if defect_label(job) else ""} · {e(charge_text(job))} '
+                   f'<a href="#ov" data-goto="ov">{t("ändern")}</a></div>')
 
     def entry(ts: float, what: str, note: str | None, url: str, title: str) -> str:
         return (f'<div class="ho"><span>{fmt_date(ts, "date_s")}</span><b>{what}</b>'
@@ -1214,18 +1277,102 @@ def _deal_box(job: dict[str, Any], handovers: list[dict[str, Any]], payments: li
     pay_body = pay_body or (f'<div class="deal"><div><span>{e(t("{name} zahlt", name=job.get("customer_name") or t("Kunde")))}</span><b>{fmt_num(due, 2, "€")}</b>'
             f'<small class="calc">{e(src)}</small></div><div><span>{t("Stand")}</span><b>{fmt_num(paid, 2, "€")}</b><small>{pay_state}</small></div></div>'
             f'{price_form}{pay_rows}{pay_form}{gift_form}')
+    pay_body = fd_note + pay_body
     ho_body = (f'<div class="deal"><div><span>{t("Übergeben")}</span><b>{t("{d} von {n} Stück", d=min(d, n), n=n)}</b>'
                f'<small>{t("alles übergeben") if d >= n else t("noch {k} offen", k=n - d)}</small></div></div>{ho_rows}{ho_form}')
     return (f'<div class="dealg"><div class="box"><h3>{t("Preis &amp; Zahlung")}</h3>{pay_body}</div>'
             f'<div class="box"><h3>{t("Übergabe")}</h3>{ho_body}</div></div>')
 
 
+def _defect_box(store: Store, job: dict[str, Any], photos: list[dict[str, Any]]) -> str:
+    """Kasten „Fehldruck“ in der Übersicht: Ursache, was der Kunde zahlt, Notiz/Fotos und Nachdruck."""
+    if not job.get("is_scrap"):
+        return ""
+    jid = job["id"]
+    act = f"api/jobs/{jid}?redirect=1"
+    cur = job.get("defect") if job.get("defect") in DEFECTS else ""
+    if job["status"] == "abgebrochen":
+        sub = t("Abgebrochen bei {p} %", p=int(job["progress"])) if job.get("progress") is not None else t("Abgebrochen")
+    else:
+        sub = t("Druck ist fertig, aber nicht so wie gedacht")
+    if not cur:
+        sub += " · " + t("Ursache auswählen")
+    head = (f'<div class="fdh"><b>⚠ {t("Fehldruck")}</b><span class="muted">{e(sub)}</span><span class="sp"></span>'
+            f'<form method="post" action="{act}"><input type="hidden" name="scrap" value="0">'
+            f'<button class="btn sm" title="{e(t("Doch in Ordnung: zählt dann wieder als normaler Druck"))}">{t("Kein Fehldruck")}</button></form></div>')
+    cats = "".join(
+        f'<button class="cat{" on" if k == cur else ""}" name="defect" value="{"" if k == cur else k}" '
+        f'title="{e(t("Auswahl aufheben") if k == cur else t(name))}"><i>{sym}</i>{e(t(name))}</button>'
+        for k, (sym, name) in DEFECTS.items())
+    cause = f'<div><h4>{t("Ursache")}</h4><form class="cats" method="post" action="{act}">{cats}</form></div>'
+
+    cost = job.get("cost_total")
+    if billable(job):
+        mode = job.get("defect_charge") if charged(job) else "none"
+        seg = "".join(f'<button name="defect_charge" value="{v}" class="{"on" if (mode in ("pct", "amount") and v == "part") or mode == v else ""}">{lbl}</button>'
+                      for v, lbl in (("none", t("Nichts")), ("part", t("Anteilig")), ("full", t("Voll"))))
+        base = base_due(job)
+        name = job.get("customer_name") or t("Kunde")
+        amt = ""
+        if mode in ("pct", "amount"):
+            val = job.get("defect_value")
+            amt = (f'<form class="amt" method="post" action="{act}"><input type="hidden" name="defect_charge" value="part">'
+                   f'<input name="defect_value" inputmode="decimal" value="{fmt_input(val)}" aria-label="{e(t("Anteil"))}">'
+                   f'<span class="u"><label><input type="radio" name="defect_unit" value="pct"{" checked" if mode == "pct" else ""}>%</label>'
+                   f'<label><input type="radio" name="defect_unit" value="eur"{" checked" if mode == "amount" else ""}>€</label></span>'
+                   f'<button class="btn">{t("Speichern")}</button>'
+                   f'<span class="muted" style="font-size:13px">{t("von {v}", v=fmt_num(base, 2, "€"))} '
+                   f'({t("Endpreis") if job.get("final_price") is not None else t("Kosten + Kundenmarge")})</span></form>')
+        due = amount_due(job) if mode != "none" else 0.0
+        gap = None if cost is None or due is None else cost - due
+        left = (f'<div><span>{e(t("{name} zahlt", name=name))}</span><b class="calc">{fmt_num(due, 2, "€")}</b>'
+                f'<small>{t("nichts, fällt aus „Offen“ heraus") if mode == "none" else t("steht unter „Offen“ und auf dem Bon")}</small></div>')
+        right = (f'<div class="{"bad" if gap is not None and gap >= 0.005 else "ok"}"><span>{t("Ungedeckt") if gap is None or gap >= 0.005 else t("Gedeckt")}</span>'
+                 f'<b class="calc">{fmt_num(max(gap, 0) if gap is not None else None, 2, "€")}</b>'
+                 f'<small class="calc">{t("Kosten {c} − {d}", c=fmt_num(cost, 2, "€"), d=fmt_num(due, 2, "€"))}</small></div>')
+        bill = (f'<div><h4>{e(t("Was bekommt {name} berechnet?", name=name))}</h4>'
+                f'<form class="bseg" method="post" action="{act}">{seg}</form>{amt}<div class="res">{left}{right}</div></div>')
+    else:
+        why = t("Ohne Kunde gibt es nichts zu berechnen.") if not job.get("customer_id") else t("Kunde mit „Keine Abrechnung“.")
+        bill = (f'<div><h4>{t("Berechnung")}</h4><p class="muted" style="margin:0 0 10px">{why}</p>'
+                f'<div class="res"><div class="bad"><span>{t("Fehldruck-Kosten")}</span><b class="calc">{fmt_num(cost, 2, "€")}</b>'
+                f'<small>{t("trägst du selbst")}</small></div></div></div>')
+
+    note = (f'<div class="fdnote">{e(job["job_note"])}</div>' if job.get("job_note") else
+            f'<p class="muted" style="margin:0 0 10px;font-size:14px">{t("Noch keine Notiz.")} <a href="#ed" data-goto="ed">{t("Im Tab „Bearbeiten“ beschreiben →")}</a></p>')
+    pics = "".join(f'<a href="#ph" data-goto="ph"><img src="images/{e(p["file"])}" loading="lazy" alt=""></a>' for p in photos[:3])
+    pics = f'<div class="fdph">{pics}<a class="add" href="#ph" data-goto="ph" title="{e(t("Fotos hinzufügen"))}">＋</a></div>'
+    rps = store.reprints(jid)
+    if rps:
+        rp_html = "".join(
+            f'<div class="rp">{_thumb(r)}<a class="nm" href="job?id={r["id"]}"><b>{t("Nachdruck {ref}", ref=e(code_label(r.get("code")) or "#" + str(r["id"])))}</b>'
+            f'<small>{fmt_date(r["start_ts"], "dm") if r.get("start_ts") else "–"} · {e(t(_status_of(r)))} · {fmt_num(r.get("cost_total"), 2, "€")}</small></a>'
+            f'<form method="post" action="{act}"><input type="hidden" name="reprint" value="">'
+            f'<button class="btn sm del" title="{e(t("Zuordnung lösen"))}">×</button></form></div>'
+            for r in rps)
+    else:
+        cands = store.reprint_candidates(job)
+        if cands:
+            options = opt("", t("– Nachdruck wählen –"), "") + "".join(
+                opt(str(c["id"]), " · ".join(x for x in (code_label(c.get("code")), c.get("task_name") or "–",
+                                                          fmt_date(c["start_ts"], "dm") if c.get("start_ts") else "") if x), "")
+                for c in cands)
+            rp_html = (f'<form class="rpf" method="post" action="{act}"><select name="reprint" aria-label="{e(t("Nachdruck"))}">{options}</select>'
+                       f'<button class="btn">{t("Zuordnen")}</button></form>')
+        else:
+            rp_html = f'<p class="muted" style="margin:0;font-size:14px">{t("Noch kein späterer Druck, der als Nachdruck passt.")}</p>'
+    what = f'<div><h4>{t("Was ist passiert?")}</h4>{note}{pics}<h4 style="margin-top:12px">{t("Nachdruck")}</h4>{rp_html}</div>'
+    return f'<div class="box fdbox" id="fd">{head}<div class="fdg">{cause}{bill}{what}</div></div>'
+
+
 def _deal_strip(job: dict[str, Any]) -> str:
     """Kompakte Zeile in der Übersicht: Betrag + antippbare Badges, Details im Tab „Abrechnung“."""
-    if not billable(job) or job.get("is_scrap"):
+    if not billable(job) or no_charge(job):
         return ""
     due = amount_due(job)
     src = t("Endpreis") if job.get("final_price") is not None else t("Vorschlag")
+    if charged(job):
+        src = charge_src(job, base_due(job))
     name = job.get("customer_name") or t("Kunde")
     head = (f'<span>{e(name)}</span><b>{t("nichts")}</b><small>{t("verschenkt")}</small>' if job.get("gift") else
             f'<span>{e(t("{name} zahlt", name=name))}</span><b>{fmt_num(due, 2, "€")}</b><small class="calc">{src}</small>')
@@ -1307,7 +1454,15 @@ def page_job(store: Store, job: dict[str, Any], saved: str | None) -> str:
                    f'title="{e(t("Projekt-ID: tippe sie in die Suche, um den Druck wiederzufinden. Klick kopiert."))}">'
                    f'# {e(code_label(job["code"]))}</button>')
     if job.get("is_scrap"):
-        badges += f'<span class="bdg st st-bad">{t("Ausschuss")}</span>'
+        lbl = defect_label(job)
+        badges += f'<a class="bdg st st-bad" href="#ov" data-goto="ov">⚠ {t("Fehldruck")}{" · " + e(lbl) if lbl else ""}</a>'
+        if charged(job) and billable(job):
+            badges += f'<span class="bdg st st-warn">{e(charge_text(job))}</span>'
+    if job.get("reprint_of"):
+        orig = store.get(job["reprint_of"])
+        if orig:
+            badges += (f'<a class="bdg" href="job?id={orig["id"]}" title="{e(t("Ersetzt einen Fehldruck"))}">'
+                       f'↻ {t("Nachdruck von {ref}", ref=e(code_label(orig.get("code")) or "#" + str(orig["id"])))}</a>')
     badges += f'<span class="bdg">🖨 {e(names.get(job["printer"], job["printer"]))}</span>'
     if job.get("customer_name"):
         badges += f'<span class="bdg">👤 {e(job["customer_name"])}</span>'
@@ -1384,7 +1539,7 @@ def page_job(store: Store, job: dict[str, Any], saved: str | None) -> str:
     cust_opts = opt("", t("– kein Kunde –"), cur) + "".join(opt(str(c["id"]), c["name"], cur) for c in customers)
     sv = "" if job.get("scrap") is None else str(job["scrap"])
     scrap_opts = (opt("", t("automatisch ({x})", x=t("ja, abgebrochen") if job["status"] == "abgebrochen" else t("nein")), sv)
-                  + opt("1", t("ja, Ausschuss"), sv) + opt("0", t("nein, verwendbar"), sv))
+                  + opt("1", t("ja, Fehldruck"), sv) + opt("0", t("nein, in Ordnung"), sv))
 
     # Start-Tab laut Einstellung; nach dem Speichern immer die Übersicht.
     mode = store.settings().get("detail_tab") or "ov"
@@ -1408,7 +1563,7 @@ def page_job(store: Store, job: dict[str, Any], saved: str | None) -> str:
 <div class="tabs" role="tablist"><button type="button" data-tab="ov" class="{on("ov").strip()}">{t("Übersicht")}</button>
 {ab_tab}<button type="button" data-tab="ed" class="{on("ed").strip()}">{t("Bearbeiten")}</button>
 <button type="button" data-tab="ph" class="{on("ph").strip()}">{t("Fotos ({n})", n=len(photos))}</button></div>
-<section class="pane{on("ov")}" data-pane="ov">{_deal_strip(job)}<div class="ovg">
+<section class="pane{on("ov")}" data-pane="ov">{_defect_box(store, job, photos)}{_deal_strip(job)}<div class="ovg">
 {_sec("druck", t("Druck"), druck_sum, f'<div class="facts">{facts}</div>{side}')}
 {_sec("mat", t("Material"), mat_sum, mat_bar + mat_rows)}
 {_sec("fotos", t("Eigene Fotos"), tn(len(photos), "{n} Foto", "{n} Fotos"), _upload_form(job["id"]) + photo_box + more)}
@@ -1421,7 +1576,7 @@ def page_job(store: Store, job: dict[str, Any], saved: str | None) -> str:
 <input id="f_qty" name="quantity" type="number" min="1" step="1" inputmode="numeric" value="{job.get("quantity") or ""}" placeholder="1">
 <button type="button" data-step="1" aria-label="{e(t("eins mehr"))}">+</button></div></div></div>
 <label class="c3">{t("Kunde")}<select name="customer_id">{cust_opts}</select></label>
-<label class="c3">{t("Ausschuss")}<select name="scrap">{scrap_opts}</select></label>
+<label class="c3">{t("Fehldruck")}<select name="scrap">{scrap_opts}</select></label>
 <label class="c3">{t("Abrechnung")}<select name="gift">{opt("0", t("berechnen"), "1" if job.get("gift") else "0")}{opt("1", t("🎁 verschenkt (keine Zahlung)"), "1" if job.get("gift") else "0")}</select></label>
 <label>{t("Projekttitel")}<input name="project_title" value="{e(job.get("project_title") or "")}" placeholder="{e(t("wird beim Speichern aus dem Link geholt, wenn leer"))}"></label>
 <label>{t("Projektlink (MakerWorld, Printables …)")}<input name="project_url" type="url" value="{e(job.get("project_url") or "")}" placeholder="https://makerworld.com/…"></label>
@@ -1532,7 +1687,7 @@ def page_customers(store: Store, saved: str | None, show: str | None = None,
 {summary}
 <div class="wrap"><table class="stack ctab"><thead><tr><th>{t("Name · Kontakt · Notiz")}</th><th class="n">{t("Drucke")}</th><th class="n">{t("Offen")}</th><th class="n">{t("Bezahlt")}</th><th class="n">{t("Verschenkt")}</th>
 <th class="n calc">{t("Kosten")}</th><th class="n">{t("Letzter Druck")}</th><th></th></tr></thead><tbody>{rows}</tbody></table></div>
-<div class="help muted"><p>{t("Offen = Endpreis (oder Kosten + Kundenmarge) minus eingetragene Zahlungen, ohne Ausschuss und ohne Verschenktes. Ein Klick auf ein Schild zeigt die passenden Drucke.")}</p>
+<div class="help muted"><p>{t("Offen = Endpreis (oder Kosten + Kundenmarge) minus eingetragene Zahlungen, ohne Verschenktes und ohne Fehldrucke, die nicht berechnet werden. Ein Klick auf ein Schild zeigt die passenden Drucke.")}</p>
 <p>{t("Verschenkt: Anzahl und Wert (Endpreis bzw. Kosten + Kundenmarge) der verschenkten Drucke im gewählten Zeitraum, nach Druckstart. Die Kosten stehen im Tooltip.")}</p>
 <p>{t("Die Marge eines Kunden gilt für alle seine Drucke und wird zusätzlich zu den allgemeinen Margen angezeigt.")}</p>
 <p>{t("Keine Abrechnung: für Eigenbedarf, z. B. Drucke für eigene Uploads. Kosten und Statistik zählen weiter, aber es gibt keine Zahlungen, keine Übergaben und nichts Offenes. Anders als „verschenkt“ (pro Druck) gilt das für alle Drucke des Kunden.")}</p>
@@ -2014,7 +2169,7 @@ def csv_rows(store: Store, f: dict[str, str | None]) -> list[list[Any]]:
     names = printer_names(store)
     header = [t(h) for h in (N_("ID"), N_("Projekt-ID"), N_("Auftrag"), N_("Drucker"), N_("Kunde"), N_("Stück"), N_("Start"), N_("Ende"), N_("Dauer h"), N_("Status"),
               N_("Fortschritt %"), N_("Filament g"), N_("Material"), N_("kWh"), N_("Strom €"), N_("Filament €"), N_("Drucker €"),
-              N_("Gesamt €"), N_("Ausschuss"), N_("Projekt"), N_("Projektlink"), N_("Ordner"), N_("Notiz"))]
+              N_("Gesamt €"), N_("Fehldruck"), N_("Ursache"), N_("Berechnung"), N_("Projekt"), N_("Projektlink"), N_("Ordner"), N_("Notiz"))]
     mg = margins(store)
     at = header.index(t("Gesamt €")) + 1
     header[at:at] = [f"{n} +{fmt_input(p)} % €" for n, p in mg]
@@ -2030,8 +2185,9 @@ def csv_rows(store: Store, f: dict[str, str | None]) -> list[list[Any]]:
             j.get("quantity"), fmt_ts(j["start_ts"]), fmt_ts(j["end_ts"]),
             round(dur, 2) if dur else None, t(_status_of(j)), j["progress"], grams, mats, j["kwh"],
             j["cost"], j.get("cost_filament"), j.get("cost_printer"), j.get("cost_total"), *[round(_price(j, p), 2) if _price(j, p) is not None else None for _, p in mg],
-            t("ja") if j.get("is_scrap") else t("nein"), j.get("project_title"), j.get("project_url"), j.get("local_path"), j.get("job_note"),
-            j.get("final_price"), (0 if j.get("gift") else round(amount_due(j), 2)) if billable(j) and amount_due(j) is not None else None,
+            t("ja") if j.get("is_scrap") else t("nein"), defect_label(j, icon=False) if j.get("is_scrap") else None,
+            (charge_text(j) or t("nicht berechnet")) if j.get("is_scrap") else None, j.get("project_title"), j.get("project_url"), j.get("local_path"), j.get("job_note"),
+            j.get("final_price"), (0 if j.get("gift") or no_charge(j) else round(amount_due(j), 2)) if billable(j) and amount_due(j) is not None else None,
             round(j.get("paid") or 0, 2), j.get("delivered") or 0,
         ])
     return out
