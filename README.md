@@ -88,7 +88,8 @@ in a **light and a dark** colour scheme (Settings → View → Colour scheme, or
 **Evaluation**
 
 - **Statistics** by day, week or month: print hours per printer, cost split, filament by material, success rate,
-  a table per printer and a yearly heat map of print hours.
+  a table per printer and a yearly heat map of print hours. **Income and profit**: revenue, paid, open, own costs, profit
+  and gifts, a chart revenue = own costs + profit and a table per customer.
 - **Calendar** with the prints, hours, costs and thumbnails of each day.
 - **Data & backup** in the settings: full backup as one **ZIP** (database, photos, logo, all settings) to download and restore,
   **CSV export** (Excel-friendly), a scheduled **backup** to a mounted folder and a guarded **reset**.
@@ -469,7 +470,8 @@ in **hell und dunkel** (Einstellungen → Ansicht → Farbschema, oder automatis
 **Auswertung**
 
 - **Statistik** nach Tag, Woche oder Monat: Druckstunden pro Drucker, Kostenanteile, Filament nach Material,
-  Erfolgsquote, Tabelle pro Drucker und eine Jahres-Heatmap der Druckstunden.
+  Erfolgsquote, Tabelle pro Drucker und eine Jahres-Heatmap der Druckstunden. **Einnahmen und Gewinn**: Umsatz, bezahlt,
+  offen, Selbstkosten, Gewinn und Verschenktes, ein Diagramm Umsatz = Selbstkosten + Gewinn und eine Tabelle pro Kunde.
 - **Kalender** mit Drucken, Stunden, Kosten und Vorschaubildern pro Tag.
 - **Daten & Backup** in den Einstellungen: Komplettsicherung als ein **ZIP** (Datenbank, Fotos, Logo, alle Einstellungen) zum
   Herunterladen und Wiedereinspielen, **CSV-Export** (Excel-tauglich), geplantes **Backup** in einen eingehängten Ordner und

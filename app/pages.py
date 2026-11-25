@@ -2602,7 +2602,7 @@ def page_customers(store: Store, saved: str | None, show: str | None = None,
         sub = " · ".join(e(x) for x in (c["contact"], c["note"]) if x)
         mg = c.get("margin_pct")
         mtag = (f' <span class="otag none calc" title="{e(t("Marge %"))}">+{fmt_input(mg)} %</span>' if mg else "")
-        return (f'<tr class="crow"><td class="cn"><b>{e(c["name"])}</b>{mtag}{f"<small>{sub}</small>" if sub else ""}</td>'
+        return (f'<tr class="crow"><td class="cn"><a class="cname" href="./?customer={c["id"]}" title="{e(t("Drucke von {name}", name=c["name"]))}"><b>{e(c["name"])}</b></a>{mtag}{f"<small>{sub}</small>" if sub else ""}</td>'
                 f'<td class="n" data-l="{e(t("Drucke"))}">{c["n"]}</td>'
                 f'<td class="n wide" data-l="{e(t("Offen"))}">{_open_tags(c)}</td>'
                 f'<td class="n" data-l="{e(t("Bezahlt"))}">{fmt_num(c["paid_amount"], 2, "€") if c["paid_amount"] else "–"}</td>'
@@ -2664,7 +2664,7 @@ CUSTOMERS_CSS = """
 .cform .lf.m input{text-align:right}
 .cform .cbar{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:10px}.cform .cbar .sp{flex:1}
 .nob{display:inline-flex;align-items:center;gap:8px;white-space:nowrap;font-size:14px;font-weight:600;cursor:pointer}
-.ctab td{vertical-align:middle}.ctab td.wide{white-space:normal}@media (min-width:701px){.ctab td.wide{min-width:150px}}.ctab .cn b{font-size:15px}.ctab .cn small{display:block;color:var(--muted);font-size:13px;
+.ctab td{vertical-align:middle}.ctab .cname{color:var(--fg);text-decoration:none}.ctab .cname:hover b{color:var(--accent);text-decoration:underline}.ctab td.wide{white-space:normal}@media (min-width:701px){.ctab td.wide{min-width:150px}}.ctab .cn b{font-size:15px}.ctab .cn small{display:block;color:var(--muted);font-size:13px;
  max-width:360px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ctab .cact{white-space:nowrap;text-align:right}.ctab .cact .btn+.btn{margin-left:6px}
 .ctab tr.open td{border-bottom:0;background:color-mix(in srgb,var(--accent) 6%,transparent)}

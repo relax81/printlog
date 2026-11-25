@@ -70,3 +70,25 @@ def test_geschenk_nie_ueberzahlt() -> None:
     jid = _job(store, kundin, "Hut", gift=1)
     store.add_payment(jid, 15.0)
     assert overpaid(store.get(jid)) == 0
+
+
+def test_statistik_einnahmen_und_gewinn() -> None:
+    from datetime import date
+
+    from app.stats import _buckets, page_stats, revenue_data
+
+    store, kundin = _store()
+    eigen = store.save_customer(None, "Eigenbedarf", None, None, no_billing=True)
+    a = _job(store, kundin, "Hut")              # 5,40 €, 15 € bezahlt → Gewinn 12 €
+    store.add_payment(a, 15.0)
+    _job(store, kundin, "Offen")                # 5,40 € offen → Gewinn 2,40 €
+    _job(store, kundin, "Geschenk", gift=1)     # 3 € verschenkt
+    _job(store, eigen, "Eigenbedarf")           # zählt nicht
+    _keys, _labels, since, until = _buckets("month", date.today())
+    rv = revenue_data(store, "month", since.timestamp(), until.timestamp())
+    tot = rv["tot"]
+    assert round(tot["revenue"], 2) == 20.4 and round(tot["paid"], 2) == 15.0 and round(tot["open"], 2) == 5.4
+    assert round(tot["profit"], 2) == 14.4 and round(tot["gift"], 2) == 3.0 and tot["n"] == 2
+    assert [c["name"] for c in rv["customers"]] == ["Kundin"]
+    html = page_stats(store, "month")
+    assert "Einnahmen und Gewinn" in html and "14,40 €" in html
