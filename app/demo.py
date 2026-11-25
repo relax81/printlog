@@ -262,8 +262,8 @@ def _project(store: Store, jobs: list[dict[str, Any]], cust_ids: list[int], skip
 
 
 def _split(store: Store, jobs: list[dict[str, Any]], cust_ids: list[int], skip: set[int], now: float, L: Any,
-           image_dir: Path) -> None:
-    """Aufteilen und Vorrat: 10 Clips für Tom (2) und Anna (4), Rest im Vorrat; ein Bausatz mit Sätzen und Einzelteil."""
+           image_dir: Path, project: int | None = None) -> None:
+    """Aufteilen und Vorrat: 12 Clips für Tom (2), Anna (4) und 2 ins Projekt, Rest im Vorrat; ein Bausatz mit Sätzen und Einzelteil."""
     o = OBJECTS[_IDX["Kabelkanal-Clips"]]
     done = [j for j in jobs if j["status"] == "fertig" and not j["scrap"] and j["id"] not in skip
             and 3 * 86400 < now - j["start"] < 25 * 86400 and not (store.get(j["id"]) or {}).get("project_id")]
@@ -272,10 +272,11 @@ def _split(store: Store, jobs: list[dict[str, Any]], cust_ids: list[int], skip: 
         j = done[0]
         store.clear_payments(j["id"])
         store.clear_handovers(j["id"])
-        store.update(j["id"], task_name=L(o[:2]), quantity=10, customer_id=cust_ids[1], gift=None, final_price=None)
-        cover(image_dir / f"job_{j['id']}.png", o[2], [_render_color(m["color"]) for m in j["materials"]], 10, j["id"])
+        store.update(j["id"], task_name=L(o[:2]), quantity=12, customer_id=cust_ids[1], gift=None, final_price=None)
+        cover(image_dir / f"job_{j['id']}.png", o[2], [_render_color(m["color"]) for m in j["materials"]], 12, j["id"])
         store.update(j["id"], image=f"job_{j['id']}.png")
-        store.set_split(j["id"], [{"customer_id": cust_ids[1], "qty": 2}, {"customer_id": cust_ids[0], "qty": 4}])
+        store.set_split(j["id"], [{"customer_id": cust_ids[1], "qty": 2}, {"customer_id": cust_ids[0], "qty": 4}]
+                        + ([{"project_id": project, "qty": 2}] if project else []))
         shares = store.shares([j["id"]]).get(j["id"], [])
         tom = next(s for s in shares if s["customer_id"] == cust_ids[1])
         anna = next(s for s in shares if s["customer_id"] == cust_ids[0])
@@ -547,8 +548,8 @@ def seed(store: Store, image_dir: Path, lang: str, now: float | None = None) -> 
         with store._lock, store._conn:  # noqa: SLF001 - Löschzeitpunkt für die Demo vordatieren
             store._conn.execute("UPDATE trash SET deleted_ts = ? WHERE id = ?", (now - (2 + 4 * k) * 86400, j["id"]))  # noqa: SLF001
 
-    _project(store, jobs, cust_ids, {j["id"] for j in trash}, now, L, image_dir)
-    _split(store, jobs, cust_ids, {j["id"] for j in trash}, now, L, image_dir)
+    pid = _project(store, jobs, cust_ids, {j["id"] for j in trash}, now, L, image_dir)
+    _split(store, jobs, cust_ids, {j["id"] for j in trash}, now, L, image_dir, pid)
 
     store.set_setting("demo_lang", lang)
     store.set_setting("demo_ts", f"{now:.0f}")

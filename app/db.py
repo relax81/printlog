@@ -121,6 +121,26 @@ CREATE TABLE IF NOT EXISTS settings (
 """
 
 
+def _scaled_materials(raw: Any, factor: float) -> str | None:
+    """Materialliste (JSON) mit anteiligen Gramm, z. B. für 4 von 10 Stück."""
+    try:
+        items = json.loads(raw) if isinstance(raw, str) else raw
+    except ValueError:
+        return None
+    if not isinstance(items, list):
+        return None
+    out = []
+    for m in items:
+        if isinstance(m, dict):
+            m = dict(m)
+            try:
+                m["grams"] = round(float(m.get("grams") or 0) * factor, 2)
+            except (TypeError, ValueError):
+                pass
+            out.append(m)
+    return json.dumps(out)
+
+
 class Store:
     def __init__(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -320,6 +340,7 @@ class Store:
                 "INSERT OR REPLACE INTO trash (id, printer, start_ts, end_ts, deleted_ts, data) VALUES (?, ?, ?, ?, ?, ?)",
                 (job_id, job["printer"], job["start_ts"], job["end_ts"], time.time(), json.dumps(job)))
             self._conn.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+        self._tidy_projects({sh["project_id"] for sh in job.get("_shares", []) if sh.get("project_id")})
         return job
 
     def trashed(self) -> list[dict[str, Any]]:
@@ -355,6 +376,9 @@ class Store:
         with self._lock, self._conn:
             self._conn.execute(f"INSERT OR REPLACE INTO jobs ({cols}) VALUES ({', '.join('?' for _ in job)})", list(job.values()))
             for sh in shares:
+                if sh.get("project_id") and not self._conn.execute(
+                        "SELECT 1 FROM jobs WHERE id = ? AND kind = 'project'", (sh["project_id"],)).fetchone():
+                    continue  # Projekt gibt es nicht mehr: die Stück liegen wieder im Vorrat
                 if sh.get("customer_id") and not self._conn.execute("SELECT 1 FROM customers WHERE id = ?", (sh["customer_id"],)).fetchone():
                     sh["customer_id"] = None
                 if sh.get("code") and self._conn.execute("SELECT 1 FROM jobs WHERE code = ?", (sh["code"],)).fetchone():
@@ -362,8 +386,9 @@ class Store:
                 self._conn.execute(f"INSERT OR REPLACE INTO jobs ({', '.join(sh)}) VALUES ({', '.join('?' for _ in sh)})", list(sh.values()))
             self._conn.execute("DELETE FROM trash WHERE id = ?", (job_id,))
         self.ensure_codes()
-        if pid:
-            self.refresh_project(pid)
+        for p in {pid} | {sh["project_id"] for sh in shares if sh.get("project_id")}:
+            if p:
+                self.refresh_project(p)
         return True
 
     def purge_job(self, job_id: int) -> list[str]:
@@ -482,6 +507,7 @@ class Store:
             customer_id = self._conn.execute("SELECT customer_id FROM jobs WHERE id = ?", (into,)).fetchone()[0]
         with self._lock, self._conn:
             for p in projects:
+                self._conn.execute("UPDATE jobs SET project_id = ? WHERE project_id = ? AND kind = 'share'", (into, p))
                 self._conn.execute("UPDATE payments SET job_id = ? WHERE job_id = ?", (into, p))
                 self._conn.execute("UPDATE photos SET job_id = ? WHERE job_id = ?", (into, p))
                 self._conn.execute("DELETE FROM handovers WHERE job_id = ?", (p,))
@@ -495,10 +521,13 @@ class Store:
 
     def remove_from_project(self, job_id: int) -> int | None:
         """Druck aus seinem Projekt lösen; ein leeres Projekt wird aufgelöst. Gibt die Projekt-ID zurück."""
-        row = self._conn.execute("SELECT project_id FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        row = self._conn.execute("SELECT project_id, kind FROM jobs WHERE id = ?", (job_id,)).fetchone()
         if not row or not row[0]:
             return None
         pid = row[0]
+        if row["kind"] == "share":  # Stück aus einem aufgeteilten Druck: gehen zurück in dessen Vorrat
+            self.remove_share(job_id)
+            return pid
         with self._lock, self._conn:
             self._conn.execute("UPDATE jobs SET project_id = NULL WHERE id = ?", (job_id,))
         if self._conn.execute("SELECT 1 FROM jobs WHERE project_id = ?", (pid,)).fetchone():
@@ -511,6 +540,8 @@ class Store:
         """Projekt auflösen: Drucke werden wieder einzeln. Zahlungen und Fotos gehen an den ersten Druck,
         eine vollständige Übergabe gilt für alle Drucke."""
         self.unsplit(project_id)
+        with self._lock, self._conn:  # Stück aus aufgeteilten Drucken gehen zurück in deren Vorrat
+            self._conn.execute("DELETE FROM jobs WHERE project_id = ? AND kind = 'share'", (project_id,))
         kids = [r[0] for r in self._conn.execute(
             f"SELECT id FROM jobs WHERE project_id = ? ORDER BY {Store.SCRAP_SQL}, start_ts, id", (project_id,))]
         proj = self.get(project_id)
@@ -608,7 +639,9 @@ class Store:
         marks = ", ".join("?" for _ in parent_ids)
         rows = self._conn.execute(
             f"SELECT jobs.*, customers.name AS customer_name, customers.margin_pct AS customer_margin, COALESCE(customers.no_billing, 0) AS customer_nobill, "
-            f"{Store.SCRAP_SQL} AS is_scrap, {Store.DELIVERED_SQL} AS delivered, {Store.PAID_SQL} AS paid FROM jobs "
+            f"{Store.SCRAP_SQL} AS is_scrap, {Store.DELIVERED_SQL} AS delivered, {Store.PAID_SQL} AS paid, "
+            "(SELECT p.task_name FROM jobs p WHERE p.id = jobs.project_id) AS project_name, "
+            "(SELECT p.code FROM jobs p WHERE p.id = jobs.project_id) AS project_code FROM jobs "
             f"LEFT JOIN customers ON customers.id = jobs.customer_id WHERE jobs.kind = 'share' AND jobs.share_of IN ({marks}) "
             "ORDER BY jobs.start_ts, jobs.id", parent_ids).fetchall()
         for r in rows:
@@ -628,7 +661,7 @@ class Store:
         if not parent:
             return
         parent = dict(parent)
-        rows = self._conn.execute("SELECT id, quantity, share_part FROM jobs WHERE kind = 'share' AND share_of = ?",
+        rows = self._conn.execute("SELECT id, quantity, share_part, share_kind, project_id FROM jobs WHERE kind = 'share' AND share_of = ?",
                                   (parent_id,)).fetchall()
         cache: dict[int, dict[str, Any] | None] = {}
         with self._lock, self._conn:
@@ -648,6 +681,17 @@ class Store:
                 self._conn.execute(
                     "UPDATE jobs SET task_name = ?, image = ?, cost_total = ?, bill_base = ?, filament_g = ? WHERE id = ?",
                     (name, image, cost, cost, None if grams is None else round(grams * q, 2), r["id"]))
+                if r["share_kind"] == "project":
+                    # Stück für ein Projekt: wie ein eigener Druck mit anteiligen Werten (Projekt summiert sie)
+                    self._conn.execute(
+                        "UPDATE jobs SET printer = ?, printer_name = ?, end_ts = ?, kwh = ?, cost = ?, cost_filament = ?, "
+                        "cost_printer = ?, materials = ? WHERE id = ?",
+                        (src.get("printer") or "", src.get("printer_name"), src.get("end_ts"),
+                         *(None if src.get(c) is None else round(src[c] * q / (src.get("quantity") or 1), 4)
+                           for c in ("kwh", "cost", "cost_filament", "cost_printer")),
+                         _scaled_materials(src.get("materials"), q / (src.get("quantity") or 1)), r["id"]))
+        for pid in {r["project_id"] for r in rows if r["share_kind"] == "project" and r["project_id"]}:
+            self.refresh_project(pid)
 
     def stock(self, parent: dict[str, Any], shares: list[dict[str, Any]] | None = None,
               kids: list[dict[str, Any]] | None = None) -> dict[str, Any]:
@@ -697,7 +741,16 @@ class Store:
         if parent.get("kind") != "project" and parent.get("is_scrap"):
             return "Fehldrucke lassen sich nicht aufteilen"
         old = self.shares([parent_id]).get(parent_id, [])
-        editable = {s["id"]: s for s in old if s.get("customer_id") and not s.get("share_part") and s.get("share_kind") != "out"}
+        editable = {s["id"]: s for s in old if s.get("share_kind") == "project"
+                    or (s.get("customer_id") and not s.get("share_part") and s.get("share_kind") != "out")}
+        for r in rows:
+            if r.get("project_id") and not (r.get("sid") and int(r["sid"]) in editable):
+                if parent.get("kind") == "project":
+                    return "Ein Projekt lässt sich nicht in ein anderes Projekt aufteilen"
+                if not self._conn.execute("SELECT 1 FROM jobs WHERE id = ? AND kind = 'project'", (int(r["project_id"]),)).fetchone():
+                    return "Projekt nicht gefunden"
+            if r.get("new_project") and parent.get("kind") == "project":
+                return "Ein Projekt lässt sich nicht in ein anderes Projekt aufteilen"
         keep = {int(r["sid"]) for r in rows if r.get("sid")}
         drop = [s for sid, s in editable.items() if sid not in keep]
         for s in drop:
@@ -727,9 +780,16 @@ class Store:
             for s in drop:
                 self._conn.execute("DELETE FROM jobs WHERE id = ? AND kind = 'share'", (s["id"],))
             self._conn.execute("UPDATE jobs SET split = 1 WHERE id = ?", (parent_id,))
+        self._tidy_projects({s["project_id"] for s in drop if s.get("project_id")})
         for r in rows:
             q = int(r["qty"])
-            if r.get("sid") and int(r["sid"]) in editable:
+            if r.get("sid") and int(r["sid"]) in editable and editable[int(r["sid"])].get("share_kind") == "project":
+                self.update(int(r["sid"]), quantity=q)
+            elif r.get("project_id") or r.get("new_project"):
+                pid = int(r["project_id"]) if r.get("project_id") else self.new_project(str(r["new_project"]), parent)
+                cid = self._conn.execute("SELECT customer_id FROM jobs WHERE id = ?", (pid,)).fetchone()[0]
+                self._new_share(parent, cid, q, "project", ts=parent.get("start_ts"), project_id=pid)
+            elif r.get("sid") and int(r["sid"]) in editable:
                 cid = r.get("customer_id") or editable[int(r["sid"])]["customer_id"]
                 self.update(int(r["sid"]), quantity=q, customer_id=cid)
             elif r.get("customer_id"):
@@ -752,19 +812,33 @@ class Store:
         self.refresh_shares(parent_id)
         return None
 
+    def new_project(self, name: str, like: dict[str, Any] | None = None) -> int:
+        """Leeres Projekt anlegen (für Stück aus einem aufgeteilten Druck)."""
+        return self.insert(kind="project", printer="", state="done", status="fertig", task_name=name.strip() or "Projekt",
+                           quantity=1, start_ts=(like or {}).get("start_ts") or time.time())
+
+    def _tidy_projects(self, pids: set[int]) -> None:
+        """Nach dem Entfernen von Stück: Projekte neu rechnen, leere Projekte auflösen."""
+        for pid in pids:
+            if self._conn.execute("SELECT 1 FROM jobs WHERE project_id = ?", (pid,)).fetchone():
+                self.refresh_project(pid)
+            else:
+                self._drop_project(pid, None)
+
     def unsplit(self, parent_id: int) -> None:
         """Aufteilung aufheben: Kunde, Zahlungen und Übergaben des ersten Anteils mit Kunde gehen zurück an den Druck."""
         parent = self.get(parent_id)
         if not parent or not parent.get("split"):
             return
         old = self.shares([parent_id]).get(parent_id, [])
-        heir = next((s for s in old if s.get("customer_id")), None)
+        heir = next((s for s in old if s.get("customer_id") and s.get("share_kind") != "project"), None)
         with self._lock, self._conn:
             for s in old:
                 self._conn.execute("UPDATE payments SET job_id = ? WHERE job_id = ?", (parent_id, s["id"]))
                 self._conn.execute("DELETE FROM handovers WHERE job_id = ?", (s["id"],))
                 self._conn.execute("DELETE FROM jobs WHERE id = ?", (s["id"],))
             self._conn.execute("UPDATE jobs SET split = NULL WHERE id = ?", (parent_id,))
+        self._tidy_projects({s["project_id"] for s in old if s.get("project_id")})
         if heir:
             self.update(parent_id, customer_id=heir["customer_id"], gift=heir.get("gift"))
 
@@ -803,12 +877,14 @@ class Store:
 
     def remove_share(self, share_id: int) -> bool:
         """Anteil löschen (nur ohne Zahlungen und Übergaben); die Stück gehen zurück in den Vorrat."""
-        row = self._conn.execute("SELECT id FROM jobs WHERE id = ? AND kind = 'share'", (share_id,)).fetchone()
+        row = self._conn.execute("SELECT id, project_id FROM jobs WHERE id = ? AND kind = 'share'", (share_id,)).fetchone()
         if not row or self._conn.execute("SELECT 1 FROM payments WHERE job_id = ? UNION SELECT 1 FROM handovers WHERE job_id = ?",
                                          (share_id, share_id)).fetchone():
             return False
         with self._lock, self._conn:
             self._conn.execute("DELETE FROM jobs WHERE id = ?", (share_id,))
+        if row["project_id"]:
+            self._tidy_projects({row["project_id"]})
         return True
 
     def stock_items(self) -> list[dict[str, Any]]:

@@ -760,6 +760,11 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
             raw = json.loads(str(form.get("rows") or "[]"))
             rows = []
             for r in raw:
+                if r.get("project_id") or r.get("new_project"):
+                    rows.append({"sid": int(r["sid"]) if r.get("sid") else None, "qty": int(r.get("qty") or 0),
+                                 "project_id": int(r["project_id"]) if r.get("project_id") else None,
+                                 "new_project": str(r.get("new_project") or "").strip()[:120] or None})
+                    continue
                 name = str(r.get("new_name") or "").strip()
                 cid = store.customer_by_name(name) if name else int(r["customer_id"]) if r.get("customer_id") else None
                 if cid is None:
