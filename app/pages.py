@@ -253,7 +253,9 @@ background:var(--card);border:1px solid var(--line);border-radius:10px;padding:1
 .mcard .mr .s{font-size:12px}
 .mcb{display:flex;flex-direction:column;align-items:flex-end;gap:4px;margin-top:4px}.mcb .bdg{font-size:12px;padding:2px 8px}
 .mcard .mm{grid-column:2/4;font-size:12px;color:var(--muted)}.mcard .mm .chips{margin-top:0}
-.mcard .meta{display:flex;flex-wrap:wrap;gap:0 6px}.mcard .meta span+span:before{content:"·";margin-right:6px}
+.mcard .meta{overflow:hidden}.mcard .meta>div{display:flex;flex-wrap:wrap;margin-left:-14px}
+.mcard .meta>div>span{white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+.mcard .meta>div>span:before{content:"·";display:inline-block;width:14px;text-align:center}
 .jk{grid-template-columns:1.4fr repeat(5,minmax(0,1fr));gap:12px}
 .jk .kpi{border-radius:14px;padding:12px 16px}.jk .kpi span{display:block;font-size:13px;font-weight:600}
 .jk .kpi b{font-size:24px;letter-spacing:-.01em}.jk .kpi small{display:block;color:var(--muted);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -277,6 +279,10 @@ background:var(--card);border:1px solid var(--line);border-radius:10px;padding:1
 a.tag{color:var(--accent)}
 .tnote{font-size:13px;color:var(--muted)}.tnote.warn{color:var(--warn)}.tnote.bad{color:var(--bad)}
 .jc b{display:block;font-weight:600;white-space:nowrap}.jc span{display:block;font-size:13px;color:var(--muted);white-space:nowrap}
+.jc b.prs{white-space:normal;overflow:hidden}
+.jc b.prs>span{display:flex;flex-wrap:wrap;margin-left:-1.1em}
+.jc b.prs i{font-style:normal;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.jc b.prs i::before{content:"·";display:inline-block;width:1.1em;text-align:center;color:var(--muted)}
 .jc.r{text-align:right;font-variant-numeric:tabular-nums}
 .jh .r{text-align:right}
 .cb{all:unset;box-sizing:border-box;display:block;width:100%;text-align:right;cursor:pointer;position:relative;padding:4px 0;-webkit-tap-highlight-color:transparent}
@@ -1279,6 +1285,15 @@ def printers_of(kids: list[dict[str, Any]], names: dict[str, str]) -> str:
     return " · ".join(dict.fromkeys(names.get(k["printer"], k.get("printer_name") or k["printer"]) for k in kids)) or "–"
 
 
+def printers_html(kids: list[dict[str, Any]], names: dict[str, str]) -> str:
+    """Drucker eines Projekts für die Tabelle: in einer Zeile, solange Platz ist, sonst je Drucker umbrechen."""
+    ps = list(dict.fromkeys(names.get(k["printer"], k.get("printer_name") or k["printer"]) for k in kids))
+    if len(ps) < 2:
+        return f'<b>{e(ps[0] if ps else "–")}</b>'
+    items = "".join(f'<i title="{e(x)}">{e(x)}</i>' for x in ps)
+    return f'<b class="prs"><span>{items}</span></b>'
+
+
 def print_hours(kids: list[dict[str, Any]]) -> float:
     return sum(max(0.0, (k["end_ts"] or time.time()) - k["start_ts"]) for k in kids if k.get("start_ts")) / 3600
 
@@ -1357,7 +1372,7 @@ def _project_rows(p: dict[str, Any], kids: list[dict[str, Any]], names: dict[str
            f'{mosaic(kids)}'
            f'<div><a class="jn" href="{href}">{e(p["task_name"] or "–")}</a>{_pid(p)}{toggle}{project_chips(kids)}'
            f'<div class="tags">{"".join(tags)}</div></div>'
-           f'<div class="jc"><b>{e(printers_of(kids, names))}</b><span>{when}{" · " + fmt_hours(hours) if hours else ""}</span></div>'
+           f'<div class="jc">{printers_html(kids, names)}<span>{when}{" · " + fmt_hours(hours) if hours else ""}</span></div>'
            f'<div class="jc r"><b>{fmt_num(grams, 1, "g")}</b><span>{fmt_num(p.get("kwh"), 3, "kWh")}</span></div>'
            f'<div class="calc">{cost}</div>{_prices(p, mg)}<div class="js">{_status_badges(p)}</div></div>')
     out = [row]
@@ -1425,7 +1440,8 @@ def _mobile_card(j: dict[str, Any], names: dict[str, str], photo: str | None,
     """Karte für schmale Bildschirme statt der breiten Tabelle; Tippen öffnet die Details."""
     if j.get("kind") == "project":
         kids = kids or []
-        meta = [e(printers_of(kids, names)), span_text(kids)]
+        meta = [e(x) for x in dict.fromkeys(names.get(k["printer"], k.get("printer_name") or k["printer"]) for k in kids)]
+        meta.append(span_text(kids))
         if j.get("quantity"):
             meta.append(t("{q} Stk.", q=j["quantity"]))
         if j.get("customer_name"):
@@ -1438,7 +1454,7 @@ def _mobile_card(j: dict[str, Any], names: dict[str, str], photo: str | None,
                 f'<div><div class="mt">{e(j["task_name"] or "–")}</div><div class="mp">📦 {t("Projekt")} · {tn(len(kids), "{n} Druck", "{n} Drucke")}</div></div>'
                 f'<div class="mr"><b class="calc">{fmt_num(j.get("cost_total"), 2, "€")}</b>'
                 f'<div class="s s-{e(status.split()[0])}">{e(t(status))}</div><div class="mcb">{customer_badges(j)}</div></div>'
-                f'<div class="mm">{project_chips(kids)}<div class="meta">{"".join(f"<span>{m}</span>" for m in meta)}</div>'
+                f'<div class="mm">{project_chips(kids)}<div class="meta"><div>{"".join(f"<span>{m}</span>" for m in meta if m)}</div></div>'
                 f'{"" if j.get("customer_id") else cust_chip(j)}</div></a>')
     status = _status_of(j)
     grams = j["filament_g"] if j.get("filament_g") is not None else j["weight_g"]
@@ -1472,7 +1488,7 @@ def _mobile_card(j: dict[str, Any], names: dict[str, str], photo: str | None,
         + f'</div><div class="mr"><b class="calc">{fmt_num(j.get("cost_total"), 2, "€")}</b><span class="calc">{per}</span>'
         f'<div class="s s-{e(status.split()[0])}">{e(t(status))}</div>{extra}{scrap}'
         f'<div class="mcb">{customer_badges(j)}</div></div>'
-        f'<div class="mm">{chips}<div class="meta">{"".join(f"<span>{m}</span>" for m in meta)}</div>'
+        f'<div class="mm">{chips}<div class="meta"><div>{"".join(f"<span>{m}</span>" for m in meta if m)}</div></div>'
         f'{"" if j.get("customer_id") or j.get("project_id") else cust_chip(j)}</div></a>'
     )
 
