@@ -845,6 +845,56 @@ class Store:
             )
             return int(cur.lastrowid)
 
+    def customer_by_name(self, name: str) -> int:
+        """Kunde mit diesem Namen (Groß-/Kleinschreibung egal) oder neu angelegt, nur mit Namen."""
+        name = name.strip()[:120]
+        row = self._conn.execute("SELECT id FROM customers WHERE name = ? COLLATE NOCASE", (name,)).fetchone()
+        return int(row["id"]) if row else self.save_customer(None, name, None, None)
+
+    def assign_customer(self, ids: list[int], customer_id: int | None) -> dict[int, int | None]:
+        """Kunde für mehrere Drucke/Projekte setzen. Ein Druck in einem Projekt ändert den Kunden des Projekts.
+
+        Gibt {geänderte ID: bisheriger Kunde} zurück (für „Rückgängig“).
+        """
+        if customer_id is not None and not self._conn.execute("SELECT 1 FROM customers WHERE id = ?", (customer_id,)).fetchone():
+            return {}
+        prev: dict[int, int | None] = {}
+        for i in ids:
+            row = self._conn.execute("SELECT id, project_id, customer_id FROM jobs WHERE id = ?", (i,)).fetchone()
+            if not row:
+                continue
+            if row["project_id"]:
+                row = self._conn.execute("SELECT id, project_id, customer_id FROM jobs WHERE id = ?", (row["project_id"],)).fetchone()
+                if not row:
+                    continue
+            if row["id"] not in prev:
+                prev[row["id"]] = row["customer_id"]
+        for i in prev:
+            self.update(i, customer_id=customer_id)
+        return prev
+
+    def customer_suggestions(self, names: list[str]) -> dict[str, tuple[int, str, int]]:
+        """Vorschlag je Druckname: Kunde, für den das gleiche Modell am häufigsten gedruckt wurde → (id, Name, Anzahl)."""
+        names = sorted({n for n in names if n})
+        out: dict[str, tuple[int, str, int] | None] = {}
+        for i in range(0, len(names), 400):
+            part = names[i:i + 400]
+            marks = ", ".join("?" for _ in part)
+            rows = self._conn.execute(
+                "SELECT jobs.task_name, jobs.customer_id, customers.name, COUNT(*) n, MAX(jobs.start_ts) last FROM jobs "
+                "JOIN customers ON customers.id = jobs.customer_id "
+                f"WHERE jobs.kind IS NULL AND jobs.task_name IN ({marks}) GROUP BY jobs.task_name, jobs.customer_id "
+                "ORDER BY n DESC, last DESC", part).fetchall()
+            # Modelle, die meist ohne Kunde gedruckt werden (Eigenbedarf), bekommen keinen Vorschlag
+            none = dict(self._conn.execute(
+                f"SELECT task_name, COUNT(*) FROM jobs WHERE kind IS NULL AND customer_id IS NULL AND task_name IN ({marks}) "
+                "GROUP BY task_name", part).fetchall())
+            for r in rows:
+                if r["task_name"] not in out and r["n"] >= none.get(r["task_name"], 0):
+                    out[r["task_name"]] = (r["customer_id"], r["name"], r["n"])
+                out.setdefault(r["task_name"], None)  # nur der häufigste Kunde zählt
+        return {k: v for k, v in out.items() if v}
+
     def delete_customer(self, customer_id: int) -> None:
         with self._lock, self._conn:
             self._conn.execute("UPDATE jobs SET customer_id = NULL WHERE customer_id = ?", (customer_id,))

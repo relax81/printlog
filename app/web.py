@@ -729,6 +729,21 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
         ids = [i for i in _ids(await request.post()) if store.trash_job(i)]
         return web.json_response({"ok": True, "ids": ids})
 
+    @routes.post("/api/customers/assign")
+    async def api_assign_customer(request: web.Request) -> web.Response:
+        """Kunde für einen oder mehrere Drucke setzen (Schnellauswahl). new_name legt den Kunden vorher an."""
+        form = await request.post()
+        ids = _ids(form)
+        new_name = str(form.get("new_name") or "").strip()
+        cid = str(form.get("customer_id") or "")
+        customer_id = store.customer_by_name(new_name) if new_name else int(cid) if cid.isdigit() else None
+        prev = store.assign_customer(ids, customer_id)
+        if not prev:
+            raise web.HTTPBadRequest()
+        name = next((c["name"] for c in store.customers() if c["id"] == customer_id), None) if customer_id else None
+        return web.json_response({"ok": True, "customer_id": customer_id, "name": name,
+                                  "prev": [[i, c] for i, c in prev.items()]})
+
     @routes.post("/api/projects")
     async def api_project_create(request: web.Request) -> web.Response:
         """Ausgewählte Drucke zu einem Projekt zusammenfassen (mode=new) oder einem Projekt hinzufügen (mode=add)."""
