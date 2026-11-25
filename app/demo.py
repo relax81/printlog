@@ -240,7 +240,7 @@ def _defects(store: Store, jobs: list[dict[str, Any]], L: Any, en: bool) -> None
 
 
 def _project(store: Store, jobs: list[dict[str, Any]], cust_ids: list[int], skip: set[int], now: float, L: Any,
-             image_dir: Path) -> None:
+             image_dir: Path) -> int | None:
     """Ein Beispielprojekt: Werkstatt-Teile für Tom, parallel auf allen drei Druckern gedruckt."""
     done = [j for j in jobs if j["status"] == "fertig" and not j["scrap"] and j["id"] not in skip
             and 2 * 86400 < now - j["start"] < 30 * 86400]
@@ -250,7 +250,7 @@ def _project(store: Store, jobs: list[dict[str, Any]], cust_ids: list[int], skip
         if len({j["printer"]["key"] for j in win}) == len(PRINTERS):
             best = win[:5]
     if len(best) < 3:
-        return
+        return None
     parts = [("Gridfinity Grundplatte 4x4", 2), ("Gridfinity Box 2x3", 4), ("Lochwand-Werkzeughalter", 6),
              ("Gridfinity Box 2x3", 4), ("Wandhaken", 4)]
     for j, (name, qty) in zip(best, parts):
@@ -258,7 +258,52 @@ def _project(store: Store, jobs: list[dict[str, Any]], cust_ids: list[int], skip
         j["obj"], j["qty"] = o, qty
         store.update(j["id"], task_name=L(o[:2]), quantity=qty, gift=None, project_url=None, project_title=None, local_path=None)
         cover(image_dir / f"job_{j['id']}.png", o[2], [_render_color(m["color"]) for m in j["materials"]], qty, j["id"])
-    store.create_project([j["id"] for j in best], name=L(("Werkstatt-Wand", "Workshop wall")), customer_id=cust_ids[1])
+    return store.create_project([j["id"] for j in best], name=L(("Werkstatt-Wand", "Workshop wall")), customer_id=cust_ids[1])
+
+
+def _split(store: Store, jobs: list[dict[str, Any]], cust_ids: list[int], skip: set[int], now: float, L: Any,
+           image_dir: Path) -> None:
+    """Aufteilen und Vorrat: 10 Clips für Tom (2) und Anna (4), Rest im Vorrat; ein Bausatz mit Sätzen und Einzelteil."""
+    o = OBJECTS[_IDX["Kabelkanal-Clips"]]
+    done = [j for j in jobs if j["status"] == "fertig" and not j["scrap"] and j["id"] not in skip
+            and 3 * 86400 < now - j["start"] < 25 * 86400 and not (store.get(j["id"]) or {}).get("project_id")]
+    done.sort(key=lambda j: (j["obj"] is not o, -j["start"]))
+    if done:
+        j = done[0]
+        store.clear_payments(j["id"])
+        store.clear_handovers(j["id"])
+        store.update(j["id"], task_name=L(o[:2]), quantity=10, customer_id=cust_ids[1], gift=None, final_price=None)
+        cover(image_dir / f"job_{j['id']}.png", o[2], [_render_color(m["color"]) for m in j["materials"]], 10, j["id"])
+        store.update(j["id"], image=f"job_{j['id']}.png")
+        store.set_split(j["id"], [{"customer_id": cust_ids[1], "qty": 2}, {"customer_id": cust_ids[0], "qty": 4}])
+        shares = store.shares([j["id"]]).get(j["id"], [])
+        tom = next(s for s in shares if s["customer_id"] == cust_ids[1])
+        anna = next(s for s in shares if s["customer_id"] == cust_ids[0])
+        day = j["end"] if j.get("end") else j["start"]
+        store.add_handover(tom["id"], 2, day + 86400, L(("beim Training", "at practice")))
+        store.add_payment(tom["id"], round(store.get(tom["id"])["cost_total"] * 1.2, 2), day + 86400, L(("bar", "cash")))
+        store.add_handover(anna["id"], 4, day + 2 * 86400)
+        store.give(j["id"], cust_ids[7], 1, handed=True)
+        store.give(j["id"], None, 1, note="selbst verwendet")
+        with store._lock, store._conn:  # noqa: SLF001 - Abgaben aus dem Vorrat zeitlich nach dem Druck
+            store._conn.execute("UPDATE jobs SET start_ts = ? WHERE share_of = ? AND share_kind IN ('stock','out')",  # noqa: SLF001
+                                (now - 2 * 86400, j["id"]))
+    # Bausatz aus drei Teilen, 5 Sätze: Anna 2, Familie 1 (verschenkt), Rest im Vorrat; einzelner Kopf an Jonas
+    free = [j for j in jobs if j["status"] == "fertig" and not j["scrap"] and j["id"] not in skip and j["cust"] is None
+            and 6 * 86400 < now - j["start"] < 40 * 86400 and not (store.get(j["id"]) or {}).get("project_id")
+            and not (store.get(j["id"]) or {}).get("split")][:3]
+    if len(free) == 3:
+        parts = [(("Figur Kopf", "Figure head"), 5), (("Figur Arme", "Figure arms"), 10), (("Figur Körper", "Figure body"), 5)]
+        for j, (name, qty) in zip(free, parts):
+            store.update(j["id"], task_name=L(name), quantity=qty, project_url=None, project_title=None, local_path=None, gift=None)
+            cover(image_dir / f"job_{j['id']}.png", "dragon", [_render_color(m["color"]) for m in j["materials"]], qty, j["id"])
+        pid = store.create_project([j["id"] for j in free], name=L(("Figuren-Bausatz", "Figure kit")), quantity=5)
+        if pid:
+            store.set_split(pid, [{"customer_id": cust_ids[0], "qty": 2}, {"customer_id": cust_ids[4], "qty": 1}])
+            fam = next(s for s in store.shares([pid])[pid] if s["customer_id"] == cust_ids[4])
+            store.update(fam["id"], gift=1)
+            store.add_handover(fam["id"], 1, now - 3 * 86400)
+            store.give(pid, cust_ids[7], 1, part=free[0]["id"])
 
 
 def seed(store: Store, image_dir: Path, lang: str, now: float | None = None) -> int:
@@ -503,6 +548,7 @@ def seed(store: Store, image_dir: Path, lang: str, now: float | None = None) -> 
             store._conn.execute("UPDATE trash SET deleted_ts = ? WHERE id = ?", (now - (2 + 4 * k) * 86400, j["id"]))  # noqa: SLF001
 
     _project(store, jobs, cust_ids, {j["id"] for j in trash}, now, L, image_dir)
+    _split(store, jobs, cust_ids, {j["id"] for j in trash}, now, L, image_dir)
 
     store.set_setting("demo_lang", lang)
     store.set_setting("demo_ts", f"{now:.0f}")

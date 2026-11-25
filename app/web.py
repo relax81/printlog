@@ -308,6 +308,8 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
         days = str(form.get("trash_days") or "").strip()
         if days.isdigit() and 1 <= int(days) <= 3650:
             store.set_setting("trash_days", days)
+        if "stock_price" in form:
+            store.set_setting("stock_price", str(form["stock_price"]) if form.get("stock_price") in ("cost", "first", "ask") else "cost")
         if form.get("detail_tab") in DETAIL_TABS:
             store.set_setting("detail_tab", str(form["detail_tab"]))
         if "language" in form:
@@ -743,6 +745,56 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
         name = next((c["name"] for c in store.customers() if c["id"] == customer_id), None) if customer_id else None
         return web.json_response({"ok": True, "customer_id": customer_id, "name": name,
                                   "prev": [[i, c] for i, c in prev.items()]})
+
+    @routes.post("/api/jobs/{job_id:\\d+}/split")
+    async def api_split(request: web.Request) -> web.Response:
+        """Stückzahl aufteilen: rows = JSON [{sid, customer_id, new_name, qty}]; off=1 hebt die Aufteilung auf."""
+        job_id = _job_id(request)
+        if not store.get(job_id):
+            raise web.HTTPNotFound()
+        form = await request.post()
+        if str(form.get("off") or "") == "1":
+            store.unsplit(job_id)
+            return web.json_response({"ok": True})
+        try:
+            raw = json.loads(str(form.get("rows") or "[]"))
+            rows = []
+            for r in raw:
+                name = str(r.get("new_name") or "").strip()
+                cid = store.customer_by_name(name) if name else int(r["customer_id"]) if r.get("customer_id") else None
+                if cid is None:
+                    continue
+                rows.append({"sid": int(r["sid"]) if r.get("sid") else None, "customer_id": cid, "qty": int(r.get("qty") or 0)})
+        except (ValueError, TypeError, KeyError, AttributeError):
+            raise web.HTTPBadRequest() from None
+        err = store.set_split(job_id, rows)
+        return web.json_response({"ok": not err, "error": t(err) if err else None})
+
+    @routes.post("/api/jobs/{job_id:\\d+}/give")
+    async def api_give(request: web.Request) -> web.Response:
+        """Aus dem Vorrat abgeben (customer_id oder new_name) oder ohne Kunde ausbuchen (note = Grund)."""
+        job_id = _job_id(request)
+        form = await request.post()
+        name = str(form.get("new_name") or "").strip()
+        cid = str(form.get("customer_id") or "")
+        customer_id = store.customer_by_name(name) if name else int(cid) if cid.isdigit() else None
+        q, part = str(form.get("qty") or ""), str(form.get("part") or "")
+        res = store.give(job_id, customer_id, int(q) if q.isdigit() else 0, part=int(part) if part.isdigit() else None,
+                         final_price=parse_num(form.get("price")) if customer_id else None,
+                         handed=bool(form.get("handed")), note=None if customer_id else str(form.get("note") or "").strip() or None)
+        if isinstance(res, str):
+            return web.json_response({"ok": False, "error": t(res)})
+        return web.json_response({"ok": True, "id": res})
+
+    @routes.post("/api/shares/{sid:\\d+}/delete")
+    async def api_share_delete(request: web.Request) -> web.Response:
+        """Ausbuchung oder leeren Anteil zurücknehmen (Stück gehen zurück in den Vorrat)."""
+        sid = int(request.match_info["sid"])
+        share = store.get(sid)
+        if not share or share.get("kind") != "share":
+            raise web.HTTPNotFound()
+        store.remove_share(sid)
+        raise web.HTTPSeeOther(f"../../../job?id={share['share_of']}#split")
 
     @routes.post("/api/projects")
     async def api_project_create(request: web.Request) -> web.Response:

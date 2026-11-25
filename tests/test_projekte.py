@@ -86,7 +86,7 @@ def test_statistik_zaehlt_drucke_nicht_projekt() -> None:
     assert after["n"] == before["n"] == 2
     assert round(after["cost_total"], 2) == round(before["cost_total"], 2) == 5.0
     rows = csv_rows(store, {})
-    assert len(rows) == 3 and rows[0][-1] == "Gehört zu Projekt"
+    assert len(rows) == 3 and rows[0][-2] == "Gehört zu Projekt"
 
 
 def test_hinzufuegen_zusammenlegen_loesen_aufloesen() -> None:

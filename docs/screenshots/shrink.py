@@ -16,11 +16,11 @@ for n in desk:
     im = Image.open(f'{src}/{n}.png').convert('RGB')
     if n in ('statistics','calendar','customers','print-billing','print-detail'): im = trim_bottom(im)
     save(im, n)
-for n in ['failed-print', 'failed-print-stats', 'project-list', 'project-detail', 'assign-customer']:
+for n in ['failed-print', 'failed-print-stats', 'project-list', 'project-detail', 'assign-customer', 'split-list', 'split-detail', 'split-dialog', 'stock']:
     if os.path.exists(f'{src}/{n}.png'):
         im = Image.open(f'{src}/{n}.png').convert('RGB')
-        save(trim_bottom(im) if n == 'project-detail' else im, n)
-for n in ['phone-list','phone-detail','phone-open']:
+        save(trim_bottom(im) if n in ('project-detail', 'stock') else im, n)
+for n in ['phone-list','phone-detail','phone-open','phone-stock']:
     im = Image.open(f'{src}/{n}.png').convert('RGB'); im = im.resize((585, int(im.height*585/im.width)), Image.LANCZOS); save(im, n)
 for a,b in [('raw-bon-kunde','receipt-customer'),('raw-bon-intern','receipt-internal'),('raw-cost','cost-sheet')]:
     if dst.endswith('-dark') or not os.path.exists(f'{src}/{a}.png'):

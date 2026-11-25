@@ -102,6 +102,15 @@ def collect(store: Store, job: dict[str, Any], image_dir: Path, status: bool = T
     has_customer = bool(job.get("customer_id"))
     project = job.get("kind") == "project"
     kids = store.children([job["id"]]).get(job["id"], []) if project else []
+    # Anteil (aufgeteilter Druck/Projekt): Material, Drucker und Bild kommen vom Druck, anteilig nach Stückzahl
+    msrc = job
+    frac = 1.0
+    if job.get("kind") == "share":
+        parent = store.get(job["share_of"]) if job.get("share_of") else None
+        part = store.get(job["share_part"]) if job.get("share_part") else None
+        msrc = part or parent or job
+        frac = qty / (msrc.get("quantity") or 1)
+    src_kids = store.children([msrc["id"]]).get(msrc["id"], []) if msrc is not job and msrc.get("kind") == "project" else []
     cm = job.get("customer_margin")
     general = margins(store)
 
@@ -138,40 +147,41 @@ def collect(store: Store, job: dict[str, Any], image_dir: Path, status: bool = T
 
     # Material mit Kosten je Slot (gleiche Regeln wie costing.compute)
     factor = 1.0
-    if job.get("status") == "abgebrochen" and job.get("progress") is not None:
-        factor = max(0.0, min(1.0, job["progress"] / 100.0))
+    if msrc.get("status") == "abgebrochen" and msrc.get("progress") is not None:
+        factor = max(0.0, min(1.0, msrc["progress"] / 100.0))
     mprices = store.material_prices()
     materials: list[dict[str, Any]] = []
-    for src_job in kids or [job]:
+    many = project or bool(src_kids)
+    for src_job in kids or src_kids or [msrc]:
         f = factor
-        if project:
+        if many:
             f = max(0.0, min(1.0, (src_job.get("progress") or 0) / 100.0)) \
                 if src_job.get("status") == "abgebrochen" and src_job.get("progress") is not None else 1.0
         notes = material_notes(src_job)
         for i, m in enumerate(parse_materials(src_job.get("materials"))):
             m["note"] = notes.get(i)
             eur_kg = (mprices.get(m["name"] or "") or mprices.get(m["type"] or "") or {}).get("eur_per_kg")
-            g = (m["grams"] or 0) * f
-            same = next((x for x in materials if project and (x["name"], x.get("color"), x["note"]) == (m["name"], m.get("color"), m["note"])), None)
+            g = (m["grams"] or 0) * f * frac
+            same = next((x for x in materials if many and (x["name"], x.get("color"), x["note"]) == (m["name"], m.get("color"), m["note"])), None)
             if same:  # Projekt: gleiche Filamente der Drucke zusammenzählen
                 same["grams_used"] += g
                 same["cost"] = None if eur_kg is None else same["grams_used"] / 1000 * eur_kg
                 continue
             materials.append({**m, "grams_used": g, "eur_kg": eur_kg, "cost": None if eur_kg is None else g / 1000 * eur_kg})
-    if project:
+    if many:
         for m in materials:
             m["slot"] = None
 
-    rate = hourly_rate(store.printer_rates().get(job["printer"])) if not project else None
-    photos = store.photos(job["id"])
+    rate = hourly_rate(store.printer_rates().get(msrc["printer"])) if not many and msrc.get("printer") else None
+    photos = store.photos(job["id"]) + (store.photos(msrc["id"]) if msrc is not job else [])
     photo: Any = None
-    for name in [p["file"] for p in photos] + ([job["image"]] if job.get("image") and not project else []):
+    for name in [p["file"] for p in photos] + ([msrc["image"]] if msrc.get("image") and not many else []):
         path = image_dir / name
         if path.exists() and path.suffix.lower() not in (".heic", ".heif"):
             photo = path
             break
-    if photo is None and kids:
-        photo = _mosaic(image_dir, kids)
+    if photo is None and (kids or src_kids):
+        photo = _mosaic(image_dir, kids or src_kids)
     names = printer_names(store)
     parts = [{"name": k.get("task_name") or t("Druck"), "ref": code_label(k.get("code")) or t("Nr. {id}", id=k["id"]),
               "printer": names.get(k["printer"], k.get("printer_name") or k["printer"]), "start": k.get("start_ts"),
@@ -210,7 +220,7 @@ def collect(store: Store, job: dict[str, Any], image_dir: Path, status: bool = T
         "materials": materials,
         "grams": grams,
         "rate": rate,
-        "printer": printers_of(kids, names) if project else names.get(job["printer"], job["printer"]),
+        "printer": printers_of(kids or src_kids, names) if many else names.get(msrc["printer"], msrc["printer"]),
         "project": project,
         "parts": parts,
         "hours": print_hours(kids) if project else None,

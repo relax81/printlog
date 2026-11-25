@@ -115,7 +115,7 @@ def margins(store: Store) -> list[tuple[str, float]]:
 
 def price_base(job: dict[str, Any]) -> float | None:
     """Kosten, auf die die Marge kommt: beim Projekt ohne unberechnete Fehldrucke."""
-    if job.get("kind") == "project" and job.get("bill_base") is not None:
+    if job.get("kind") in ("project", "share") and job.get("bill_base") is not None:
         return job["bill_base"]
     return job.get("cost_total")
 
@@ -394,7 +394,7 @@ pills.forEach(p=>{p.querySelector('select').addEventListener('change',pillsDone)
 fclear.onclick=()=>{pills.forEach(p=>p.querySelector('select').value='');const d=form.querySelector('input[name=day]');if(d)d.remove();pillsDone();refresh()};
 if(matchMedia('(min-width:701px)').matches)form.querySelector('input[name=q]').focus();
 document.querySelectorAll('.seg a[data-view]').forEach(a=>a.onclick=ev=>{ev.preventDefault();
-  form.querySelector('input[name=view]').value=a.dataset.view;form.classList.toggle('todo',a.dataset.view==='todo');
+  form.querySelector('input[name=view]').value=a.dataset.view;form.classList.toggle('todo',a.dataset.view==='todo'||a.dataset.view==='stock');
   document.querySelectorAll('.seg a').forEach(x=>x.classList.toggle('on',x===a));refresh()});
 function bind(){
   bindAct(refresh);
@@ -516,6 +516,8 @@ def add_suggestions(store: Store, jobs: list[dict[str, Any]]) -> None:
 
 def cust_chip(j: dict[str, Any], cls: str = "tag") -> str:
     """Kunden-Chip: antippen öffnet die Schnellauswahl; mit Vorschlag übernimmt ✓ ihn direkt."""
+    if j.get("split") and j.get("kind") != "share":
+        return _split.split_chips(j)
     attrs = f'data-kid="{j["id"]}" data-kname="{e(j.get("task_name") or "")}"'
     if j.get("customer_id") and j.get("customer_name"):
         return (f'<span role="button" tabindex="0" class="{cls} kset kc" {attrs} data-cur="{j["customer_id"]}" '
@@ -625,7 +627,7 @@ const KP=(()=>{
     render();bg.hidden=false;pop.hidden=false;place();
     if(matchMedia('(pointer:fine)').matches)q.focus()}
   function close(){if(pop.hidden)return;pop.hidden=true;bg.hidden=true;if(anchor)anchor.classList.remove('act');anchor=null}
-  async function save(fd){const o=cur;close();fd.append('ids',o.ids.join(','));
+  async function save(fd){const o=cur;close();if(o.onpick){o.onpick(fd);return}fd.append('ids',o.ids.join(','));
     try{const r=await fetch('api/customers/assign',{method:'POST',body:fd});if(!r.ok)return;const d=await r.json();
       if(d.customer_id&&!custs.some(c=>c.id===d.customer_id))custs.push({id:d.customer_id,name:d.name,last:0,ago:''});
       const c=custs.find(x=>x.id===d.customer_id);if(c){c.last=Date.now()/1000;c.ago=_t("heute")}
@@ -644,7 +646,7 @@ const KP=(()=>{
   async function undo(prev){const by=new Map();prev.forEach(([id,c])=>{const k=c==null?'':String(c);by.set(k,[...(by.get(k)||[]),id])});
     for(const [c,ids] of by){const fd=new FormData();fd.append('ids',ids.join(','));fd.append('customer_id',c);
       await fetch('api/customers/assign',{method:'POST',body:fd})}}
-  return {open,close,pick,save,undo};
+  return {open,close,pick,save,undo,get custs(){return custs}};
 })();
 // Chips: Antippen öffnet die Auswahl, ✓ übernimmt den Vorschlag
 function kpChip(ev,done){
@@ -673,6 +675,8 @@ I_GRID = ('<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="c
           '<rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg>')
 I_TODO = ('<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">'
           '<path d="M10 6h10M10 12h10M10 18h10"/><path d="m3.5 6 1.2 1.2L7 5M3.5 12l1.2 1.2L7 11"/><circle cx="5" cy="18" r="1.3"/></svg>')
+I_BOX = ('<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true">'
+         '<path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5z"/><path d="M3 7.5 12 12l9-4.5M12 12v9"/></svg>')
 I_CAL = ('<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">'
          '<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/></svg>')
 I_CHECK = ('<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">'
@@ -730,8 +734,9 @@ def page_jobs(store: Store, f: dict[str, str | None], connected: bool) -> str:
                 f'<span class="t">{e(label)}</span>{extra}</a>')
 
     views = (view_link("table", I_TABLE, t("Tabelle")) + view_link("gallery", I_GRID, t("Galerie")) +
-             view_link("todo", I_TODO, t("Offen"), f'<span class="cnt" id="opencount"{"" if n_open else " hidden"}>{n_open}</span>'))
-    body = f"""<form class="f fb{" todo" if view == "todo" else ""}" method="get" autocomplete="off">
+             view_link("todo", I_TODO, t("Offen"), f'<span class="cnt" id="opencount"{"" if n_open else " hidden"}>{n_open}</span>') +
+             view_link("stock", I_BOX, t("Vorrat")))
+    body = f"""<form class="f fb{" todo" if view in ("todo", "stock") else ""}" method="get" autocomplete="off">
 <div class="fbrow"><label class="fsearch">{I_SEARCH}<input class="search" type="search" name="q" value="{e(f["q"] or "")}" placeholder="{e(t("Suchen: Name, Material, Kunde, Projekt-ID …"))}"></label>
 <span class="seg vseg">{views}</span>
 <button type="button" class="ib gbtn{" on" if f.get("group") else ""}" title="{e(t("Liste nach Tagen gruppieren"))}" aria-label="{e(t("Nach Tagen"))}">{I_CAL}</button>
@@ -748,7 +753,8 @@ def page_jobs(store: Store, f: dict[str, str | None], connected: bool) -> str:
 <button type="button" class="btn danger del" disabled title="{e(t("Löschen"))}">🗑 <span class="bl">{t("Löschen")}</span></button></div>
 {_project_dialog(store, customers)}{customer_picker(customers)}
 <div id="toast" hidden><span></span><button type="button">{t("Rückgängig")}</button></div>"""
-    return layout("Printlog", "jobs", f"<style>{MOS_CSS}{JOBS_CSS}{ACT_CSS}{TODO_CSS}{KPICK_CSS}</style>" + body, ACT_JS + KPICK_JS + JOBS_JS)
+    return layout("Printlog", "jobs", f"<style>{MOS_CSS}{JOBS_CSS}{ACT_CSS}{TODO_CSS}{KPICK_CSS}{_split.SPLIT_CSS}</style>" + body,
+                  ACT_JS + KPICK_JS + JOBS_JS + _split.SPLIT_JS)
 
 
 def _project_dialog(store: Store, customers: list[dict[str, Any]]) -> str:
@@ -779,8 +785,11 @@ def results(store: Store, f: dict[str, str | None]) -> str:
     marker = f'<span id="opendata" hidden data-n="{store.count_jobs(pending="1")}"></span>'
     if f.get("view") == "todo":
         return marker + _todo_view(store, q)
+    if f.get("view") == "stock":
+        return marker + _split.stock_view(store, f)
     jobs, kids, via = group_projects(store, store.list_jobs(**q))
     add_suggestions(store, jobs)
+    _split.attach(store, jobs, kids)
     summary = store.summary(**q)
     mat_sum = store.material_summary(**q)
     names = printer_names(store)
@@ -909,7 +918,7 @@ def _ago(ts: float | None) -> str:
     return t("heute") if days <= 0 else t("gestern") if days == 1 else t("vor {n} Tagen", n=days)
 
 
-def _todo_row(j: dict[str, Any], photo: str | None, kids: list[dict[str, Any]] | None = None) -> str:
+def _todo_row(j: dict[str, Any], photo: str | None, kids: list[dict[str, Any]] | None = None, note: str = "") -> str:
     pay, ho = _open_state(j)
     jid, href = j["id"], f'job?id={j["id"]}'
     n, d = j.get("quantity") or 1, min(j.get("delivered") or 0, j.get("quantity") or 1)
@@ -934,7 +943,7 @@ def _todo_row(j: dict[str, Any], photo: str | None, kids: list[dict[str, Any]] |
     when = fmt_date(j["start_ts"], "dm") if j.get("start_ts") else "–"
     pic = mosaic(kids or []) if j.get("kind") == "project" else _thumb(j, photo)
     pj = f'📦 {tn(len(kids or []), "{n} Druck", "{n} Drucke")} · ' if j.get("kind") == "project" else ""
-    return (f'<div class="or">{pic}<div class="oname"><b><a href="{href}">{e(j["task_name"] or "–")}</a>{_pid(j)}</b>'
+    return (f'<div class="or">{pic}<div class="oname"><b><a href="{href}">{e(j["task_name"] or "–")}</a>{_pid(j)}{note}</b>'
             f'<span>{pj}{when} · {_ago(j.get("start_ts"))} · {_pcs(n)}</span></div>'
             f'{pay_html}{ho_html}<div class="oact">{acts}</div></div>')
 
@@ -973,6 +982,7 @@ def _todo_view(store: Store, q: dict[str, Any]) -> str:
             f'<div class="kpi"><span>{t("Kunden")}</span><b>{len(groups)}</b><small>{t("mit Offenem")}</small></div>'
             f'<div class="kpi"><span>{t("Ältester Posten")}</span><b>{tn(oldest, "{n} Tag", "{n} Tage")}</b><small>{t("seit Druckstart")}</small></div></div>')
     out = []
+    pcache: dict[int, dict[str, Any] | None] = {}
     for i, (cid, items) in enumerate(order):
         m, p, _, _ = sums(items)
         name = items[0].get("customer_name") or "?"
@@ -981,7 +991,7 @@ def _todo_view(store: Store, q: dict[str, Any]) -> str:
         out.append(f'<section class="og"><header><a class="nm" href="./?customer={cid}" title="{e(t("Alle Drucke von {name}", name=name))}">'
                    f'<span class="av" style="background:var(--s{i % 8 + 1})">{e(name[:1].upper())}</span>{e(name)}</a>'
                    f'<span class="muted" style="font-size:13px">{tn(len(items), "{n} Druck", "{n} Drucke")}</span><span class="sum">{tags}</span></header>'
-                   f'{"".join(_todo_row(j, photos.get(j["id"]), kids.get(j["id"])) for j in items)}</section>')
+                   f'{"".join(_todo_row(j, photos.get(j["id"]), kids.get(j["id"]), _split.todo_note(store, j, pcache) if j.get("kind") == "share" else "") for j in items)}</section>')
     hint = t("Offen sind Drucke mit Kunde, die noch nicht ganz bezahlt oder übergeben sind. Kunden mit „Keine Abrechnung“ und Fehldrucke, "
              "die nicht berechnet werden, fehlen. Verschenkte Drucke stehen nur hier, bis sie übergeben sind.")
     return f'{kpis}{"".join(out)}<p class="ohint">{hint}</p>'
@@ -1042,6 +1052,8 @@ def _cost_box(j: dict[str, Any], note: str = "") -> str:
 
 
 def _prices(j: dict[str, Any], mg: list[tuple[str, float]]) -> str:
+    if j.get("split") and j.get("kind") != "share":
+        return _split.split_prices(j)
     q = j.get("quantity") or 1
     items: list[tuple[str, float, bool]] = []
     if j.get("customer_margin") is not None:
@@ -1089,7 +1101,7 @@ def defect_badges(j: dict[str, Any], cls: str = "bdg") -> str:
 
 def billable(j: dict[str, Any]) -> bool:
     """Druck mit Kunde, bei dem abgerechnet wird (nicht „Keine Abrechnung“, nicht über ein Projekt)."""
-    return has_billing(j) and not j.get("project_id")
+    return has_billing(j) and not j.get("project_id") and not j.get("split")
 
 
 def has_billing(j: dict[str, Any]) -> bool:
@@ -1159,6 +1171,8 @@ def _ho_menu(j: dict[str, Any]) -> tuple[str, str, str, list[Any]]:
 
 def customer_badges(j: dict[str, Any], cls: str = "bdg") -> str:
     """Zahlung und Übergabe als antippbare Badges (nur Drucke mit Kunde, kein unberechneter Fehldruck)."""
+    if j.get("split") and j.get("kind") != "share":
+        return _split.split_badges(j, cls)
     if j.get("gift") and not billable(j) and not j.get("is_scrap"):
         return f'<span class="{cls} st-gift">{t("🎁 verschenkt")}</span>'
     if not billable(j) or no_charge(j):
@@ -1919,7 +1933,12 @@ SHARE_JS = """
 def page_job(store: Store, job: dict[str, Any], saved: str | None) -> str:
     if job.get("kind") == "project":
         return page_project(store, job, saved)
+    if job.get("kind") == "share":
+        return _split.page_share(store, job, saved)
     parent = store.get(job["project_id"]) if job.get("project_id") else None
+    split = bool(job.get("split"))
+    if split:
+        _split.attach(store, [job])
     names = printer_names(store)
     customers = store.customers()
     photos = store.photos(job["id"])
@@ -1937,6 +1956,8 @@ def page_job(store: Store, job: dict[str, Any], saved: str | None) -> str:
     if not parent:
         add_suggestions(store, [job])
         badges += cust_chip(job, "bdg")
+        if (job.get("quantity") or 1) > 1:
+            badges += _split.split_button(job)
     if job.get("code"):
         badges += (f'<button type="button" class="bdg pidb" data-copy="{e(code_label(job["code"]))}" '
                    f'title="{e(t("Projekt-ID: tippe sie in die Suche, um den Druck wiederzufinden. Klick kopiert."))}">'
@@ -2056,6 +2077,8 @@ def page_job(store: Store, job: dict[str, Any], saved: str | None) -> str:
         cust_field = (f'<label class="c3">{t("Kunde")}<span class="ro">{e(job.get("customer_name") or t("– kein Kunde –"))} · '
                       f'<a href="job?id={parent["id"]}#ed">{t("im Projekt ändern")}</a></span></label>')
         gift_field = ""
+    elif split:
+        cust_field, gift_field = _split.edit_field(), ""
     else:
         cust_field = f'<label class="c3">{t("Kunde")}<select name="customer_id">{cust_opts}</select></label>'
         gift_field = (f'<label class="c3">{t("Abrechnung")}<select name="gift">{opt("0", t("berechnen"), "1" if job.get("gift") else "0")}'
@@ -2088,7 +2111,7 @@ def page_job(store: Store, job: dict[str, Any], saved: str | None) -> str:
 <div class="tabs" role="tablist"><button type="button" data-tab="ov" class="{on("ov").strip()}">{t("Übersicht")}</button>
 {ab_tab}<button type="button" data-tab="ed" class="{on("ed").strip()}">{t("Bearbeiten")}</button>
 <button type="button" data-tab="ph" class="{on("ph").strip()}">{t("Fotos ({n})", n=len(photos))}</button></div>
-<section class="pane{on("ov")}" data-pane="ov">{_defect_box(store, job, photos)}{_deal_strip(job)}{pj_strip}<div class="ovg">
+<section class="pane{on("ov")}" data-pane="ov">{_defect_box(store, job, photos)}{_deal_strip(job)}{pj_strip}{_split.split_box(store, job) if split else ""}<div class="ovg">
 {_sec("druck", t("Druck"), druck_sum, f'<div class="facts">{facts}</div>{side}')}
 {_sec("mat", t("Material"), mat_sum, mat_bar + mat_rows)}
 {_sec("fotos", t("Eigene Fotos"), tn(len(photos), "{n} Foto", "{n} Fotos"), _upload_form(job["id"]) + photo_box + more)}
@@ -2113,8 +2136,10 @@ def page_job(store: Store, job: dict[str, Any], saved: str | None) -> str:
 <section class="pane{on("ph")}" data-pane="ph"><div class="box">{_upload_form(job["id"])}
 {f'<div class="photos lg">{_photo_tiles(photos)}</div>' if photos else f'<p class="muted">{t("Noch keine eigenen Fotos.")}</p>'}</div></section>
 </div>"""
-    return layout(job["task_name"] or t("Druck"), "jobs", f"<style>{MOS_CSS}{DETAIL_CSS}{PROJ_CSS}{ACT_CSS}{KPICK_CSS}</style>" + body + customer_picker(customers),
-                  ACT_JS + DETAIL_JS + SHARE_JS + KPICK_JS + KPICK_DETAIL_JS)
+    sp = _split.dialogs(store, job) if not parent else ""
+    return layout(job["task_name"] or t("Druck"), "jobs", f"<style>{MOS_CSS}{DETAIL_CSS}{PROJ_CSS}{ACT_CSS}{KPICK_CSS}{_split.SPLIT_CSS}</style>"
+                  + body + customer_picker(customers) + sp,
+                  ACT_JS + DETAIL_JS + SHARE_JS + KPICK_JS + KPICK_DETAIL_JS + _split.SPLIT_JS)
 
 
 # ---- Projekt (mehrere Drucke als ein Auftrag) -------------------------------------
@@ -2280,10 +2305,13 @@ def page_project(store: Store, p: dict[str, Any], saved: str | None) -> str:
     total = p.get("cost_total")
     n_fd = sum(1 for k in kids if k.get("is_scrap"))
     hours = print_hours(kids)
+    split = bool(p.get("split"))
+    if split:
+        _split.attach(store, [p], {p["id"]: kids})
 
     tone = _STATUS_TONE.get(status.split()[0], "")
     badges = f'<span class="bdg st st-{tone}">{e(t(status))}</span>'
-    badges += cust_chip(p, "bdg")
+    badges += cust_chip(p, "bdg") + _split.split_button(p)
     badges += f'<span class="bdg pjb">📦 {t("Projekt")} · {tn(len(kids), "{n} Druck", "{n} Drucke")}</span>'
     if p.get("code"):
         badges += (f'<button type="button" class="bdg pidb" data-copy="{e(code_label(p["code"]))}" '
@@ -2345,7 +2373,7 @@ def page_project(store: Store, p: dict[str, Any], saved: str | None) -> str:
 <div class="tabs" role="tablist"><button type="button" data-tab="ov" class="on">{t("Übersicht")}</button>
 {ab_tab}<button type="button" data-tab="ed" class="">{t("Bearbeiten")}</button>
 <button type="button" data-tab="ph" class="">{t("Fotos ({n})", n=len(photos) + len(kid_photos))}</button></div>
-<section class="pane on" data-pane="ov">{_deal_strip(p)}{_parts_box(store, p, kids, names)}{_timeline(kids, names)}{note}</section>
+<section class="pane on" data-pane="ov">{_deal_strip(p)}{_split.split_box(store, p, kids) if split else ""}{_parts_box(store, p, kids, names)}{_timeline(kids, names)}{note}</section>
 {ab_pane}<section class="pane" data-pane="ed"><div class="box">
 <form class="fields" method="post" action="api/jobs/{p["id"]}?redirect=1">
 <div class="nrow full"><label>{t("Name")}<input name="task_name" value="{e(p["task_name"] or "")}"></label>
@@ -2353,8 +2381,8 @@ def page_project(store: Store, p: dict[str, Any], saved: str | None) -> str:
 <button type="button" data-step="-1" aria-label="{e(t("eins weniger"))}">−</button>
 <input id="f_qty" name="quantity" type="number" min="1" step="1" inputmode="numeric" value="{p.get("quantity") or ""}" placeholder="1">
 <button type="button" data-step="1" aria-label="{e(t("eins mehr"))}">+</button></div></div></div>
-<label class="c3">{t("Kunde")}<select name="customer_id">{cust_opts}</select></label>
-<label class="c3">{t("Abrechnung")}<select name="gift">{opt("0", t("berechnen"), gv)}{opt("1", t("🎁 verschenkt (keine Zahlung)"), gv)}</select></label>
+{_split.edit_field() if split else f'<label class="c3">{t("Kunde")}<select name="customer_id">{cust_opts}</select></label>'}
+{"" if split else f'<label class="c3">{t("Abrechnung")}<select name="gift">{opt("0", t("berechnen"), gv)}{opt("1", t("🎁 verschenkt (keine Zahlung)"), gv)}</select></label>'}
 <label class="c3"></label>
 <label class="full">{t("Notiz")}<textarea name="job_note" rows="3">{e(p.get("job_note") or "")}</textarea></label>
 <div class="act"><button class="primary">{t("Speichern")}</button></div>
@@ -2363,8 +2391,9 @@ def page_project(store: Store, p: dict[str, Any], saved: str | None) -> str:
 <p>{t("Die Drucke bleiben erhalten und werden wieder einzeln geführt. Zahlungen gehen an den ersten Druck.")}</p></form></section>
 <section class="pane" data-pane="ph"><div class="box">{_upload_form(p["id"])}{all_photos}{kid_box}</div></section>
 </div>"""
-    return layout(p["task_name"] or t("Projekt"), "jobs", f"<style>{MOS_CSS}{DETAIL_CSS}{PROJ_CSS}{ACT_CSS}{KPICK_CSS}</style>" + body
-                  + customer_picker(customers), ACT_JS + DETAIL_JS + SHARE_JS + KPICK_JS + KPICK_DETAIL_JS)
+    return layout(p["task_name"] or t("Projekt"), "jobs", f"<style>{MOS_CSS}{DETAIL_CSS}{PROJ_CSS}{ACT_CSS}{KPICK_CSS}{_split.SPLIT_CSS}</style>" + body
+                  + customer_picker(customers) + _split.dialogs(store, p, kids),
+                  ACT_JS + DETAIL_JS + SHARE_JS + KPICK_JS + KPICK_DETAIL_JS + _split.SPLIT_JS)
 
 
 # ---- Kunden -------------------------------------------------------------------
@@ -2739,7 +2768,11 @@ def page_settings(store: Store, saved: str | None, logo: str | None = None,
 {f'<div class="fgrid wide">{name_rows}</div>' if name_rows else f'<p class="muted">{t("Erscheint, sobald Drucke mit Materialangaben erfasst sind.")}</p>'}"""),
         pane("margen", t("Margen"), f"""<h2 style="margin-top:0">{t("Margen")}</h2>
 <p class="muted">{t("Bis zu zwei allgemeine Aufschläge auf die Gesamtkosten. Jede Marge bekommt in der Tabelle eine eigene Spalte mit Verkaufspreis (und Preis pro Stück). Eine Marge pro Kunde stellst du unter „Kunden“ ein.")}</p>
-<div class="fbox">{margin_rows}</div>"""),
+<div class="fbox">{margin_rows}</div>
+<h2>{t("Vorrat")}</h2>
+<div class="fbox"><div class="frow"><label class="flbl" for="s_stock">{t("Preis beim Abgeben aus dem Vorrat")}</label>
+<select id="s_stock" name="stock_price">{"".join(opt(k, t(v), cfg.get("stock_price") or "cost") for k, v in _split.STOCK_PRICE.items())}</select>
+<small class="fhint muted">{t("Vorschlag im Fenster „Aus Vorrat abgeben“. Der Preis lässt sich dort immer ändern.")}</small></div></div>"""),
         pane("bon", t("Bon &amp; PDF"), logo_html),
         pane("ansicht", t("Ansicht"), f"""<h2 style="margin-top:0">{t("Ansicht")}</h2>
 <div class="fbox">
@@ -2949,11 +2982,24 @@ def csv_rows(store: Store, f: dict[str, str | None]) -> list[list[Any]]:
     mg = margins(store)
     at = header.index(t("Gesamt €")) + 1
     header[at:at] = [f"{n} +{fmt_input(p)} % €" for n, p in mg]
-    header += [t("Endpreis €"), t("Zu zahlen €"), t("Bezahlt €"), t("Übergeben Stück"), t("Gehört zu Projekt")]
+    header += [t("Endpreis €"), t("Zu zahlen €"), t("Bezahlt €"), t("Übergeben Stück"), t("Gehört zu Projekt"), t("Aufteilung")]
     out: list[list[Any]] = [header]
     q = db_filters(f)
     codes = {p["id"]: code_label(p.get("code")) for p in store.projects(limit=100000)}
-    for j in store.list_jobs(limit=100000, real="1", **q):
+    jobs = store.list_jobs(limit=100000, real="1", **q)
+    _split.attach(store, jobs)
+    for j in jobs:
+        split = None
+        due = (0 if j.get("gift") or no_charge(j) else round(amount_due(j), 2)) if billable(j) and amount_due(j) is not None else None
+        paid, delivered = round(j.get("paid") or 0, 2), j.get("delivered") or 0
+        if j.get("_shares") is not None:
+            sh = j["_shares"]
+            split = "; ".join([f'{s.get("customer_name") or t("Ausgebucht")} {fmt_input(s.get("quantity"))}' for s in sh]
+                              + [f'{t("Vorrat")} {_split.stock_text(j)}'])
+            bill = [s for s in sh if billable(s)]
+            due = round(sum(0 if s.get("gift") else amount_due(s) or 0 for s in bill), 2) if bill else None
+            paid = round(sum(s.get("paid") or 0 for s in bill), 2)
+            delivered = sum(s.get("delivered") or 0 for s in bill)
         mats = "; ".join(f'{m["name"] or "?"} {m["grams"]} g' for m in parse_materials(j.get("materials")))
         dur = (j["end_ts"] - j["start_ts"]) / 3600 if j["start_ts"] and j["end_ts"] and j["end_ts"] > j["start_ts"] else None
         grams = j["filament_g"] if j.get("filament_g") is not None else j["weight_g"]
@@ -2964,8 +3010,7 @@ def csv_rows(store: Store, f: dict[str, str | None]) -> list[list[Any]]:
             j["cost"], j.get("cost_filament"), j.get("cost_printer"), j.get("cost_total"), *[round(_price(j, p), 2) if _price(j, p) is not None else None for _, p in mg],
             t("ja") if j.get("is_scrap") else t("nein"), defect_label(j, icon=False) if j.get("is_scrap") else None,
             (charge_text(j) or t("nicht berechnet")) if j.get("is_scrap") else None, j.get("project_title"), j.get("project_url"), j.get("local_path"), j.get("job_note"),
-            j.get("final_price"), (0 if j.get("gift") or no_charge(j) else round(amount_due(j), 2)) if billable(j) and amount_due(j) is not None else None,
-            round(j.get("paid") or 0, 2), j.get("delivered") or 0, codes.get(j.get("project_id") or 0),
+            j.get("final_price"), due, paid, delivered, codes.get(j.get("project_id") or 0), split,
         ])
     return out
 
@@ -3132,3 +3177,6 @@ DATA_CSS = """
 .code{font:700 22px ui-monospace,Menlo,Consolas,monospace;letter-spacing:.18em;background:var(--card);border:1px dashed var(--bad);border-radius:8px;padding:4px 12px}
 .codein{font:700 20px ui-monospace,Menlo,Consolas,monospace;letter-spacing:.18em;text-transform:uppercase;width:180px;margin-bottom:10px}
 """
+
+
+from . import split as _split  # noqa: E402  (nutzt Helfer aus diesem Modul)
