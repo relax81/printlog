@@ -91,13 +91,18 @@ def bon_logo(store: Store, image_dir: Path) -> Path:
 
 # ---- Daten ------------------------------------------------------------------
 
-def collect(store: Store, job: dict[str, Any], image_dir: Path, status: bool = True) -> dict[str, Any]:
+def collect(store: Store, job: dict[str, Any], image_dir: Path, status: bool = True, positions: bool = False) -> dict[str, Any]:
     """Alles, was beide Exporte brauchen, an einer Stelle berechnet.
 
     ``status=False`` lässt Zahlungs- und Übergabestand weg (Häkchen im Teilen-Menü).
     """
+    from . import extras as zk
+
     qty = job.get("quantity") or 1
+    work = zk.work_total(job)
     cost = job.get("cost_total")
+    if cost is not None or work:
+        cost = (cost or 0) + work  # Selbstkosten inkl. Arbeit und Design
     pbase = price_base(job)  # beim Projekt ohne unberechnete Fehldrucke
     has_customer = bool(job.get("customer_id"))
     project = job.get("kind") == "project"
@@ -112,24 +117,27 @@ def collect(store: Store, job: dict[str, Any], image_dir: Path, status: bool = T
         frac = qty / (msrc.get("quantity") or 1)
     src_kids = store.children([msrc["id"]]).get(msrc["id"], []) if msrc is not job and msrc.get("kind") == "project" else []
     cm = job.get("customer_margin")
+    cw = bool(job.get("customer_work"))
     general = margins(store)
 
     prices: list[dict[str, Any]] = []
     if cm is not None:
-        prices.append({"name": f'{t("Kunde")} {job.get("customer_name") or ""}'.strip(), "pct": cm, "customer": True})
-    prices += [{"name": n, "pct": p, "customer": False} for n, p in general]
+        prices.append({"name": f'{t("Kunde")} {job.get("customer_name") or ""}'.strip(), "pct": cm, "customer": True, "work": cw})
+    prices += [{"name": m[0], "pct": m[1], "customer": False, "work": m.work} for m in general]
     for p in prices:
-        p["price"] = None if pbase is None else pbase * (1 + p["pct"] / 100)
+        p["price"] = zk.sell_price(pbase, work, p["pct"], p["work"])
 
     # Was der Kunde zahlt: Endpreis, sonst Kundenpreis. Ohne Kunde die erste allgemeine Marge.
     if job.get("final_price") is not None:
         due, src = job["final_price"], t("Endpreis")
     elif cm is not None and pbase is not None:
-        due, src = pbase * (1 + cm / 100), t("Kosten + {p} % Kundenmarge", p=fmt_input(cm))
+        due, src = zk.sell_price(pbase, work, cm, cw), t("Kosten + {p} % Kundenmarge", p=fmt_input(cm))
     elif not has_customer and general and pbase is not None:
-        due, src = pbase * (1 + general[0][1] / 100), t("Kosten + {p} % ({name})", p=fmt_input(general[0][1]), name=general[0][0])
+        due, src = zk.sell_price(pbase, work, general[0][1], general[0].work), t("Kosten + {p} % ({name})", p=fmt_input(general[0][1]), name=general[0][0])
     else:
-        due, src = pbase, t("Selbstkosten")
+        due, src = (None if pbase is None else pbase + work), t("Selbstkosten")
+    if work and job.get("final_price") is None:
+        src += " · " + t("Arbeit zum Stundensatz")
     gift = bool(job.get("gift"))
     scrap = bool(job.get("is_scrap"))
     # Fehldruck: anteilig/fester Betrag/voll berechnen oder (ohne Berechnung) nichts
@@ -228,7 +236,31 @@ def collect(store: Store, job: dict[str, Any], image_dir: Path, status: bool = T
         "status": _status_of(job),
         "photo": photo,
         "profit": None if (cost is None or due is None or gift or nobill) else due - cost,
+        "work": work,
+        "extras": zk.export_rows(store, job),
+        "work_rows": _work_rows(store, job),
+        "positions": positions,
+        "pbase_work": None if pbase is None else pbase + work,
     }
+
+
+def _work_rows(store: Store, job: dict[str, Any]) -> list[tuple[str, str, float]]:
+    """(Posten, Grundlage, Betrag) für Arbeit und Design."""
+    from . import extras as zk
+
+    prep, post, design = zk.work_minutes(job)
+    wr, dr = zk.rates(store.settings())
+    out = []
+    if prep or post:
+        out.append((t("Arbeit"), t("{m} min × {r}", m=fmt_input(round(prep + post, 1)), r=fmt_num(wr, 2, "€/h") if wr else "–"),
+                    (job.get("cost_work") or 0) - (job.get("cost_design") or 0)))
+    if design:
+        out.append((t("Design"), t("{m} min × {r}", m=fmt_input(round(design, 1)), r=fmt_num(dr, 2, "€/h") if dr else "–"),
+                    job.get("cost_design") or 0))
+    kids = zk.work_total(job) - (job.get("cost_work") or 0)
+    if job.get("kind") in ("project", "share") and kids > 0.004:
+        out.append((t("Arbeit in den Drucken"), "", kids))
+    return out
 
 
 def _mosaic(image_dir: Path, kids: list[dict[str, Any]]) -> io.BytesIO | None:
@@ -548,6 +580,15 @@ def bon_png(data: dict[str, Any], variant: str) -> bytes:
             b.row(part["name"], t("{q} Stk.", q=part["qty"]), size=26)
             if part["scrap"] and part["charge"]:
                 b.sub(t("Fehldruck – {x}", x=part["charge"]))
+    if not intern and data["positions"] and (data["extras"] or data["work_rows"]):
+        # Option „Positionen“: was im Preis steckt, ohne Beträge
+        b.gap(10)
+        b.section(t("Enthält"))
+        b.row(t("3D-Druck"), t("{q} Stk.", q=qty), size=26)
+        for name, _ in data["extras"]:
+            b.row(name, "", size=26, leader=False)
+        for name, basis, _ in data["work_rows"]:
+            b.row(name, basis.split(" × ")[0] if basis else "", size=26)
     if intern:
         _bon_intern(b, data)
     elif any(m["note"] for m in data["materials"]):
@@ -654,11 +695,19 @@ def _bon_intern(b: _Bon, data: dict[str, Any]) -> None:
     b.sub(fmt_num(data["grams"], 1, "g"))
     b.row(t("Drucker"), _eur(job.get("cost_printer")))
     b.sub(t("Abschreibung + Wartung") + (f' · {fmt_num(data["rate"], 2, "€")}/h' if data["rate"] else ""))
+    if job.get("cost_extras"):
+        b.row(t("Zubehör"), _eur(job.get("cost_extras")))
+        for name, amount in data["extras"][:6]:
+            b.sub(f"{name} · {_eur(amount)}")
+    for name, basis, amount in data["work_rows"]:
+        b.row(name, _eur(amount))
+        if basis:
+            b.sub(basis)
     b.dashed(10)
     b.row(t("Selbstkosten"), _eur(data["cost"]), bold=True)
     if qty > 1 and data["cost"] is not None:
         b.sub(t("{v} pro Stück", v=_eur(data["cost"] / qty)))
-    if data["pbase"] is not None and data["cost"] is not None and abs(data["pbase"] - data["cost"]) >= 0.005:
+    if data["pbase"] is not None and data["cost"] is not None and abs(data["pbase_work"] - data["cost"]) >= 0.005:
         b.row(t("Basis für Preise"), _eur(data["pbase"]))
         b.sub(t("ohne unberechnete Fehldrucke"))
 
@@ -666,7 +715,7 @@ def _bon_intern(b: _Bon, data: dict[str, Any]) -> None:
         b.gap(10)
         b.section(t("Preise"))
         for p in data["prices"]:
-            b.row(f'{p["name"]} +{fmt_input(p["pct"])} %', _eur(p["price"]),
+            b.row(f'{p["name"]} +{fmt_input(p["pct"])} %' + (f' ({t("inkl. Arbeit")})' if p["work"] and data["work"] else ""), _eur(p["price"]),
                   vfill=ACCENT if p["customer"] and job.get("final_price") is None else None)
             if qty > 1 and p["price"] is not None:
                 b.sub(t("{v} pro Stück", v=_eur(p["price"] / qty)))
@@ -894,11 +943,15 @@ def report_pdf(data: dict[str, Any]) -> bytes:
             [P(t("Filament")), P(fmt_num(data["grams"], 1, "g") + (" " + t("(anteilig bis zum Abbruch)") if job.get("status") == "abgebrochen" else ""), st_muted), P(_eur(job.get("cost_filament")), st_r)],
             [P(t("Drucker")), P(t("Abschreibung + Wartung") + (f' · {fmt_dur(job["start_ts"], job["end_ts"])} × {fmt_num(data["rate"], 2, "€")}/h' if data["rate"] and dur_h else
                                                               f' · {fmt_hours(data["hours"] or 0)}' if data["project"] else ""), st_muted),
-             P(_eur(job.get("cost_printer")), st_r)],
+             P(_eur(job.get("cost_printer")), st_r)]]
+    if job.get("cost_extras"):
+        rows.append([P(t("Zubehör")), P(", ".join(n for n, _ in data["extras"][:8]), st_muted), P(_eur(job.get("cost_extras")), st_r)])
+    rows += [[P(n), P(b_, st_muted), P(_eur(a), st_r)] for n, b_, a in data["work_rows"]]
+    rows += [
             [P(t("Selbstkosten"), ParagraphStyle("sb", parent=st_body, fontName=bold)),
              P(t("{v} pro Stück bei {q} Stück", v=_eur(data["cost"] / qty), q=qty) if qty > 1 and data["cost"] is not None else "", st_muted),
              P(_eur(data["cost"]), st_rb)]]
-    if data["pbase"] is not None and data["cost"] is not None and abs(data["pbase"] - data["cost"]) >= 0.005:
+    if data["pbase"] is not None and data["cost"] is not None and abs(data["pbase_work"] - data["cost"]) >= 0.005:
         rows.append([P(t("Basis für Preise")), P(t("ohne unberechnete Fehldrucke"), st_muted), P(_eur(data["pbase"]), st_r)])
     story += H(t("Kosten")) + [table(rows, [34 * mm, W_ - 64 * mm, 30 * mm], sum_rows=2 if len(rows) > 5 else 1)]
 
@@ -906,7 +959,7 @@ def report_pdf(data: dict[str, Any]) -> bytes:
     if data["prices"] or job.get("final_price") is not None:
         rows = [hrow(t("Preis"), t("Aufschlag"), t("pro Stück"), t("Gesamt"))]
         for p in data["prices"]:
-            rows.append([P(p["name"]), P(f'+{fmt_input(p["pct"])} %', st_muted),
+            rows.append([P(p["name"]), P(f'+{fmt_input(p["pct"])} %' + (f' · {t("inkl. Arbeit")}' if p["work"] and data["work"] else ""), st_muted),
                          P(_eur(p["price"] / qty) if p["price"] is not None else "–", st_r), P(_eur(p["price"]), st_r)])
         if job.get("final_price") is not None:
             fp = job["final_price"]

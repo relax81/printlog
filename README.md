@@ -89,6 +89,21 @@ in a **light and a dark** colour scheme (Settings → View → Colour scheme, or
   - *Electricity* from a smart plug's kWh meter (start → end of cool-down), or an estimate from a fixed wattage if you have no plug.
   - *Filament* per AMS slot (grams × €/kg), priced by type (PLA, PETG …) or by exact product (e.g. "Bambu PLA Matte").
   - *Printer* depreciation and maintenance per 1000 print hours.
+- **Labour and accessories** – a **Labour & accessories** box on the print page adds what a print costs beyond the printer:
+  - *Labour* with − / + steppers: preparation per plate (slicing, plate, starting the print), post-processing per piece
+    (or once per print) and design time, each with its own hourly rate (*Settings → Labour & accessories*).
+  - *Accessories* from an **inventory** (key rings, chains, magnets, bags …) with pack price, price per piece, stock,
+    low-stock warning and a buy link. Tap **＋ From inventory**, pick tiles, done; amounts are per piece and multiplied by
+    the quantity. One-off items (e.g. a special box) are added as free text with a price. A new pack is booked as an
+    *addition*, the price per piece is averaged.
+  - Assigned accessories are **reserved**; they leave the stock when you count pieces as **🔧 Assembled** (partial amounts
+    are fine) or when the pieces are handed over.
+  - **Take over** copies labour and accessories from the last print with the same name.
+  - Price = (print + accessories) × (1 + margin) + labour. Whether a margin also applies to labour is a checkbox per
+    margin (*also on labour*) and a setting per customer (default / yes / no; default = no).
+  - The price box shows **profit over cost** and the **effective hourly rate** of the final price
+    ((final price − print − accessories) ÷ hours of labour and design).
+  - The customer receipt can list what it contains (accessories, labour minutes) without prices; tick it when sharing.
 - **Selling prices** – two named margins, an optional margin per customer and a fixed final price per print.
 - **Customers** – partial payments and partial hand-overs, gifts, open amounts per customer. Tick **No billing** for
   a customer you only use for your own prints (e.g. models you upload): costs and statistics still count, but there are
@@ -113,7 +128,8 @@ in a **light and a dark** colour scheme (Settings → View → Colour scheme, or
 | <a href="docs/screenshots/en/project-list.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/project-list.png"><img src="docs/screenshots/en/project-list.png" alt="Project: one row, prints folded out"></picture></a><br>**Project: one row, prints folded out** | <a href="docs/screenshots/en/project-detail.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/project-detail.png"><img src="docs/screenshots/en/project-detail.png" alt="Project page with prints and timeline"></picture></a><br>**Project page with prints and timeline** |
 | <a href="docs/screenshots/en/assign-customer.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/assign-customer.png"><img src="docs/screenshots/en/assign-customer.png" alt="Assign a customer: chip in the list with a suggestion"></picture></a><br>**Assign a customer: chip in the list with a suggestion** | <a href="docs/screenshots/en/split-list.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/split-list.png"><img src="docs/screenshots/en/split-list.png" alt="Split print: one row, one chip per customer and stock"></picture></a><br>**Split print: one row, one chip per customer and stock** |
 | <a href="docs/screenshots/en/split-detail.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/split-detail.png"><img src="docs/screenshots/en/split-detail.png" alt="Split: each customer with price, payment and hand-over, rest in stock"></picture></a><br>**Split: each customer with price, payment and hand-over, rest in stock** | <a href="docs/screenshots/en/split-dialog.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/split-dialog.png"><img src="docs/screenshots/en/split-dialog.png" alt="Split window: pieces per customer, stock is calculated"></picture></a><br>**Split window: pieces per customer, stock is calculated** |
-| <a href="docs/screenshots/en/stock.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/stock.png"><img src="docs/screenshots/en/stock.png" alt="Stock: what is left on the shelf and its value"></picture></a><br>**Stock: what is left on the shelf and its value** | |
+| <a href="docs/screenshots/en/stock.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/stock.png"><img src="docs/screenshots/en/stock.png" alt="Stock: what is left on the shelf and its value"></picture></a><br>**Stock: what is left on the shelf and its value** | <a href="docs/screenshots/en/work-accessories.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/work-accessories.png"><img src="docs/screenshots/en/work-accessories.png" alt="Labour & accessories on the print page"></picture></a><br>**Labour & accessories on the print page** |
+| <a href="docs/screenshots/en/accessory-picker.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/accessory-picker.png"><img src="docs/screenshots/en/accessory-picker.png" alt="Pick accessories from the inventory"></picture></a><br>**Pick accessories from the inventory** | <a href="docs/screenshots/en/accessory-inventory.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/accessory-inventory.png"><img src="docs/screenshots/en/accessory-inventory.png" alt="Accessory inventory with stock and buy link"></picture></a><br>**Accessory inventory with stock and buy link** |
 
 | Phone: prints | Phone: print detail | Phone: open items | Phone: stock |
 |---|---|---|---|
@@ -436,6 +452,21 @@ in **hell und dunkel** (Einstellungen → Ansicht → Farbschema, oder automatis
   - *Strom* aus dem kWh-Zähler einer Steckdose (Start bis Ende der Abkühlphase) oder geschätzt über eine feste Leistung, wenn keine Steckdose da ist.
   - *Filament* pro AMS-Fach (Gramm × €/kg), Preis nach Typ (PLA, PETG …) oder nach Sorte (z. B. „Bambu PLA Matte“).
   - *Drucker*: Abschreibung und Wartung pro 1000 Druckstunden.
+- **Arbeit & Zubehör** – ein Kasten **Arbeit & Zubehör** in der Übersicht eines Drucks rechnet ein, was über den Drucker hinaus anfällt:
+  - *Arbeitszeit* mit − / + Steppern: Vorbereitung pro Platte (Slicen, Platte, Druck starten), Nachbearbeitung pro Stück
+    (oder einmalig pro Druck) und Designzeit, jeweils mit eigenem Stundensatz (*Einstellungen → Arbeit & Zubehör*).
+  - *Zubehör* aus einem **Inventar** (Schlüsselringe, Ketten, Magnete, Beutel …) mit Packungspreis, Stückpreis, Bestand,
+    Warnung bei wenig Bestand und Kauflink. **＋ Aus Inventar** antippen, Kacheln wählen, fertig; Mengen gelten pro Stück und
+    werden mit der Stückzahl multipliziert. Einmalige Posten (z. B. eine besondere Schachtel) gehen als Freitext mit Preis.
+    Eine neue Packung wird als *Zugang* gebucht, der Stückpreis wird gemittelt.
+  - Zugeordnetes Zubehör ist **reserviert**; vom Bestand geht es ab, wenn Stück als **🔧 Montiert** gezählt werden
+    (Teilmengen gehen) oder wenn die Stücke übergeben werden.
+  - **Übernehmen** kopiert Arbeit und Zubehör vom letzten Druck mit gleichem Namen.
+  - Preis = (Druck + Zubehör) × (1 + Marge) + Arbeit. Ob eine Marge auch auf die Arbeit kommt, ist ein Häkchen pro Marge
+    (*auch auf Arbeitszeit*) und eine Einstellung pro Kunde (Standard / ja / nein; Standard = nein).
+  - Der Preiskasten zeigt den **Gewinn über Selbstkosten** und den **effektiven Stundenlohn** des Endpreises
+    ((Endpreis − Druck − Zubehör) ÷ Stunden Arbeit und Design).
+  - Der Kunden-Bon kann auflisten, was enthalten ist (Zubehör, Arbeitsminuten), ohne Preise; Häkchen beim Teilen.
 - **Verkaufspreise** – zwei benannte Margen, optional eine Marge pro Kunde und ein fester Endpreis pro Druck.
 - **Kunden** – Teilzahlungen und Teilübergaben, Verschenktes, offene Beträge pro Kunde. Mit dem Häkchen **Keine Abrechnung**
   wird ein Kunde zum reinen Sammelplatz für Eigenbedarf (z. B. Modelle für eigene Uploads): Kosten und Statistik zählen
@@ -460,7 +491,8 @@ in **hell und dunkel** (Einstellungen → Ansicht → Farbschema, oder automatis
 | <a href="docs/screenshots/de/project-list.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/project-list.png"><img src="docs/screenshots/de/project-list.png" alt="Projekt: eine Zeile, Drucke aufgeklappt"></picture></a><br>**Projekt: eine Zeile, Drucke aufgeklappt** | <a href="docs/screenshots/de/project-detail.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/project-detail.png"><img src="docs/screenshots/de/project-detail.png" alt="Projektseite mit Drucken und Zeitleiste"></picture></a><br>**Projektseite mit Drucken und Zeitleiste** |
 | <a href="docs/screenshots/de/assign-customer.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/assign-customer.png"><img src="docs/screenshots/de/assign-customer.png" alt="Kunde zuordnen: Chip in der Liste mit Vorschlag"></picture></a><br>**Kunde zuordnen: Chip in der Liste mit Vorschlag** | <a href="docs/screenshots/de/split-list.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/split-list.png"><img src="docs/screenshots/de/split-list.png" alt="Aufgeteilter Druck: eine Zeile, ein Chip pro Kunde und Vorrat"></picture></a><br>**Aufgeteilter Druck: eine Zeile, ein Chip pro Kunde und Vorrat** |
 | <a href="docs/screenshots/de/split-detail.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/split-detail.png"><img src="docs/screenshots/de/split-detail.png" alt="Aufteilung: jeder Kunde mit Preis, Zahlung und Übergabe, Rest im Vorrat"></picture></a><br>**Aufteilung: jeder Kunde mit Preis, Zahlung und Übergabe, Rest im Vorrat** | <a href="docs/screenshots/de/split-dialog.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/split-dialog.png"><img src="docs/screenshots/de/split-dialog.png" alt="Fenster Aufteilen: Stück pro Kunde, der Vorrat rechnet sich aus"></picture></a><br>**Fenster „Aufteilen“: Stück pro Kunde, der Vorrat rechnet sich aus** |
-| <a href="docs/screenshots/de/stock.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/stock.png"><img src="docs/screenshots/de/stock.png" alt="Vorrat: was im Regal liegt und was es wert ist"></picture></a><br>**Vorrat: was im Regal liegt und was es wert ist** | |
+| <a href="docs/screenshots/de/stock.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/stock.png"><img src="docs/screenshots/de/stock.png" alt="Vorrat: was im Regal liegt und was es wert ist"></picture></a><br>**Vorrat: was im Regal liegt und was es wert ist** | <a href="docs/screenshots/de/work-accessories.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/work-accessories.png"><img src="docs/screenshots/de/work-accessories.png" alt="Arbeit &amp; Zubehör in der Übersicht"></picture></a><br>**Arbeit & Zubehör in der Übersicht** |
+| <a href="docs/screenshots/de/accessory-picker.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/accessory-picker.png"><img src="docs/screenshots/de/accessory-picker.png" alt="Zubehör aus dem Inventar wählen"></picture></a><br>**Zubehör aus dem Inventar wählen** | <a href="docs/screenshots/de/accessory-inventory.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/accessory-inventory.png"><img src="docs/screenshots/de/accessory-inventory.png" alt="Zubehör-Inventar mit Bestand und Kauflink"></picture></a><br>**Zubehör-Inventar mit Bestand und Kauflink** |
 
 | Handy: Drucke | Handy: Druckdetails | Handy: Offen | Handy: Vorrat |
 |---|---|---|---|
@@ -661,6 +693,11 @@ Sonderfälle:
 - **Endpreis, Zahlung, Übergabe** (nur mit Kunde, nicht bei Fehldrucken ohne Berechnung): optionaler Endpreis, sonst Kosten + Kundenmarge.
   Zahlungen und Übergaben sind einzelne Einträge, damit Teilzahlungen und Teilabholungen gehen. Badges in der Liste öffnen ein
   Menü (z. B. „Alles bezahlt“).
+- **Arbeit & Zubehör**: Kasten in der Übersicht unter dem Preis. Ohne Einträge nur eine schmale Zeile mit „＋ Arbeit & Zubehör“
+  und ggf. dem Vorschlag „Übernehmen“. Die Kacheln oben zeigen Zubehör und Arbeit, der Kostenbalken hat eigene Farben dafür.
+  Arbeit zählt nicht zu den Druckkosten (Statistik), sondern kommt als Arbeitslohn zum Preis; Zubehör zählt zu den Kosten.
+  Bei Projekten und aufgeteilten Drucken wird beides wie die Druckkosten mitgerechnet bzw. anteilig verteilt. Die CSV hat
+  Spalten für Zubehör, Arbeit, Design und montierte Stück.
 - **Fehldruck**: Kasten oben in der Übersicht mit Ursache als Kacheln, Umschalter Nichts / Anteilig / Voll (anteilig in %
   oder €), Notiz, Fotos und Nachdruck. „Kundenwunsch geändert“ zählt nicht gegen die Erfolgsquote. In der Liste filtert
   „Status“ nach Fehldrucken und nach Ursache.

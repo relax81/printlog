@@ -473,6 +473,36 @@ def seed(store: Store, image_dir: Path, lang: str, now: float | None = None) -> 
         j.update(id=jid, printer=p, start=start, end=None, status="läuft", scrap=False)
         jobs.append(j)
 
+    # Arbeit & Zubehör: kleines Inventar, Anhänger mit Ring und Kette, ein paar Drucke mit Arbeitszeit
+    from . import extras as zk
+    store.set_setting("work_rate", "18")
+    store.set_setting("design_rate", "30")
+    acc = {}
+    for key, icon, de_en, grp, pq, pp, st, wa in (
+            ("ring", "⭕", ("Schlüsselring 25 mm", "Key ring 25 mm"), ("Anhänger", "Keychains"), 100, 6.99, 120, 20),
+            ("kette", "⛓️", ("Kugelkette 10 cm", "Ball chain 10 cm"), ("Anhänger", "Keychains"), 50, 5.49, 45, 15),
+            ("magnet", "🧲", ("Neodym-Magnet 6×2 mm", "Neodymium magnet 6×2 mm"), ("Magnete", "Magnets"), 100, 8.90, 140, 30),
+            ("beutel", "🛍️", ("Organza-Beutel", "Organza bag"), ("Verpackung", "Packaging"), 50, 7.50, 38, 10)):
+        acc[key] = zk.save_accessory(store, None, icon=icon, name=L(de_en), grp=L(grp), pack_qty=pq, pack_price=pp,
+                                     unit_price=round(pp / pq, 4), stock=st, warn_at=wa)
+    tags = [j for j in jobs if j["obj"][0] == "Schlüsselanhänger mit Namen" and j["cust"] is not None
+            and j["status"] == "fertig" and not j["scrap"]]
+    for k, j in enumerate(tags):
+        store.update(j["id"], prep_min=8, post_min=1.5, design_min=20 if k == 0 else None)
+        zk.add_extra(store, j["id"], acc["ring"], 1, True)
+        if k % 2 == 0:
+            zk.add_extra(store, j["id"], acc["kette"], 1, True)
+        if k % 3 == 0:
+            zk.add_extra(store, j["id"], acc["beutel"], 1, True)
+        zk.refresh(store, j["id"])
+    others = [j for j in jobs if j["cust"] is not None and j["status"] == "fertig" and not j["scrap"]
+              and j["obj"][0] != "Schlüsselanhänger mit Namen"]
+    for k, j in enumerate(others[::9][:8]):
+        store.update(j["id"], prep_min=(5, 10, 15)[k % 3], post_min=(2, 5, 10)[k % 3], post_once=1)
+        if k % 3 == 1:
+            zk.add_extra(store, j["id"], acc["magnet"], 2, True)
+        zk.refresh(store, j["id"])
+
     # Zahlungen, Übergaben, Geschenke
     for j in jobs:
         if j["cust"] is None or j["status"] == "läuft":
@@ -488,7 +518,7 @@ def seed(store: Store, image_dir: Path, lang: str, now: float | None = None) -> 
             if age > 2 or rnd.random() < 0.3:
                 store.add_handover(j["id"], qty, j["end"] + rnd.uniform(0.5, min(age, 6)) * 86400 if age > 0.6 else now - 600)
             continue
-        due = (job.get("cost_total") or 0) * (1 + (c.get("margin") or 0) / 100)
+        due = (job.get("cost_total") or 0) * (1 + (c.get("margin") or 0) / 100) + (job.get("cost_work") or 0)
         if rnd.random() < 0.45:
             step = 0.5 if due < 10 else 1.0
             due = max(step, math.ceil(due * rnd.uniform(1.0, 1.25) / step) * step)
@@ -523,6 +553,11 @@ def seed(store: Store, image_dir: Path, lang: str, now: float | None = None) -> 
                 store.add_payment(j["id"], round(due - half, 2), when(3, 10), L(rnd.choice(PAY_NOTES)))
             else:
                 store.add_payment(j["id"], round(due, 2), when(0.2, 6), L(rnd.choice(PAY_NOTES)))
+
+    for j in tags + others[::9][:8]:
+        zk.on_delivered(store, j["id"])
+    if tags:
+        zk.set_mounted(store, tags[-1]["id"], max(1, (tags[-1]["qty"] or 1) // 2))
 
     # Bilder: Vorschau für jeden Druck, Fotos für einige fertige
     for j in jobs:
