@@ -27,6 +27,7 @@ NAV = [
     ("stats", N_("Statistik"), "stats"),
     ("calendar", N_("Kalender"), "calendar"),
     ("customers", N_("Kunden"), "customers"),
+    ("storage", N_("Lager"), "storage"),
     ("settings", N_("Einstellungen"), "settings"),
 ]
 

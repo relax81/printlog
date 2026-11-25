@@ -97,10 +97,14 @@ const hdr = { 'Accept-Language': lang };
     const d = await p.$eval('#zkpick .d', el => { const b = el.getBoundingClientRect(); return { x: b.left, y: b.top, w: b.width, h: b.height }; });
     await p.screenshot({ path: `${out}/accessory-picker.png`, clip: { x: d.x - 30, y: Math.max(0, d.y - 30), width: d.w + 60, height: d.h + 60 } });
     await p.setViewportSize({ width: 1440, height: 1300 });
-    await p.goto(base + 'settings#zubehoer'); await p.waitForLoadState('networkidle'); await p.waitForTimeout(600);
+    await p.goto(base + 'storage'); await p.waitForLoadState('networkidle'); await p.waitForTimeout(600);
     const s = await p.$eval('table.acc', el => { const b = el.getBoundingClientRect(); return { y: b.top + scrollY, h: b.height }; });
-    await p.screenshot({ path: `${out}/accessory-inventory.png`, clip: { x: 0, y: 0, width: 1000, height: s.y + s.h + 16 }, fullPage: true });
+    await p.screenshot({ path: `${out}/accessory-inventory.png`, clip: { x: 0, y: 0, width: 1440, height: s.y + s.h + 16 }, fullPage: true });
   }
+  // Lager: Lagerorte und Seite eines Lagerorts (der mit Drucken aus dem Vorrat)
+  await shot('locations', 'storage?tab=orte', { h: 620 });
+  const loc = await p.$eval('.locc:has(img)', a => a.getAttribute('href'));
+  await shot('location', loc, { h: 700 });
   // Modelle: Hinweise (Glocke) und Modellliste
   await shot('hints', 'hints', { h: 760 });
   await shot('models', 'models', { h: 860 });

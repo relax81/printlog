@@ -162,6 +162,15 @@ CREATE TABLE IF NOT EXISTS model_rejects (
     alias    TEXT NOT NULL,
     PRIMARY KEY (model_id, alias)
 );
+-- Lagerorte (Kiste, Regal …) für Zubehör und fertige Drucke
+CREATE TABLE IF NOT EXISTS locations (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    code        TEXT,                     -- feste Kennung für Links/QR-Codes, angezeigt als L-XXXX
+    name        TEXT NOT NULL,
+    note        TEXT,
+    used_at     REAL,                     -- zuletzt zugewiesen (für „Zuletzt“ in der Auswahl)
+    created_at  REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT
@@ -246,7 +255,8 @@ class Store:
         "model_hint": "INTEGER",      # 1 = offener Hinweis
         "gcode_plate": "INTEGER",     # Plattennummer aus gcode_filename (plate_N)
         "gcode_file": "TEXT",         # Datei aus gcode_file_downloaded
-        "img_hash": "TEXT",           # Bild-Hash des Covers (dHash, hex)
+        "img_hash": "TEXT",
+        "location_id": "INTEGER",     # Lagerort (Tabelle locations)           # Bild-Hash des Covers (dHash, hex)
     }
 
     # Echter Druck (keine Projekt-Zeile): nur diese zählen in Statistik, Kosten-Kacheln, Kalender.
@@ -312,6 +322,12 @@ class Store:
         if "work_margin" not in have:
             # Marge auch auf Arbeitszeit: 1 an, 0 aus, NULL = Standard (aus)
             self._conn.execute("ALTER TABLE customers ADD COLUMN work_margin INTEGER")
+        have = {r["name"] for r in self._conn.execute("PRAGMA table_info(accessories)")}
+        if "location_id" not in have:
+            self._conn.execute("ALTER TABLE accessories ADD COLUMN location_id INTEGER")
+        if "code" not in have:
+            # feste Kennung für Links/QR-Codes, angezeigt als A-XXXX
+            self._conn.execute("ALTER TABLE accessories ADD COLUMN code TEXT")
         self._conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_jobs_code ON jobs(code)")
         self._conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_project ON jobs(project_id)")
         self._conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_share ON jobs(share_of)")
@@ -332,13 +348,25 @@ class Store:
                 return code
 
     def ensure_codes(self) -> int:
-        """Drucke ohne Projekt-ID (ältere oder aus dem Papierkorb) bekommen eine."""
+        """Drucke ohne Projekt-ID (ältere oder aus dem Papierkorb) bekommen eine, Zubehör und Lagerorte ihre Kennung."""
         ids = [r[0] for r in self._conn.execute("SELECT id FROM jobs WHERE code IS NULL ORDER BY id")]
         for job_id in ids:
             self._conn.execute("UPDATE jobs SET code = ? WHERE id = ?", (self.new_code(), job_id))
-        if ids:
+        n = len(ids)
+        for table in ("accessories", "locations"):
+            for (rid,) in self._conn.execute(f"SELECT id FROM {table} WHERE code IS NULL ORDER BY id").fetchall():
+                self._conn.execute(f"UPDATE {table} SET code = ? WHERE id = ?", (self.new_item_code(table), rid))
+                n += 1
+        if n:
             self._conn.commit()
         return len(ids)
+
+    def new_item_code(self, table: str) -> str:
+        """Freie Kennung für Zubehör (A-XXXX) bzw. Lagerort (L-XXXX)."""
+        while True:
+            code = "".join(secrets.choice(CODE_ALPHABET) for _ in range(CODE_LEN))
+            if not self._conn.execute(f"SELECT 1 FROM {table} WHERE code = ?", (code,)).fetchone():
+                return code
 
     def find_code(self, text: str | None) -> int | None:
         """Job-ID zu einer eingegebenen Projekt-ID (mit/ohne "PL-", Groß/klein egal)."""
@@ -517,7 +545,7 @@ class Store:
             return out
         marks = ", ".join("?" for _ in project_ids)
         rows = self._conn.execute(
-            f"SELECT jobs.*, customers.name AS customer_name, customers.margin_pct AS customer_margin, customers.work_margin AS customer_work, COALESCE(customers.no_billing, 0) AS customer_nobill, "
+            f"SELECT jobs.*, customers.name AS customer_name, customers.margin_pct AS customer_margin, customers.work_margin AS customer_work, COALESCE(customers.no_billing, 0) AS customer_nobill, (SELECT name FROM locations l WHERE l.id = jobs.location_id) AS location_name, "
             f"{Store.SCRAP_SQL} AS is_scrap, {Store.DELIVERED_SQL} AS delivered, {Store.PAID_SQL} AS paid FROM jobs "
             f"LEFT JOIN customers ON customers.id = jobs.customer_id WHERE jobs.project_id IN ({marks}) "
             "ORDER BY jobs.start_ts, jobs.id", project_ids).fetchall()
@@ -728,7 +756,7 @@ class Store:
             return out
         marks = ", ".join("?" for _ in parent_ids)
         rows = self._conn.execute(
-            f"SELECT jobs.*, customers.name AS customer_name, customers.margin_pct AS customer_margin, customers.work_margin AS customer_work, COALESCE(customers.no_billing, 0) AS customer_nobill, "
+            f"SELECT jobs.*, customers.name AS customer_name, customers.margin_pct AS customer_margin, customers.work_margin AS customer_work, COALESCE(customers.no_billing, 0) AS customer_nobill, (SELECT name FROM locations l WHERE l.id = jobs.location_id) AS location_name, "
             f"{Store.SCRAP_SQL} AS is_scrap, {Store.DELIVERED_SQL} AS delivered, {Store.PAID_SQL} AS paid, "
             "(SELECT p.task_name FROM jobs p WHERE p.id = jobs.project_id) AS project_name, "
             "(SELECT p.code FROM jobs p WHERE p.id = jobs.project_id) AS project_code FROM jobs "
@@ -983,7 +1011,8 @@ class Store:
     def stock_items(self) -> list[dict[str, Any]]:
         """Alle aufgeteilten Drucke/Projekte mit Vorrat (Stück, Sätze oder Einzelteile)."""
         rows = [dict(r) for r in self._conn.execute(
-            f"SELECT jobs.*, {Store.SCRAP_SQL} AS is_scrap FROM jobs WHERE split = 1 AND kind IS NOT 'share' "
+            f"SELECT jobs.*, {Store.SCRAP_SQL} AS is_scrap, (SELECT name FROM locations l WHERE l.id = jobs.location_id) AS location_name "
+            "FROM jobs WHERE split = 1 AND kind IS NOT 'share' "
             "ORDER BY start_ts DESC, id DESC")]
         shares = self.shares([r["id"] for r in rows])
         kids = self.children([r["id"] for r in rows if r.get("kind") == "project"])
@@ -1045,7 +1074,7 @@ class Store:
 
     def get(self, job_id: int) -> dict[str, Any] | None:
         row = self._conn.execute(
-            f"SELECT jobs.*, customers.name AS customer_name, customers.margin_pct AS customer_margin, customers.work_margin AS customer_work, COALESCE(customers.no_billing, 0) AS customer_nobill, "
+            f"SELECT jobs.*, customers.name AS customer_name, customers.margin_pct AS customer_margin, customers.work_margin AS customer_work, COALESCE(customers.no_billing, 0) AS customer_nobill, (SELECT name FROM locations l WHERE l.id = jobs.location_id) AS location_name, "
             f"{Store.SCRAP_SQL} AS is_scrap, {Store.DELIVERED_SQL} AS delivered, {Store.PAID_SQL} AS paid FROM jobs LEFT JOIN customers ON customers.id = jobs.customer_id "
             "WHERE jobs.id = ?", (job_id,)).fetchone()
         return dict(row) if row else None
@@ -1108,7 +1137,7 @@ class Store:
     def list_jobs(self, limit: int = 500, offset: int = 0, **filters: Any) -> list[dict[str, Any]]:
         where, args = self._filters(**filters)
         rows = self._conn.execute(
-            f"SELECT jobs.*, customers.name AS customer_name, customers.margin_pct AS customer_margin, customers.work_margin AS customer_work, COALESCE(customers.no_billing, 0) AS customer_nobill, "
+            f"SELECT jobs.*, customers.name AS customer_name, customers.margin_pct AS customer_margin, customers.work_margin AS customer_work, COALESCE(customers.no_billing, 0) AS customer_nobill, (SELECT name FROM locations l WHERE l.id = jobs.location_id) AS location_name, "
             f"{Store.SCRAP_SQL} AS is_scrap, {Store.DELIVERED_SQL} AS delivered, {Store.PAID_SQL} AS paid FROM jobs "
             f"LEFT JOIN customers ON customers.id = jobs.customer_id {where} "
             "ORDER BY start_ts DESC, jobs.id DESC LIMIT ? OFFSET ?",
@@ -1170,6 +1199,7 @@ class Store:
         until: float | None = None,
         real: str | None = None,
         model: str | None = None,
+        loc: str | None = None,
     ) -> tuple[str, list[Any]]:
         clauses: list[str] = []
         args: list[Any] = []
@@ -1225,6 +1255,11 @@ class Store:
         if model and str(model).isdigit():
             clauses.append("(jobs.model_id = ? OR EXISTS (SELECT 1 FROM jobs k WHERE k.project_id = jobs.id AND k.model_id = ?))")
             args += [int(model), int(model)]
+        if loc == "none":
+            clauses.append("jobs.location_id IS NULL")
+        elif loc and str(loc).isdigit():
+            clauses.append("(jobs.location_id = ? OR EXISTS (SELECT 1 FROM jobs k WHERE k.project_id = jobs.id AND k.location_id = ?))")
+            args += [int(loc), int(loc)]
         if paid == "offen":
             clauses.append(any_share(f"{Store.PAYABLE_SQL} AND {Store.PAID_SQL} < {Store.DUE_SQL} - 0.005"))
         elif paid == "teilweise":
@@ -1258,6 +1293,7 @@ class Store:
                 "COALESCE(jobs.project_title,'') || ' ' || COALESCE(jobs.project_url,'') || ' ' || "
                 "COALESCE(jobs.local_path,'') || ' pl-' || COALESCE(jobs.code,'') || ' ' || "
                 "COALESCE((SELECT name FROM customers c WHERE c.id = jobs.customer_id),'') || ' ' || "
+                "COALESCE((SELECT name FROM locations l WHERE l.id = jobs.location_id),'') || ' ' || "
                 "COALESCE((SELECT group_concat(c.name, ' ') FROM jobs s JOIN customers c ON c.id = s.customer_id "
                 "WHERE s.share_of = jobs.id),'')) LIKE ?"
             )
@@ -1426,7 +1462,7 @@ class Store:
         nobill=True nimmt auch Kunden mit „Keine Abrechnung“ mit (für die Kundenseite)."""
         fmt = {"day": "%Y-%m-%d", "week": "%Y-W%W", "month": "%Y-%m"}[period]
         q = (f"SELECT strftime('{fmt}', jobs.start_ts, 'unixepoch', 'localtime') bucket, jobs.*, customers.name AS customer_name, "
-             "customers.margin_pct AS customer_margin, customers.work_margin AS customer_work, COALESCE(customers.no_billing, 0) AS customer_nobill, "
+             "customers.margin_pct AS customer_margin, customers.work_margin AS customer_work, COALESCE(customers.no_billing, 0) AS customer_nobill, (SELECT name FROM locations l WHERE l.id = jobs.location_id) AS location_name, "
              f"{Store.SCRAP_SQL} AS is_scrap, {Store.DELIVERED_SQL} AS delivered, {Store.PAID_SQL} AS paid, "
              "(SELECT MAX(p.ts) FROM payments p WHERE p.job_id = jobs.id) AS last_pay_ts "
              "FROM jobs JOIN customers ON customers.id = jobs.customer_id "
@@ -1614,7 +1650,7 @@ class Store:
     # ---- Datensicherung: Einspielen und Zurücksetzen ------------------------
 
     HISTORY_TABLES = ("jobs", "photos", "handovers", "payments", "trash", "job_extras", "models", "model_aliases", "model_rejects")
-    SETTINGS_TABLES = ("customers", "printer_rates", "material_prices", "settings", "accessories")
+    SETTINGS_TABLES = ("customers", "printer_rates", "material_prices", "settings", "accessories", "locations")
     # Bleiben beim Zurücksetzen/Einspielen erhalten: Sprache der Oberfläche und der
     # Zeitpunkt der letzten HA-Verbindung (sonst holt printlog alte Drucke aus dem Verlauf nach).
     KEEP_SETTINGS = ("language", "ha_seen_ts")

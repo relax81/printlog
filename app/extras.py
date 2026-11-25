@@ -67,7 +67,9 @@ def extras_cost(extras: list[dict[str, Any]], qty: int) -> float | None:
 
 def accessories(store: Store) -> list[dict[str, Any]]:
     """Inventar mit reserviertem Bestand (zugeordnet, aber noch nicht montiert)."""
-    rows = [dict(r) for r in store._conn.execute("SELECT * FROM accessories ORDER BY grp COLLATE NOCASE, name COLLATE NOCASE")]
+    rows = [dict(r) for r in store._conn.execute(
+        "SELECT a.*, l.name AS loc_name, l.code AS loc_code FROM accessories a LEFT JOIN locations l ON l.id = a.location_id "
+        "ORDER BY a.grp COLLATE NOCASE, a.name COLLATE NOCASE")]
     res = reserved(store)
     for a in rows:
         a["reserved"] = res.get(a["id"], 0.0)
@@ -75,7 +77,8 @@ def accessories(store: Store) -> list[dict[str, Any]]:
 
 
 def accessory(store: Store, aid: int) -> dict[str, Any] | None:
-    r = store._conn.execute("SELECT * FROM accessories WHERE id = ?", (aid,)).fetchone()
+    r = store._conn.execute("SELECT a.*, l.name AS loc_name, l.code AS loc_code FROM accessories a "
+                            "LEFT JOIN locations l ON l.id = a.location_id WHERE a.id = ?", (aid,)).fetchone()
     return dict(r) if r else None
 
 
@@ -117,6 +120,7 @@ def save_accessory(store: Store, aid: int | None, **f: Any) -> int:
             return aid
         f.setdefault("created_at", time.time())
         f.setdefault("stock", 0)
+        f.setdefault("code", store.new_item_code("accessories"))
         cols = ", ".join(f)
         cur = store._conn.execute(f"INSERT INTO accessories ({cols}) VALUES ({', '.join('?' for _ in f)})", list(f.values()))
         return int(cur.lastrowid)
@@ -387,7 +391,7 @@ def _inner(store: Store, job: dict[str, Any], xs: list[dict[str, Any]], act: str
     eur = lambda m, r: fmt_num(m / 60 * r, 2, "€") if r else "–"  # noqa: E731
     once = bool(job.get("post_once"))
     rate_hint = (t("Arbeit {a} · Design {d} (Einstellungen)", a=fmt_num(wr, 2, "€/h") if wr else "–", d=fmt_num(dr, 2, "€/h") if dr else "–")
-                 if wr or dr else t("Noch kein Stundensatz: in den Einstellungen unter „Arbeit & Zubehör“ eintragen."))
+                 if wr or dr else t("Noch kein Stundensatz: in den Einstellungen unter „Arbeitszeit“ eintragen."))
     work = (f'<div><h4>{t("Arbeitszeit")}</h4>'
             f'<div class="ar"><div class="l"><b>{t("Vorbereitung")}</b><small>{t("pro Platte/Druckjob · Slicen, Platte, Druck starten")}</small></div>'
             f'{_stepper(act, "prep_min", job.get("prep_min"), 5, t("Vorbereitung"))}<div class="v">{eur(prep, wr)}</div></div>'
@@ -489,14 +493,14 @@ def picker(store: Store, job: dict[str, Any]) -> str:
                   f'<i>{e(a.get("icon") or "🔹")}</i><b>{e(a["name"])}</b><small>{t("{p}/Stk.", p=fmt_num(a.get("unit_price"), 2, "€"))}</small>'
                   f'<span class="st {cls}">{e(st)}</span></button>')
     if not tiles:
-        tiles = f'<p class="muted">{t("Das Inventar ist noch leer.")} <a href="settings#zubehoer">{t("Zubehör in den Einstellungen anlegen →")}</a></p>'
+        tiles = f'<p class="muted">{t("Das Inventar ist noch leer.")} <a href="storage#neu">{t("Zubehör im Lager anlegen →")}</a></p>'
     return (f'<div class="inv" id="zkpick" hidden><form class="d" method="post" action="api/jobs/{job["id"]}/extras">'
             f'<h3>{t("Zubehör hinzufügen")}</h3><p class="sub">{t("Menge gilt pro Stück und wird mit {n} multipliziert. Tippen wählt, ± ändert die Menge.", n=q)}</p>'
             f'<input type="search" class="srch" placeholder="{e(t("Suchen …"))}" autocomplete="off">'
             + (f'<div class="chs">{chips}</div>' if groups else "")
             + f'<div class="tiles">{tiles}</div><input type="hidden" name="add" value="">'
             f'<div class="ft"><span class="tot"></span><span class="sp"></span>'
-            f'<a class="btn" href="settings#zubehoer">＋ {t("Neu im Inventar")}</a>'
+            f'<a class="btn" href="storage#neu">＋ {t("Neu im Inventar")}</a>'
             f'<button type="button" class="btn" data-zk-close>{t("Abbrechen")}</button>'
             f'<button class="btn primary">{t("Übernehmen")}</button></div></form></div>')
 
@@ -598,8 +602,20 @@ def box_js(job: dict[str, Any]) -> str:
 # ---- Einstellungen --------------------------------------------------------------
 
 def settings_section(store: Store) -> str:
-    """Tab „Arbeit & Zubehör“: Stundensätze und Inventar (Teil des großen Einstellungen-Formulars)."""
+    """Tab „Arbeitszeit“: Stundensätze (Teil des großen Einstellungen-Formulars). Das Inventar steht unter „Lager“."""
     cfg = store.settings()
+    wr, dr = cfg.get("work_rate") or "", cfg.get("design_rate") or ""
+    return f"""<h2 style="margin-top:0">{t("Arbeitszeit")}</h2>
+<p class="muted">{t("Stundensätze für den Kasten „Arbeit & Zubehör“ in der Übersicht eines Drucks. Leer = Zeit wird nur notiert, nicht berechnet. Ob eine Marge auch auf die Arbeitszeit kommt, stellst du pro Marge (Tab „Margen“) und pro Kunde ein. Standard: nein, der Stundensatz ist schon dein Preis.")}</p>
+<div class="zrates"><label>⏱ {t("Arbeit (Vorbereitung, Nachbearbeitung)")}<span><input class="num" name="work_rate" value="{e(fmt_input(parse_num(wr)))}" inputmode="decimal" placeholder="20"> €/h</span></label>
+<label>✏️ {t("Design")}<span><input class="num" name="design_rate" value="{e(fmt_input(parse_num(dr)))}" inputmode="decimal" placeholder="30"> €/h</span></label></div>
+<p class="muted">{t("Das Zubehör-Inventar (Ringe, Magnete …) steht jetzt oben unter „Lager“.")} <a href="storage">{t("Zum Lager")} →</a></p>"""
+
+
+def inventory_rows(store: Store) -> str:
+    """Zeilen des Inventars (Seite „Lager“, Tab „Zubehör“) samt Zeile für neues Zubehör."""
+    from .storage import loc_cell
+
     rows = ""
     for a in accessories(store):
         aid = a["id"]
@@ -608,10 +624,13 @@ def settings_section(store: Store) -> str:
         res = f'<small class="muted">{t("{n} reserviert", n=fmt_input(round(a["reserved"], 2)))}</small>' if a.get("reserved") else ""
         buy = (f'<a class="buy" href="{e(a["url"])}" target="_blank" rel="noopener" title="{e(t("Kauflink öffnen"))}">🛒</a>'
                if a.get("url") and str(a["url"]).startswith(("http://", "https://")) else "")
-        rows += (f'<tr><td data-l="{e(t("Symbol"))}"><input class="ico" name="acc_icon__{aid}" value="{e(a.get("icon") or "")}" maxlength="4" list="zk_icons"></td>'
+        code = f'<a class="acode" href="item?c={e(a.get("code") or "")}" title="{e(t("Eigene Seite des Artikels"))}">A-{e(a.get("code") or "")}</a>' if a.get("code") else ""
+        rows += (f'<tr id="a{aid}" data-g="{e(a.get("grp") or "")}" data-l="{a.get("location_id") or ""}" data-n="{e((a.get("name") or "").casefold())}">'
+                 f'<td data-l="{e(t("Symbol"))}"><input class="ico" name="acc_icon__{aid}" value="{e(a.get("icon") or "")}" maxlength="4" list="zk_icons"></td>'
                  f'<td class="nm" data-l="{e(t("Name"))}"><input name="acc_name__{aid}" value="{e(a["name"])}" maxlength="80">'
-                 f'<span class="lk"><input name="acc_url__{aid}" value="{e(a.get("url") or "")}" type="url" placeholder="{e(t("Kauflink"))} https://…">{buy}</span></td>'
+                 f'<span class="lk"><input name="acc_url__{aid}" value="{e(a.get("url") or "")}" type="url" placeholder="{e(t("Kauflink"))} https://…">{buy}</span>{code}</td>'
                  f'<td data-l="{e(t("Gruppe"))}"><input name="acc_grp__{aid}" value="{e(a.get("grp") or "")}" maxlength="40" list="zk_groups"></td>'
+                 f'<td data-l="{e(t("Lagerort"))}">{loc_cell(aid, a)}</td>'
                  f'<td data-l="{e(t("Packung"))}"><span class="pk"><input class="num" name="acc_pq__{aid}" value="{fmt_input(a.get("pack_qty"))}" inputmode="decimal" title="{e(t("Stück pro Packung"))}"><i>{t("für")}</i>'
                  f'<input class="num" name="acc_pp__{aid}" value="{fmt_input(a.get("pack_price"))}" inputmode="decimal" title="{e(t("Preis €"))}"><i>€</i></span>'
                  f'<small class="muted">= {fmt_num(a.get("unit_price"), 3, "€")} {t("pro Stück")}</small></td>'
@@ -620,10 +639,11 @@ def settings_section(store: Store) -> str:
                  f'<td data-l="{e(t("Zugang"))}"><span class="zg"><input class="num" name="acc_aq__{aid}" placeholder="{e(t("Stk."))}" inputmode="decimal">'
                  f'<input class="num" name="acc_ap__{aid}" placeholder="€" inputmode="decimal"></span></td>'
                  f'<td data-l="{e(t("Löschen"))}"><label class="del" title="{e(t("Löschen"))}"><input type="checkbox" name="acc_del__{aid}" value="1"> 🗑</label></td></tr>')
-    new = (f'<tr class="new"><td data-l="{e(t("Symbol"))}"><input class="ico" name="acc_icon__new" maxlength="4" list="zk_icons" placeholder="🔹"></td>'
+    new = (f'<tr class="new" id="neu"><td data-l="{e(t("Symbol"))}"><input class="ico" name="acc_icon__new" maxlength="4" list="zk_icons" placeholder="🔹"></td>'
            f'<td class="nm" data-l="{e(t("Name"))}"><input name="acc_name__new" maxlength="80" placeholder="{e(t("Neues Zubehör, z. B. Schlüsselring 25 mm"))}">'
            f'<span class="lk"><input name="acc_url__new" type="url" placeholder="{e(t("Kauflink"))} https://…"></span></td>'
            f'<td data-l="{e(t("Gruppe"))}"><input name="acc_grp__new" maxlength="40" list="zk_groups" placeholder="{e(t("z. B. Magnete"))}"></td>'
+           f'<td data-l="{e(t("Lagerort"))}">{loc_cell("new", {})}</td>'
            f'<td data-l="{e(t("Packung"))}"><span class="pk"><input class="num" name="acc_pq__new" inputmode="decimal" placeholder="100"><i>{t("für")}</i>'
            f'<input class="num" name="acc_pp__new" inputmode="decimal" placeholder="6,99"><i>€</i></span></td>'
            f'<td class="n" data-l="{e(t("Bestand"))}"><input class="num" name="acc_st__new" inputmode="decimal" placeholder="{e(t("= Packung"))}"></td>'
@@ -631,16 +651,9 @@ def settings_section(store: Store) -> str:
     groups = sorted({a["grp"] for a in accessories(store) if a.get("grp")}, key=str.casefold)
     lists = ('<datalist id="zk_icons">' + "".join(f'<option value="{i}">' for i in ICONS) + '</datalist>'
              '<datalist id="zk_groups">' + "".join(f'<option value="{e(g)}">' for g in groups) + '</datalist>')
-    wr, dr = cfg.get("work_rate") or "", cfg.get("design_rate") or ""
-    return f"""<h2 style="margin-top:0">{t("Arbeitszeit")}</h2>
-<p class="muted">{t("Stundensätze für den Kasten „Arbeit & Zubehör“ in der Übersicht eines Drucks. Leer = Zeit wird nur notiert, nicht berechnet. Ob eine Marge auch auf die Arbeitszeit kommt, stellst du pro Marge (Tab „Margen“) und pro Kunde ein. Standard: nein, der Stundensatz ist schon dein Preis.")}</p>
-<div class="zrates"><label>⏱ {t("Arbeit (Vorbereitung, Nachbearbeitung)")}<span><input class="num" name="work_rate" value="{e(fmt_input(parse_num(wr)))}" inputmode="decimal" placeholder="20"> €/h</span></label>
-<label>✏️ {t("Design")}<span><input class="num" name="design_rate" value="{e(fmt_input(parse_num(dr)))}" inputmode="decimal" placeholder="30"> €/h</span></label></div>
-<h2>{t("Zubehör-Inventar")}</h2>
-<p class="muted">{t("Preis pro Stück = Packungspreis ÷ Menge. Zugeordnetes Zubehör ist reserviert, vom Bestand abgebucht wird es beim Montieren (oder bei der Übergabe). Zugang = neue Packung gekauft: Menge und Preis eintragen, der Stückpreis wird gemittelt.")}</p>
-<div class="wrap"><table class="stack acc"><thead><tr><th></th><th>{t("Name")} · {t("Kauflink")}</th><th>{t("Gruppe")}</th><th>{t("Packung")}</th>
-<th class="n">{t("Bestand")}</th><th class="n">{t("Warnen ab")}</th><th>{t("Zugang")}</th><th></th></tr></thead>
-<tbody>{rows}{new}</tbody></table></div>{lists}"""
+    return (f'<div class="wrap"><table class="stack acc"><thead><tr><th></th><th>{t("Name")} · {t("Kauflink")}</th><th>{t("Gruppe")}</th>'
+            f'<th>{t("Lagerort")}</th><th>{t("Packung")}</th><th class="n">{t("Bestand")}</th><th class="n">{t("Warnen ab")}</th><th>{t("Zugang")}</th><th></th></tr></thead>'
+            f'<tbody>{rows}{new}</tbody></table></div>{lists}')
 
 
 SETTINGS_CSS = """
@@ -662,11 +675,24 @@ table.acc tr.new td{background:color-mix(in srgb,var(--accent) 5%,transparent)}
 
 
 def save_settings(store: Store, form: Any) -> None:
-    """Teil von POST /settings: Stundensätze und Inventar."""
+    """Teil von POST /settings: Stundensätze."""
     for key in ("work_rate", "design_rate"):
         if key in form:
             v = parse_num(form.get(key))
             store.set_setting(key, None if v is None or v < 0 else f"{v:g}")
+
+
+def save_inventory(store: Store, form: Any) -> None:
+    """POST /storage: Inventar speichern (Lagerort als ID oder neuer Name)."""
+    from .storage import location_by_name
+
+    def loc(sid: str) -> int | None:
+        nn = str(form.get(f"acc_locnew__{sid}") or "").strip()
+        if nn:
+            return location_by_name(store, nn)
+        v = str(form.get(f"acc_loc__{sid}") or "")
+        return int(v) if v.isdigit() else None
+
     ids = {k.split("__", 1)[1] for k in form if str(k).startswith("acc_name__")}
     for sid in ids:
         g = lambda f: form.get(f"acc_{f}__{sid}")  # noqa: E731
@@ -680,7 +706,7 @@ def save_settings(store: Store, form: Any) -> None:
                            grp=str(g("grp") or "").strip()[:40] or None, pack_qty=pq, pack_price=pp,
                            unit_price=round(pp / pq, 4) if pq and pp is not None else None,
                            stock=st if st is not None else (pq or 0), warn_at=parse_num(g("wa")),
-                           url=str(g("url") or "").strip()[:500] or None)
+                           url=str(g("url") or "").strip()[:500] or None, location_id=loc(sid))
             continue
         if not sid.isdigit():
             continue
@@ -695,6 +721,8 @@ def save_settings(store: Store, form: Any) -> None:
         f: dict[str, Any] = {"name": name[:80] or old["name"], "icon": str(g("icon") or "").strip()[:4] or None,
                              "grp": str(g("grp") or "").strip()[:40] or None, "pack_qty": pq, "pack_price": pp,
                              "warn_at": parse_num(g("wa")), "url": str(g("url") or "").strip()[:500] or None}
+        if f"acc_loc__{sid}" in form:
+            f["location_id"] = loc(sid)
         if (pq, pp) != (old.get("pack_qty"), old.get("pack_price")) and pq and pp is not None:
             f["unit_price"] = round(pp / pq, 4)
         st = parse_num(g("st"))
