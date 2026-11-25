@@ -67,7 +67,7 @@ CREATE TABLE IF NOT EXISTS printer_rates (
     printer        TEXT PRIMARY KEY,
     purchase_eur   REAL,                  -- Anschaffungspreis
     life_hours     REAL,                  -- erwartete Lebensdauer in Druckstunden
-    extra_per_hour REAL                   -- Verschleiß pro Stunde
+    extra_per_hour REAL                   -- alt: Verschleiß pro Stunde (steckt jetzt in maint_per_1000h)
 );
 CREATE TABLE IF NOT EXISTS photos (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -135,7 +135,7 @@ class Store:
     # Spalten, die nach der ersten Version dazugekommen sind.
     NEW_COLUMNS = {
         "materials": "TEXT",          # JSON-Liste [{slot,name,type,color,grams}]
-        "cost_printer": "REAL",       # Abschreibung + Verschleiß
+        "cost_printer": "REAL",       # Abschreibung + Wartung
         "cost_filament": "REAL",
         "cost_total": "REAL",
         "filament_g": "REAL",         # tatsächlich verbraucht (bei Abbruch anteilig)
@@ -206,12 +206,15 @@ class Store:
             if col not in have:
                 self._conn.execute(f"ALTER TABLE printer_rates ADD COLUMN {col} REAL")
         if "maint_per_1000h" not in have:
-            # Wartung jetzt pro 1000 Druckstunden. Alte Werte (€/Jahr ÷ Druckstunden/Jahr) so umrechnen,
-            # dass der Stundensatz gleich bleibt. Die alten Spalten bleiben unverändert stehen.
+            # Wartung jetzt pro 1000 Druckstunden. Alte Werte (€/Jahr ÷ Druckstunden/Jahr und
+            # Verschleiß €/h) so umrechnen, dass der Stundensatz gleich bleibt. Die alten Spalten
+            # bleiben unverändert stehen, werden aber nicht mehr gelesen.
             self._conn.execute("ALTER TABLE printer_rates ADD COLUMN maint_per_1000h REAL")
             self._conn.execute(
-                "UPDATE printer_rates SET maint_per_1000h = ROUND(maint_per_year * 1000.0 / hours_per_year, 2) "
-                "WHERE maint_per_year > 0 AND hours_per_year > 0")
+                "UPDATE printer_rates SET maint_per_1000h = ROUND("
+                "CASE WHEN maint_per_year > 0 AND hours_per_year > 0 THEN maint_per_year * 1000.0 / hours_per_year ELSE 0 END"
+                " + CASE WHEN extra_per_hour > 0 THEN extra_per_hour * 1000.0 ELSE 0 END, 2) "
+                "WHERE (maint_per_year > 0 AND hours_per_year > 0) OR extra_per_hour > 0")
         have = {r["name"] for r in self._conn.execute("PRAGMA table_info(customers)")}
         if "margin_pct" not in have:
             self._conn.execute("ALTER TABLE customers ADD COLUMN margin_pct REAL")
@@ -1369,11 +1372,11 @@ class Store:
     def printer_rates_set(self) -> bool:
         row = self._conn.execute(
             "SELECT 1 FROM printer_rates WHERE (purchase_eur IS NOT NULL AND life_hours IS NOT NULL) "
-            "OR extra_per_hour IS NOT NULL OR maint_per_1000h IS NOT NULL LIMIT 1"
+            "OR maint_per_1000h IS NOT NULL LIMIT 1"
         ).fetchone()
         return row is not None
 
-    RATE_FIELDS = ("purchase_eur", "life_hours", "extra_per_hour", "maint_per_1000h")
+    RATE_FIELDS = ("purchase_eur", "life_hours", "maint_per_1000h")
 
     def set_printer_rate(self, printer: str, **values: float | None) -> None:
         fields = {k: values.get(k) for k in self.RATE_FIELDS}

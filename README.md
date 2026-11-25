@@ -87,7 +87,7 @@ in a **light and a dark** colour scheme (Settings → View → Colour scheme, or
 - **Real costs per print**
   - *Electricity* from a smart plug's kWh meter (start → end of cool-down), or an estimate from a fixed wattage if you have no plug.
   - *Filament* per AMS slot (grams × €/kg), priced by type (PLA, PETG …) or by exact product (e.g. "Bambu PLA Matte").
-  - *Printer* depreciation, maintenance per 1000 print hours and wear per hour.
+  - *Printer* depreciation and maintenance per 1000 print hours.
 - **Selling prices** – two named margins, an optional margin per customer and a fixed final price per print.
 - **Customers** – partial payments and partial hand-overs, gifts, open amounts per customer. Tick **No billing** for
   a customer you only use for your own prints (e.g. models you upload): costs and statistics still count, but there are
@@ -216,7 +216,7 @@ Open **Settings**:
 
 - **Printer** – printlog fills this in from the first event of each automation. A ✓ shows the live value from Home Assistant,
   ⚠ an entity that does not exist. Set **Fixed power (W)** for printers without a plug. You can also add printers by hand.
-- **Costs** – purchase price, expected lifetime in print hours, maintenance per 1000 print hours (nozzle, belts, grease, filters) and wear per hour for each printer. Older values in €/year are converted automatically so the hourly rate stays the same.
+- **Costs** – purchase price, expected lifetime in print hours, maintenance per 1000 print hours (everything that wears with running time: nozzle, belts, grease, filters, build plate) for each printer. Older values (maintenance per year, wear per hour) are converted automatically so the hourly rate stays the same.
 - **Filament** – €/kg per filament type, optionally per exact product.
 - **Margins** – up to two named margins (e.g. private / business).
 - **Receipt & PDF** – your own logo for the receipt image and the PDF.
@@ -432,7 +432,7 @@ in **hell und dunkel** (Einstellungen → Ansicht → Farbschema, oder automatis
 - **Echte Kosten pro Druck**
   - *Strom* aus dem kWh-Zähler einer Steckdose (Start bis Ende der Abkühlphase) oder geschätzt über eine feste Leistung, wenn keine Steckdose da ist.
   - *Filament* pro AMS-Fach (Gramm × €/kg), Preis nach Typ (PLA, PETG …) oder nach Sorte (z. B. „Bambu PLA Matte“).
-  - *Drucker*: Abschreibung, Wartung pro 1000 Druckstunden und Verschleiß pro Stunde.
+  - *Drucker*: Abschreibung und Wartung pro 1000 Druckstunden.
 - **Verkaufspreise** – zwei benannte Margen, optional eine Marge pro Kunde und ein fester Endpreis pro Druck.
 - **Kunden** – Teilzahlungen und Teilübergaben, Verschenktes, offene Beträge pro Kunde. Mit dem Häkchen **Keine Abrechnung**
   wird ein Kunde zum reinen Sammelplatz für Eigenbedarf (z. B. Modelle für eigene Uploads): Kosten und Statistik zählen
@@ -553,7 +553,7 @@ Unter **Einstellungen**:
 
 - **Drucker** – füllt printlog mit dem ersten Event jeder Automation selbst aus. ✓ zeigt den aktuellen Wert aus Home Assistant,
   ⚠ eine Entität, die es nicht gibt. Für Drucker ohne Steckdose **Feste Leistung (W)** eintragen. Drucker lassen sich auch von Hand anlegen.
-- **Kosten** – Anschaffungspreis, erwartete Lebensdauer in Druckstunden, Wartung pro 1000 Druckstunden (Düse, Riemen, Fett, Filter) und Verschleiß pro Stunde je Drucker. Ältere Werte in €/Jahr werden automatisch so umgerechnet, dass der Stundensatz gleich bleibt.
+- **Kosten** – Anschaffungspreis, erwartete Lebensdauer in Druckstunden, Wartung pro 1000 Druckstunden (alles, was mit der Laufzeit verschleißt: Düse, Riemen, Fett, Filter, Druckplatte) je Drucker. Ältere Werte (Wartung pro Jahr, Verschleiß pro Stunde) werden automatisch so umgerechnet, dass der Stundensatz gleich bleibt.
 - **Filament** – €/kg pro Filamenttyp, optional pro Sorte.
 - **Margen** – bis zu zwei benannte Margen (z. B. Privat / Gewerbe).
 - **Bon & PDF** – eigenes Logo für Bon-Bild und PDF.
