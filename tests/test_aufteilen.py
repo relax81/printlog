@@ -133,3 +133,40 @@ def test_seiten_csv_und_export() -> None:
     data = collect(store, store.get(sid), Path(tempfile.mkdtemp()))
     assert data["customer"] == "Andere" and data["qty"] == 4
     assert bon_png(data, "kunde")[:4] == b"\x89PNG" and report_pdf(data)[:4] == b"%PDF"
+
+
+def test_stueck_an_projekt() -> None:
+    store, kundin, andere = _store()
+    x = _job(store, kundin, "Teil X", cost=4.0)
+    pid = store.create_project([x], name="Set")
+    j = _job(store, None, "Clips", cost=10.0, quantity=10, materials='[{"name": "PLA", "grams": 100}]')
+    assert store.set_split(j, [{"customer_id": andere, "qty": 2}, {"project_id": pid, "qty": 4}]) is None
+    kids = store.children([pid])[pid]
+    share = next(k for k in kids if k["kind"] == "share")
+    assert share["quantity"] == 4 and share["customer_id"] == kundin and '"grams": 40.0' in share["materials"]
+    assert round(store.get(pid)["cost_total"], 2) == 8.0  # 4 € + 4 von 10 Clips
+    assert store.stock(store.get(j))["units"] == 4
+    # Projekt rechnet ab, nicht der Anteil; Statistik zählt weiter nur die Drucke
+    assert {r["id"] for r in store.list_jobs(paid="offen")} >= {pid} and share["id"] not in {r["id"] for r in store.list_jobs(pending="1")}
+    assert store.summary()["total"]["n"] == 2
+    # Kosten des Drucks ändern sich → Projekt zieht mit
+    store.update(j, cost_total=20.0)
+    assert round(store.get(pid)["cost_total"], 2) == 12.0
+    html = page_job(store, store.get(j), None)
+    assert "Set" in html and "über das Projekt" in html
+    # Aus dem Projekt lösen → zurück in den Vorrat
+    store.remove_from_project(share["id"])
+    assert store.get(share["id"]) is None and store.stock(store.get(j))["units"] == 8
+    assert round(store.get(pid)["cost_total"], 2) == 4.0
+
+
+def test_neues_projekt_und_aufheben() -> None:
+    store, kundin, andere = _store()
+    j = _job(store, None, "Clips", cost=10.0, quantity=10)
+    assert store.set_split(j, [{"new_project": "Werkbank", "qty": 3}]) is None
+    share = store.shares([j])[j][0]
+    assert share["project_name"] == "Werkbank" and store.get(share["project_id"])["kind"] == "project"
+    store.unsplit(j)
+    assert store.get(share["project_id"]) is None  # leeres Projekt verschwindet wieder
+    pid = store.create_project([_job(store, kundin, "Y")], name="P")
+    assert store.set_split(pid, [{"project_id": pid, "qty": 1}]) is not None  # Projekt nicht in Projekt

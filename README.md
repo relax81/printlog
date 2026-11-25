@@ -70,7 +70,8 @@ in a **light and a dark** colour scheme (Settings → View → Colour scheme, or
   still owes. The **Stock** view next to *Open* lists everything on the shelf with its value at cost; **Give …** hands pieces to
   a customer later (the price suggestion is configurable under *Settings → Margins*) or writes them off without a customer
   (used myself, broken, lost). Projects are split in **sets** (the project's quantity), and single parts of a set can be given
-  away on their own, e.g. just one head of a figure kit.
+  away on their own, e.g. just one head of a figure kit. Pieces can also go into a **project** (an existing one or a new one
+  named right in the split window), e.g. 4 of 10 clips for the workshop wall: their share of the cost then counts in the project.
 - **Trash bin** with restore; deleted prints are removed for good only after a configurable number of days.
 - **Robust** – after a restart or a lost connection, printlog replays missed prints from Home Assistant's history (up to 7 days).
 
@@ -415,6 +416,8 @@ in **hell und dunkel** (Einstellungen → Ansicht → Farbschema, oder automatis
   Selbstkosten; **Abgeben …** gibt später Stück an einen Kunden (der Preisvorschlag ist unter *Einstellungen → Margen*
   einstellbar) oder bucht sie ohne Kunde aus (selbst verwendet, kaputt, verloren). Projekte werden in **Sätzen** aufgeteilt
   (die Stückzahl des Projekts), und einzelne Teile eines Satzes lassen sich extra abgeben, z. B. nur ein Kopf eines Figuren-Bausatzes.
+  Stück lassen sich auch einem **Projekt** zuteilen (einem bestehenden oder einem neuen, direkt im Fenster benannt), z. B. 4 von
+  10 Clips für die Werkstatt-Wand: ihr Anteil an den Kosten zählt dann im Projekt.
 - **Papierkorb** mit Wiederherstellen; endgültig gelöscht wird erst nach einstellbaren Tagen.
 - **Robust** – nach einem Neustart oder Verbindungsabbruch holt printlog verpasste Drucke aus dem Verlauf von Home Assistant nach (bis 7 Tage).
 
@@ -674,6 +677,9 @@ Sonderfälle:
   „Aufteilung aufheben“ macht alles rückgängig. Ausbuchungen ohne Kunde lassen sich mit × zurück in den Vorrat legen.
   Bei Projekten zählt ein Satz alle Drucke einmal (Stück des Drucks ÷ Sätze); wird ein Einzelteil abgegeben, zeigt der Vorrat
   die ganzen Sätze und die losen Teile. Statistik und Kalender zählen weiter den Druck; die CSV hat eine Spalte „Aufteilung“.
+  „📦 ＋ Projekt hinzufügen“ teilt Stück einem Projekt zu: Der Anteil erscheint in „Drucke im Projekt“ mit anteiligen Kosten,
+  Strom und Filament; Preis, Zahlung und Übergabe laufen über das Projekt. Löst man ihn dort mit × heraus, gehen die Stück
+  zurück in den Vorrat; ein neu angelegtes Projekt, das dabei leer wird, verschwindet wieder.
 - **Verschenkt**: zählt weiter in Kosten und Statistik, braucht aber keine Zahlung; unter „Kunden“ mit Anzahl und Wert pro Zeitraum.
 - **Keine Abrechnung** (Häkchen beim Kunden): gilt für alle Drucke dieses Kunden, nicht pro Druck. Anders als „Verschenkt“
   taucht nichts unter „Verschenkt“ auf; der Kunde steht unter „Kunden“ mit dem Schild „Keine Abrechnung“ statt offener Beträge.
