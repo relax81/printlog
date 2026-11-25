@@ -4,7 +4,7 @@
 // PDF vorher in ein Bild umwandeln: pdftoppm -r 90 -png -singlefile <ausgabeordner>/raw-kosten.pdf <ausgabeordner>/raw-cost
 // Druck-ID: ein fertiger Druck mit Kunde, Fotos und mehreren Filamenten (die Demo-Daten sind fest vorgegeben, z. B. 26).
 // Fehldruck-ID: der anteilig berechnete Fehldruck der Demo (Status-Filter „Fehldruck: Einstellungen“, z. B. 226).
-// Projekt-ID: das Beispielprojekt „Werkstatt-Wand“ der Demo (die höchste ID, z. B. 359).
+// Projekt-ID: das Beispielprojekt „Werkstatt-Wand“ der Demo (z. B. 359).
 const prevMonth = () => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 7); };
 const { chromium, devices } = require('playwright');
 const [lang, out, job, scheme = 'light', fd, proj] = process.argv.slice(2);
@@ -69,11 +69,28 @@ const hdr = { 'Accept-Language': lang };
       return { y: top + scrollY, h: bottom - top }; });
     await p.screenshot({ path: `${out}/assign-customer.png`, clip: { x: 0, y: r.y - 8, width: 1440, height: r.h + 16 }, fullPage: true });
   }
+  {
+    // Aufteilen: Zeile in der Liste, Kasten „Aufteilung“, Fenster „Aufteilen“, Ansicht „Vorrat“ (aufgeteilte Drucke der Demo)
+    await p.setViewportSize({ width: 1440, height: 900 });
+    await p.goto(base + '?view=stock'); await p.waitForLoadState('networkidle'); await p.waitForTimeout(600);
+    const href = await p.$eval('.vr .oname a', a => a.getAttribute('href').split('#')[0]);
+    await p.screenshot({ path: `${out}/stock.png` });
+    await p.goto(base); await p.waitForLoadState('networkidle'); await p.waitForTimeout(600);
+    const row = await p.evaluate(h => { const el = document.querySelector(`.jr[data-href="${h}"]`); const b = el.getBoundingClientRect();
+      return { y: b.top + scrollY, h: b.height }; }, href);
+    await p.screenshot({ path: `${out}/split-list.png`, clip: { x: 0, y: row.y - 8, width: 1440, height: row.h + 16 }, fullPage: true });
+    await p.goto(base + href); await p.waitForLoadState('networkidle'); await p.waitForTimeout(600);
+    const y = await p.$eval('.spbox', el => el.getBoundingClientRect().bottom + scrollY);
+    await p.screenshot({ path: `${out}/split-detail.png`, clip: { x: 0, y: 0, width: 1440, height: y + 16 }, fullPage: true });
+    await p.click('.spbox .spopen'); await p.waitForTimeout(400);
+    const d = await p.$eval('.spdlg', el => { const b = el.getBoundingClientRect(); return { y: b.top, h: b.height }; });
+    await p.screenshot({ path: `${out}/split-dialog.png`, clip: { x: 360, y: Math.max(0, d.y - 40), width: 720, height: d.h + 80 } });
+  }
   // phone
   const ph = await b.newContext({ ...devices['iPhone 13'], locale: lang, colorScheme: scheme, extraHTTPHeaders: hdr });
   await ph.addInitScript(init);
   const q = await ph.newPage();
-  for (const [n, u] of [['phone-list', ''], ['phone-detail', `job?id=${job}`], ['phone-open', '?view=todo']]) {
+  for (const [n, u] of [['phone-list', ''], ['phone-detail', `job?id=${job}`], ['phone-open', '?view=todo'], ['phone-stock', '?view=stock']]) {
     await q.goto(base + u); await q.waitForLoadState('networkidle'); await q.waitForTimeout(600);
     await q.screenshot({ path: `${out}/${n}.png` });
   }

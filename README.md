@@ -63,6 +63,14 @@ in a **light and a dark** colour scheme (Settings → View → Colour scheme, or
   a timeline per printer and photos, and it is billed as a whole: price, payments, hand-overs, receipt and PDF run through the
   project. Failed prints in it that are not charged do not count towards the price. The single prints keep their details and
   can be removed from the project again; *Ungroup* turns everything back into single prints. Statistics keep counting prints.
+- **Split pieces between customers and stock** – printed 10 clips, 2 go to Tom, 4 to Anna and 4 stay on the shelf?
+  **✂ Split** on the print page shares the quantity between customers; whatever is left over is your **stock**. The list keeps
+  one row with chips like *Tom 2 · Anna 4 · 📦 Stock 4*, and each customer gets their own share with its own price
+  (cost per piece + their margin, or a final price), payments, hand-overs and receipt, so **Open** shows exactly what each one
+  still owes. The **Stock** view next to *Open* lists everything on the shelf with its value at cost; **Give …** hands pieces to
+  a customer later (the price suggestion is configurable under *Settings → Margins*) or writes them off without a customer
+  (used myself, broken, lost). Projects are split in **sets** (the project's quantity), and single parts of a set can be given
+  away on their own, e.g. just one head of a figure kit.
 - **Trash bin** with restore; deleted prints are removed for good only after a configurable number of days.
 - **Robust** – after a restart or a lost connection, printlog replays missed prints from Home Assistant's history (up to 7 days).
 
@@ -102,11 +110,13 @@ in a **light and a dark** colour scheme (Settings → View → Colour scheme, or
 | <a href="docs/screenshots/en/calendar.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/calendar.png"><img src="docs/screenshots/en/calendar.png" alt="Calendar"></picture></a><br>**Calendar** | <a href="docs/screenshots/en/customers.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/customers.png"><img src="docs/screenshots/en/customers.png" alt="Customers"></picture></a><br>**Customers** |
 | <a href="docs/screenshots/en/failed-print.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/failed-print.png"><img src="docs/screenshots/en/failed-print.png" alt="Failed print: cause, charge and reprint"></picture></a><br>**Failed print: cause, charge and reprint** | <a href="docs/screenshots/en/failed-print-stats.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/failed-print-stats.png"><img src="docs/screenshots/en/failed-print-stats.png" alt="Failed prints by cause and what they cost"></picture></a><br>**Failed prints by cause and what they cost** |
 | <a href="docs/screenshots/en/project-list.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/project-list.png"><img src="docs/screenshots/en/project-list.png" alt="Project: one row, prints folded out"></picture></a><br>**Project: one row, prints folded out** | <a href="docs/screenshots/en/project-detail.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/project-detail.png"><img src="docs/screenshots/en/project-detail.png" alt="Project page with prints and timeline"></picture></a><br>**Project page with prints and timeline** |
-| <a href="docs/screenshots/en/assign-customer.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/assign-customer.png"><img src="docs/screenshots/en/assign-customer.png" alt="Assign a customer: chip in the list with a suggestion"></picture></a><br>**Assign a customer: chip in the list with a suggestion** | |
+| <a href="docs/screenshots/en/assign-customer.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/assign-customer.png"><img src="docs/screenshots/en/assign-customer.png" alt="Assign a customer: chip in the list with a suggestion"></picture></a><br>**Assign a customer: chip in the list with a suggestion** | <a href="docs/screenshots/en/split-list.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/split-list.png"><img src="docs/screenshots/en/split-list.png" alt="Split print: one row, one chip per customer and stock"></picture></a><br>**Split print: one row, one chip per customer and stock** |
+| <a href="docs/screenshots/en/split-detail.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/split-detail.png"><img src="docs/screenshots/en/split-detail.png" alt="Split: each customer with price, payment and hand-over, rest in stock"></picture></a><br>**Split: each customer with price, payment and hand-over, rest in stock** | <a href="docs/screenshots/en/split-dialog.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/split-dialog.png"><img src="docs/screenshots/en/split-dialog.png" alt="Split window: pieces per customer, stock is calculated"></picture></a><br>**Split window: pieces per customer, stock is calculated** |
+| <a href="docs/screenshots/en/stock.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/stock.png"><img src="docs/screenshots/en/stock.png" alt="Stock: what is left on the shelf and its value"></picture></a><br>**Stock: what is left on the shelf and its value** | |
 
-| Phone: prints | Phone: print detail | Phone: open items |
-|---|---|---|
-| <a href="docs/screenshots/en/phone-list.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/phone-list.png"><img src="docs/screenshots/en/phone-list.png" alt="Phone: prints"></picture></a> | <a href="docs/screenshots/en/phone-detail.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/phone-detail.png"><img src="docs/screenshots/en/phone-detail.png" alt="Phone: print detail"></picture></a> | <a href="docs/screenshots/en/phone-open.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/phone-open.png"><img src="docs/screenshots/en/phone-open.png" alt="Phone: open items"></picture></a> |
+| Phone: prints | Phone: print detail | Phone: open items | Phone: stock |
+|---|---|---|---|
+| <a href="docs/screenshots/en/phone-list.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/phone-list.png"><img src="docs/screenshots/en/phone-list.png" alt="Phone: prints"></picture></a> | <a href="docs/screenshots/en/phone-detail.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/phone-detail.png"><img src="docs/screenshots/en/phone-detail.png" alt="Phone: print detail"></picture></a> | <a href="docs/screenshots/en/phone-open.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/phone-open.png"><img src="docs/screenshots/en/phone-open.png" alt="Phone: open items"></picture></a> | <a href="docs/screenshots/en/phone-stock.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/phone-stock.png"><img src="docs/screenshots/en/phone-stock.png" alt="Phone: stock"></picture></a> |
 
 | Receipt for the customer | Internal receipt with calculation | PDF cost sheet |
 |---|---|---|
@@ -397,6 +407,14 @@ in **hell und dunkel** (Einstellungen → Ansicht → Farbschema, oder automatis
   Übergaben, Bon und PDF laufen über das Projekt. Fehldrucke darin, die nicht berechnet werden, zählen nicht zum Preis. Die
   einzelnen Drucke behalten ihre Details und lassen sich wieder aus dem Projekt lösen; *Auflösen* macht alles wieder zu
   Einzeldrucken. Die Statistik zählt weiter die Drucke.
+- **Stückzahl auf Kunden und Vorrat aufteilen** – 10 Clips gedruckt, 2 gehen an Tom, 4 an Anna und 4 bleiben im Regal?
+  **✂ Aufteilen** auf der Druckseite verteilt die Stückzahl auf mehrere Kunden; was übrig bleibt, ist dein **Vorrat**. Die Liste
+  behält eine Zeile mit Chips wie *Tom 2 · Anna 4 · 📦 Vorrat 4*, und jeder Kunde bekommt einen eigenen Anteil mit eigenem Preis
+  (Kosten pro Stück + seine Marge oder ein Endpreis), eigenen Zahlungen, Übergaben und eigenem Bon. **Offen** zeigt so genau,
+  was jeder noch zahlen oder abholen muss. Die Ansicht **Vorrat** neben *Offen* listet alles im Regal mit seinem Wert zu
+  Selbstkosten; **Abgeben …** gibt später Stück an einen Kunden (der Preisvorschlag ist unter *Einstellungen → Margen*
+  einstellbar) oder bucht sie ohne Kunde aus (selbst verwendet, kaputt, verloren). Projekte werden in **Sätzen** aufgeteilt
+  (die Stückzahl des Projekts), und einzelne Teile eines Satzes lassen sich extra abgeben, z. B. nur ein Kopf eines Figuren-Bausatzes.
 - **Papierkorb** mit Wiederherstellen; endgültig gelöscht wird erst nach einstellbaren Tagen.
 - **Robust** – nach einem Neustart oder Verbindungsabbruch holt printlog verpasste Drucke aus dem Verlauf von Home Assistant nach (bis 7 Tage).
 
@@ -437,11 +455,13 @@ in **hell und dunkel** (Einstellungen → Ansicht → Farbschema, oder automatis
 | <a href="docs/screenshots/de/calendar.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/calendar.png"><img src="docs/screenshots/de/calendar.png" alt="Kalender"></picture></a><br>**Kalender** | <a href="docs/screenshots/de/customers.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/customers.png"><img src="docs/screenshots/de/customers.png" alt="Kunden"></picture></a><br>**Kunden** |
 | <a href="docs/screenshots/de/failed-print.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/failed-print.png"><img src="docs/screenshots/de/failed-print.png" alt="Fehldruck: Ursache, Berechnung und Nachdruck"></picture></a><br>**Fehldruck: Ursache, Berechnung und Nachdruck** | <a href="docs/screenshots/de/failed-print-stats.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/failed-print-stats.png"><img src="docs/screenshots/de/failed-print-stats.png" alt="Fehldrucke nach Ursache und was sie kosten"></picture></a><br>**Fehldrucke nach Ursache und was sie kosten** |
 | <a href="docs/screenshots/de/project-list.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/project-list.png"><img src="docs/screenshots/de/project-list.png" alt="Projekt: eine Zeile, Drucke aufgeklappt"></picture></a><br>**Projekt: eine Zeile, Drucke aufgeklappt** | <a href="docs/screenshots/de/project-detail.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/project-detail.png"><img src="docs/screenshots/de/project-detail.png" alt="Projektseite mit Drucken und Zeitleiste"></picture></a><br>**Projektseite mit Drucken und Zeitleiste** |
-| <a href="docs/screenshots/de/assign-customer.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/assign-customer.png"><img src="docs/screenshots/de/assign-customer.png" alt="Kunde zuordnen: Chip in der Liste mit Vorschlag"></picture></a><br>**Kunde zuordnen: Chip in der Liste mit Vorschlag** | |
+| <a href="docs/screenshots/de/assign-customer.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/assign-customer.png"><img src="docs/screenshots/de/assign-customer.png" alt="Kunde zuordnen: Chip in der Liste mit Vorschlag"></picture></a><br>**Kunde zuordnen: Chip in der Liste mit Vorschlag** | <a href="docs/screenshots/de/split-list.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/split-list.png"><img src="docs/screenshots/de/split-list.png" alt="Aufgeteilter Druck: eine Zeile, ein Chip pro Kunde und Vorrat"></picture></a><br>**Aufgeteilter Druck: eine Zeile, ein Chip pro Kunde und Vorrat** |
+| <a href="docs/screenshots/de/split-detail.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/split-detail.png"><img src="docs/screenshots/de/split-detail.png" alt="Aufteilung: jeder Kunde mit Preis, Zahlung und Übergabe, Rest im Vorrat"></picture></a><br>**Aufteilung: jeder Kunde mit Preis, Zahlung und Übergabe, Rest im Vorrat** | <a href="docs/screenshots/de/split-dialog.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/split-dialog.png"><img src="docs/screenshots/de/split-dialog.png" alt="Fenster Aufteilen: Stück pro Kunde, der Vorrat rechnet sich aus"></picture></a><br>**Fenster „Aufteilen“: Stück pro Kunde, der Vorrat rechnet sich aus** |
+| <a href="docs/screenshots/de/stock.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/stock.png"><img src="docs/screenshots/de/stock.png" alt="Vorrat: was im Regal liegt und was es wert ist"></picture></a><br>**Vorrat: was im Regal liegt und was es wert ist** | |
 
-| Handy: Drucke | Handy: Druckdetails | Handy: Offen |
-|---|---|---|
-| <a href="docs/screenshots/de/phone-list.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/phone-list.png"><img src="docs/screenshots/de/phone-list.png" alt="Handy: Drucke"></picture></a> | <a href="docs/screenshots/de/phone-detail.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/phone-detail.png"><img src="docs/screenshots/de/phone-detail.png" alt="Handy: Druckdetails"></picture></a> | <a href="docs/screenshots/de/phone-open.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/phone-open.png"><img src="docs/screenshots/de/phone-open.png" alt="Handy: Offen"></picture></a> |
+| Handy: Drucke | Handy: Druckdetails | Handy: Offen | Handy: Vorrat |
+|---|---|---|---|
+| <a href="docs/screenshots/de/phone-list.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/phone-list.png"><img src="docs/screenshots/de/phone-list.png" alt="Handy: Drucke"></picture></a> | <a href="docs/screenshots/de/phone-detail.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/phone-detail.png"><img src="docs/screenshots/de/phone-detail.png" alt="Handy: Druckdetails"></picture></a> | <a href="docs/screenshots/de/phone-open.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/phone-open.png"><img src="docs/screenshots/de/phone-open.png" alt="Handy: Offen"></picture></a> | <a href="docs/screenshots/de/phone-stock.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/phone-stock.png"><img src="docs/screenshots/de/phone-stock.png" alt="Handy: Vorrat"></picture></a> |
 
 | Bon für Kunden | Bon intern mit Kalkulation | PDF-Kostenaufstellung |
 |---|---|---|
@@ -632,7 +652,7 @@ Sonderfälle:
 ### Oberfläche im Detail
 
 - **Drucke**: große Live-Suche (Teilwörter, mehrere Wörter, Umlaute egal), darunter die Filter als Chips; Ansichten Tabelle,
-  Galerie und Offen (mit Zähler). Die Icons rechts gruppieren „Nach Tagen“ und starten „Auswählen“ (Mehrfachauswahl, Löschen mit „Rückgängig“).
+  Galerie, Offen (mit Zähler) und Vorrat. Die Icons rechts gruppieren „Nach Tagen“ und starten „Auswählen“ (Mehrfachauswahl, Löschen mit „Rückgängig“).
   Ein Farbbalken zeigt die Kostenanteile, Antippen öffnet die Aufschlüsselung.
 - **Druckdetails**: Tabs Übersicht, Abrechnung (nur mit Kunde, nicht bei „Keine Abrechnung“), Bearbeiten und Fotos. Der Start-Tab ist einstellbar.
 - **Endpreis, Zahlung, Übergabe** (nur mit Kunde, nicht bei Fehldrucken ohne Berechnung): optionaler Endpreis, sonst Kosten + Kundenmarge.
@@ -647,6 +667,13 @@ Sonderfälle:
   wandern beim Zusammenfassen ins Projekt, beim Auflösen an den ersten Druck. Ein Nachdruck zu einem Fehldruck im Projekt
   kommt automatisch mit hinein. Die Druckseite zeigt den Anteil am Projekt, Kunde und Abrechnung ändert man am Projekt.
   Statistik, Kalender und Kundenzählung zählen nur die Drucke, nie das Projekt; die CSV hat eine Spalte „Gehört zu Projekt“.
+- **Aufteilen & Vorrat**: „✂ Aufteilen“ im Kopf eines Drucks mit mehr als einem Stück (bei Projekten immer). Im Fenster pro Kunde
+  die Stückzahl (−/+), „＋ Kunde hinzufügen“ nutzt die Schnellauswahl, der Vorrat rechnet sich live aus. Jeder Anteil ist ein
+  eigener Eintrag mit anteiligen Kosten, eigener Projekt-ID, Preis, Zahlungen, Übergaben und Bon; „Abrechnung →“ öffnet ihn.
+  Beim ersten Aufteilen bekommt der Anteil des bisherigen Kunden dessen Zahlungen, Übergaben und Endpreis (anteilig).
+  „Aufteilung aufheben“ macht alles rückgängig. Ausbuchungen ohne Kunde lassen sich mit × zurück in den Vorrat legen.
+  Bei Projekten zählt ein Satz alle Drucke einmal (Stück des Drucks ÷ Sätze); wird ein Einzelteil abgegeben, zeigt der Vorrat
+  die ganzen Sätze und die losen Teile. Statistik und Kalender zählen weiter den Druck; die CSV hat eine Spalte „Aufteilung“.
 - **Verschenkt**: zählt weiter in Kosten und Statistik, braucht aber keine Zahlung; unter „Kunden“ mit Anzahl und Wert pro Zeitraum.
 - **Keine Abrechnung** (Häkchen beim Kunden): gilt für alle Drucke dieses Kunden, nicht pro Druck. Anders als „Verschenkt“
   taucht nichts unter „Verschenkt“ auf; der Kunde steht unter „Kunden“ mit dem Schild „Keine Abrechnung“ statt offener Beträge.
