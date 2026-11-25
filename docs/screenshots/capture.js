@@ -1,11 +1,12 @@
 // Screenshots für die README aus dem Demo-Modus.
-// Aufruf (App läuft lokal auf Port 8095): node docs/screenshots/capture.js <en|de> <ausgabeordner> <druck-id> [light|dark]
+// Aufruf (App läuft lokal auf Port 8095): node docs/screenshots/capture.js <en|de> <ausgabeordner> <druck-id> [light|dark] [fehldruck-id]
 // Danach: python3 docs/screenshots/shrink.py <ausgabeordner> docs/screenshots/<en|de>[-dark]
 // PDF vorher in ein Bild umwandeln: pdftoppm -r 90 -png -singlefile <ausgabeordner>/raw-kosten.pdf <ausgabeordner>/raw-cost
 // Druck-ID: ein fertiger Druck mit Kunde, Fotos und mehreren Filamenten (die Demo-Daten sind fest vorgegeben, z. B. 26).
+// Fehldruck-ID: der anteilig berechnete Fehldruck der Demo (Status-Filter „Fehldruck: Einstellungen“, z. B. 226).
 const prevMonth = () => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 7); };
 const { chromium, devices } = require('playwright');
-const [lang, out, job, scheme = 'light'] = process.argv.slice(2);
+const [lang, out, job, scheme = 'light', fd] = process.argv.slice(2);
 const base = 'http://127.0.0.1:8095/demo/';
 const hdr = { 'Accept-Language': lang };
 (async () => {
@@ -30,6 +31,16 @@ const hdr = { 'Accept-Language': lang };
   await shot('statistics', 'stats', { h: 1130 });
   await shot('calendar', `calendar?month=${prevMonth()}`, { h: 950 });
   await shot('customers', 'customers', { h: 900 });
+  if (fd) {
+    // Fehldruck: Kopf + Fehldruck-Kasten; Statistik: die beiden Fehldruck-Karten
+    const box = async (sel, pad) => { const r = await p.$eval(sel, el => { const b = el.getBoundingClientRect(); return { y: b.bottom + scrollY }; }); return r.y + pad; };
+    await p.setViewportSize({ width: 1440, height: 900 });
+    await p.goto(base + `job?id=${fd}`); await p.waitForLoadState('networkidle'); await p.waitForTimeout(600);
+    await p.screenshot({ path: `${out}/failed-print.png`, clip: { x: 0, y: 0, width: 1440, height: await box('.fdbox', 16) }, fullPage: true });
+    await p.goto(base + 'stats'); await p.waitForLoadState('networkidle'); await p.waitForTimeout(600);
+    const g = await p.$eval('.fdcard', el => { const b = el.parentElement.getBoundingClientRect(); return { y: b.top + scrollY, h: b.height }; });
+    await p.screenshot({ path: `${out}/failed-print-stats.png`, clip: { x: 0, y: g.y - 12, width: 1440, height: g.h + 24 }, fullPage: true });
+  }
   // phone
   const ph = await b.newContext({ ...devices['iPhone 13'], locale: lang, colorScheme: scheme, extraHTTPHeaders: hdr });
   await ph.addInitScript(init);
