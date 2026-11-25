@@ -20,6 +20,7 @@ from aiohttp import web
 from . import archive
 from . import extras as zk
 from . import models as mdl
+from . import storage as lg
 from .costing import compute, parse_materials, recompute_all
 from .db import Store
 from .defects import DEFECTS
@@ -81,6 +82,8 @@ def _filters(request: web.Request) -> dict[str, str | None]:
         f["customer"] = None
     if f["model"] and not f["model"].isdigit():
         f["model"] = None
+    if f["loc"] and f["loc"] != "none" and not f["loc"].isdigit():
+        f["loc"] = None
     if f["day"] and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", f["day"]):
         f["day"] = None
     if f["todo"] not in TODO_OPTIONS:
@@ -238,6 +241,9 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
     async def go(request: web.Request) -> web.Response:
         """Projekt-ID (z. B. PL-7K3Q, auch ohne Präfix, Groß/klein egal) → Detailseite des Drucks."""
         q = request.query.get("q") or ""
+        item = lg.parse_item_code(q)
+        if item and not request.query.get("json"):
+            raise web.HTTPSeeOther(f"{'loc' if item[0] == 'L' else 'item'}?c={item[1]}")
         job_id = store.find_code(q)
         if request.query.get("json"):
             return web.json_response({"id": job_id})
@@ -889,6 +895,85 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
     async def api_delete_many(request: web.Request) -> web.Response:
         ids = [i for i in _ids(await request.post()) if store.trash_job(i)]
         return web.json_response({"ok": True, "ids": ids})
+
+    @routes.get("/storage")
+    async def storage_page(request: web.Request) -> web.Response:
+        return _html(lg.page_storage(store, request.query.get("tab"), request.query.get("saved")))
+
+    @routes.post("/storage")
+    async def storage_save(request: web.Request) -> web.Response:
+        zk.save_inventory(store, await request.post())
+        recompute_all(store)
+        raise web.HTTPSeeOther("storage?saved=1")
+
+    @routes.post("/storage/locations")
+    async def storage_locations(request: web.Request) -> web.Response:
+        """Lagerort anlegen (ohne id), ändern oder löschen (delete=1)."""
+        form = await request.post()
+        lid = str(form.get("id") or "")
+        name = str(form.get("name") or "").strip()
+        note = str(form.get("note") or "").strip()[:200] or None
+        if lid.isdigit():
+            loc = lg.location(store, int(lid))
+            if not loc:
+                raise web.HTTPSeeOther("../storage?tab=orte")
+            if form.get("delete"):
+                lg.delete_location(store, loc["id"])
+                raise web.HTTPSeeOther("../storage?tab=orte&saved=1")
+            if name:
+                lg.save_location(store, loc["id"], name, note)
+            raise web.HTTPSeeOther(f"../loc?c={loc['code']}&saved=1")
+        if name:
+            new = lg.location(store, lg.create_location(store, name, note))
+            if new:
+                raise web.HTTPSeeOther(f"../loc?c={new['code']}&saved=1")
+        raise web.HTTPSeeOther("../storage?tab=orte")
+
+    @routes.post("/storage/item")
+    async def storage_item(request: web.Request) -> web.Response:
+        form = await request.post()
+        aid = str(form.get("id") or "")
+        a = zk.accessory(store, int(aid)) if aid.isdigit() else None
+        if not a:
+            raise web.HTTPSeeOther("../storage")
+        lg.item_booking(store, a["id"], parse_num(form.get("aq")), parse_num(form.get("ap")), parse_num(form.get("take")))
+        raise web.HTTPSeeOther(f"../item?c={a['code']}&saved=1")
+
+    @routes.get("/loc")
+    async def loc_page(request: web.Request) -> web.Response:
+        """Feste Adresse eines Lagerorts (L-XXXX), z. B. für einen QR-Code."""
+        item = lg.parse_item_code("L" + (request.query.get("c") or "")[-4:])
+        loc = lg.by_code(store, "locations", item[1]) if item else None
+        if not loc:
+            raise web.HTTPSeeOther("storage?tab=orte")
+        return _html(lg.page_location(store, loc, request.query.get("saved")))
+
+    @routes.get("/item")
+    async def item_page(request: web.Request) -> web.Response:
+        """Feste Adresse eines Zubehör-Artikels (A-XXXX)."""
+        item = lg.parse_item_code("A" + (request.query.get("c") or "")[-4:])
+        a = lg.by_code(store, "accessories", item[1]) if item else None
+        if not a:
+            raise web.HTTPSeeOther("storage")
+        return _html(lg.page_item(store, a, request.query.get("saved")))
+
+    @routes.post("/api/locations/assign")
+    async def api_assign_location(request: web.Request) -> web.Response:
+        """Lagerort für Drucke (ids) oder ein Zubehör (acc) setzen. new_name legt den Lagerort vorher an."""
+        form = await request.post()
+        new_name = str(form.get("new_name") or "").strip()
+        raw = str(form.get("location_id") or "")
+        lid = lg.location_by_name(store, new_name) if new_name else int(raw) if raw.isdigit() else None
+        acc = str(form.get("acc") or "")
+        if acc.isdigit():
+            prev = lg.assign_accessories(store, [int(acc)], lid)
+        else:
+            prev = lg.assign_jobs(store, _ids(form), lid)
+        if not prev:
+            raise web.HTTPBadRequest()
+        loc = lg.location(store, lid) if lid else None
+        return web.json_response({"ok": True, "location_id": lid, "name": loc["name"] if loc else None,
+                                  "prev": [[i, v] for i, v in prev.items()]})
 
     @routes.post("/api/customers/assign")
     async def api_assign_customer(request: web.Request) -> web.Response:

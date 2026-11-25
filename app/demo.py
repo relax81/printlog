@@ -307,6 +307,23 @@ def _split(store: Store, jobs: list[dict[str, Any]], cust_ids: list[int], skip: 
             store.give(pid, cust_ids[7], 1, part=free[0]["id"])
 
 
+def _locations(store: Store, L: Any) -> None:
+    """Lager: drei Lagerorte, Zubehör darin, Vorrat in Kisten."""
+    from . import storage as lg
+
+    box1 = lg.create_location(store, L(("Kiste 1 · Anhänger", "Box 1 · Keychains")), L(("Regal im Arbeitszimmer", "Shelf in the office")))
+    box2 = lg.create_location(store, L(("Kiste 2 · Vorrat", "Box 2 · Stock")))
+    drawer = lg.create_location(store, L(("Schublade Kleinteile", "Small parts drawer")))
+    rows = store._conn.execute("SELECT id, grp FROM accessories ORDER BY id").fetchall()  # noqa: SLF001
+    for r in rows:
+        lid = drawer if r["grp"] in ("Magnete", "Magnets") else box1 if r["grp"] in ("Anhänger", "Keychains") else None
+        if lid:
+            lg.assign_accessories(store, [r["id"]], lid)
+    stock = [j["id"] for j in store.stock_items()]
+    lg.assign_jobs(store, stock[:2], box2)
+    lg.assign_jobs(store, stock[2:3], box1)
+
+
 def _models(store: Store, image_dir: Path, L: Any) -> None:
     """Modelle wie nach dem ersten Start erkennen, dann zwei offene Fragen für die Glocke."""
     from . import models as mdl
@@ -615,6 +632,7 @@ def seed(store: Store, image_dir: Path, lang: str, now: float | None = None) -> 
     _split(store, jobs, cust_ids, {j["id"] for j in trash}, now, L, image_dir, pid)
 
     _models(store, image_dir, L)
+    _locations(store, L)
 
     store.set_setting("demo_lang", lang)
     store.set_setting("demo_ts", f"{now:.0f}")

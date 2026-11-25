@@ -566,7 +566,7 @@ def page_hints(store: Store) -> str:
             free = (a.get("stock") or 0) - (a.get("reserved") or 0)
             rows += (f'<li><span>{e(a.get("icon") or "🔹")} <b>{e(a["name"])}</b></span>'
                      f'<span class="muted">{e(t("{n} frei", n=fmt_input(round(free, 2))))}</span>{buy}</li>')
-        stock = f'<h2>🧰 {e(t("Zubehör bald nachkaufen"))}</h2><ul class="lowl">{rows}</ul><p><a href="settings#zubehoer">{e(t("Zum Inventar"))} →</a></p>'
+        stock = f'<h2>🧰 {e(t("Zubehör bald nachkaufen"))}</h2><ul class="lowl">{rows}</ul><p><a href="storage">{e(t("Zum Lager"))} →</a></p>'
     empty = "" if cards or stock else f'<p class="muted">✓ {e(t("Keine offenen Hinweise."))}</p>'
     intro = (f'<p class="muted">{e(t("printlog ordnet jeden fertigen Druck einem Modell (Design) zu. Ist es nicht sicher, fragt es hier nach. Deine Antwort merkt es sich."))}'
              f' <a href="models">{e(t("Alle Modelle"))} →</a></p>')
@@ -620,7 +620,7 @@ def page_models(store: Store, q: str | None = None) -> str:
     js = ("document.querySelectorAll('.mmode select').forEach(s=>s.onchange=()=>{s.parentElement.querySelector('.spn').hidden=s.value!=='spread'});"
           "if(location.hash){const el=document.querySelector(location.hash);if(el)el.classList.add('mdhl')}")
     body = f'<h2 style="margin-top:4px">🧩 {e(t("Modelle"))}</h2><p class="muted">{intro} <a href="hints">🔔 {e(t("Hinweise"))}</a></p>{search}<div class="ml">{items}</div>'
-    return layout(t("Modelle"), "", f'<style>{CSS}</style>{body}', js)
+    return layout(t("Modelle"), "models", f'<style>{CSS}</style>{body}', js)
 
 
 def notify_text(hints: list[str]) -> str:

@@ -77,7 +77,7 @@ in a **light and a dark** colour scheme (Settings → View → Colour scheme, or
   image +25, same print file +10, same plate +5, weight per piece within ±15 % +5. From 85 points it assigns the model
   automatically; 60–84 it assigns it tentatively and asks; 35–59 it only suggests one; below that it creates a new model.
   If two models fit almost equally well, it always asks. Your answers are remembered: a confirmed name becomes an alias,
-  a rejected pair is never suggested again. The **Models** page lists every model with its prints and lets you rename,
+  a rejected pair is never suggested again. The **Models** page (top menu) lists every model with its prints and lets you rename,
   merge and remove aliases. On the first start the existing history is sorted into models silently, without questions.
 - **Notices** – a 🔔 bell at the top counts open questions (prints to check, accessories to restock). The **Notices** page
   answers them in one tap (*Yes, model X* / *Other model …* / *New model*); the list shows a coloured dot on such prints
@@ -102,13 +102,13 @@ in a **light and a dark** colour scheme (Settings → View → Colour scheme, or
   - *Printer* depreciation and maintenance per 1000 print hours.
 - **Labour and accessories** – a **Labour & accessories** box on the print page adds what a print costs beyond the printer:
   - *Labour* with − / + steppers: preparation per plate (slicing, plate, starting the print), post-processing per piece
-    (or once per print) and design time, each with its own hourly rate (*Settings → Labour & accessories*).
+    (or once per print) and design time, each with its own hourly rate (*Settings → Labour time*).
     Design time belongs to the **model**: it is billed once with the first billed print of the model (own prints, gifts and
     "No billing" customers do not count), or spread over the first N billed prints.
   - *Accessories* from an **inventory** (key rings, chains, magnets, bags …) with pack price, price per piece, stock,
     low-stock warning and a buy link. Tap **＋ From inventory**, pick tiles, done; amounts are per piece and multiplied by
     the quantity. One-off items (e.g. a special box) are added as free text with a price. A new pack is booked as an
-    *addition*, the price per piece is averaged.
+    *addition*, the price per piece is averaged. The inventory has its own page **Storage** in the top menu.
   - Assigned accessories are **reserved**; they leave the stock when you count pieces as **🔧 Assembled** (partial amounts
     are fine) or when the pieces are handed over.
   - **Take over** copies labour and accessories from the last print with the same name.
@@ -119,6 +119,16 @@ in a **light and a dark** colour scheme (Settings → View → Colour scheme, or
   - Paid more than the price (rounded up, a tip)? The amount paid then counts as the actual price: shown in the list,
     the billing tab and the price box, and profit is calculated from it. One click turns it into the final price.
   - The customer receipt can list what it contains (accessories, labour minutes) without prices; tick it when sharing.
+- **Storage** – a page of its own in the top menu with two tabs:
+  - *Accessories*: the inventory (search, filter by group or location, stock value, what to restock soon).
+  - *Locations* (box, shelf, drawer …) work like customers: type a new one in the picker, pick it again later. A location
+    can hold accessories and finished prints, e.g. leftover pieces in stock. Assign it with the **📦 Location** chip in the
+    inventory, on a print's page, in the **Stock** view, or for several prints at once via **Select → 📦 Location**.
+    The print list has a **Location** filter, and the search finds the location name.
+  - Every location and every accessory has a **fixed ID** (L-XXXX, A-XXXX) and its own page at a fixed address
+    (`loc?c=XXXX`, `item?c=XXXX`) that stays the same when you rename it. A location's page lists what is in it and lets you
+    move items; an item's page shows stock, reserved and free pieces, books a new pack or takes pieces out, and lists the
+    prints that use it. The IDs also work in `go?q=L-XXXX`. This prepares QR codes for quick moving by scan later.
 - **Selling prices** – two named margins, an optional margin per customer and a fixed final price per print.
 - **Customers** – partial payments and partial hand-overs, gifts, open amounts per customer. Tick **No billing** for
   a customer you only use for your own prints (e.g. models you upload): costs and statistics still count, but there are
@@ -147,8 +157,9 @@ in a **light and a dark** colour scheme (Settings → View → Colour scheme, or
 | <a href="docs/screenshots/en/assign-customer.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/assign-customer.png"><img src="docs/screenshots/en/assign-customer.png" alt="Assign a customer: chip in the list with a suggestion"></picture></a><br>**Assign a customer: chip in the list with a suggestion** | <a href="docs/screenshots/en/split-list.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/split-list.png"><img src="docs/screenshots/en/split-list.png" alt="Split print: one row, one chip per customer and stock"></picture></a><br>**Split print: one row, one chip per customer and stock** |
 | <a href="docs/screenshots/en/split-detail.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/split-detail.png"><img src="docs/screenshots/en/split-detail.png" alt="Split: each customer with price, payment and hand-over, rest in stock"></picture></a><br>**Split: each customer with price, payment and hand-over, rest in stock** | <a href="docs/screenshots/en/split-dialog.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/split-dialog.png"><img src="docs/screenshots/en/split-dialog.png" alt="Split window: pieces per customer, stock is calculated"></picture></a><br>**Split window: pieces per customer, stock is calculated** |
 | <a href="docs/screenshots/en/stock.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/stock.png"><img src="docs/screenshots/en/stock.png" alt="Stock: what is left on the shelf and its value"></picture></a><br>**Stock: what is left on the shelf and its value** | <a href="docs/screenshots/en/work-accessories.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/work-accessories.png"><img src="docs/screenshots/en/work-accessories.png" alt="Labour & accessories on the print page"></picture></a><br>**Labour & accessories on the print page** |
-| <a href="docs/screenshots/en/accessory-picker.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/accessory-picker.png"><img src="docs/screenshots/en/accessory-picker.png" alt="Pick accessories from the inventory"></picture></a><br>**Pick accessories from the inventory** | <a href="docs/screenshots/en/accessory-inventory.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/accessory-inventory.png"><img src="docs/screenshots/en/accessory-inventory.png" alt="Accessory inventory with stock and buy link"></picture></a><br>**Accessory inventory with stock and buy link** |
+| <a href="docs/screenshots/en/accessory-picker.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/accessory-picker.png"><img src="docs/screenshots/en/accessory-picker.png" alt="Pick accessories from the inventory"></picture></a><br>**Pick accessories from the inventory** | <a href="docs/screenshots/en/accessory-inventory.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/accessory-inventory.png"><img src="docs/screenshots/en/accessory-inventory.png" alt="Storage: accessory inventory with location and buy link"></picture></a><br>**Storage: accessory inventory with location and buy link** |
 | <a href="docs/screenshots/en/hints.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/hints.png"><img src="docs/screenshots/en/hints.png" alt="Notices: check models with one tap"></picture></a><br>**Notices: check models with one tap** | <a href="docs/screenshots/en/models.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/models.png"><img src="docs/screenshots/en/models.png" alt="Models: rename, design time, merge"></picture></a><br>**Models: rename, design time, merge** |
+| <a href="docs/screenshots/en/locations.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/locations.png"><img src="docs/screenshots/en/locations.png" alt="Storage: locations for accessories and prints"></picture></a><br>**Storage: locations for accessories and prints** | <a href="docs/screenshots/en/location.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/location.png"><img src="docs/screenshots/en/location.png" alt="A location with its fixed ID and contents"></picture></a><br>**A location with its fixed ID and contents** |
 
 | Phone: prints | Phone: print detail | Phone: open items | Phone: stock |
 |---|---|---|---|
@@ -373,6 +384,9 @@ filament weight per slot is usually not available there. Support for other brand
 - `POST /api/jobs/{id}` – update task_name, customer_id, quantity, job_note
 - `POST /api/customers/assign` (`ids=1,2,3`, `customer_id` or empty for none, or `new_name`) – set the customer of several prints;
   answers with the previous customer per print (`prev`) for undo; a print in a project changes the project
+- `POST /api/locations/assign` (`ids=1,2,3` or `acc={id}`, `location_id` or empty for none, or `new_name`) – set the
+  storage location of prints or of one accessory; answers with `prev` for undo
+- `GET /loc?c=XXXX`, `GET /item?c=XXXX` – page of a location (L-XXXX) or an accessory (A-XXXX) at a fixed address
 - `POST /api/jobs/{id}/photos` – upload a photo (multipart field `photo`)
 - `POST /api/jobs/{id}/delete`, `POST /api/jobs/delete` (`ids=1,2,3`) – move to trash
 - `GET /export/{id}/bon-kunde.png`, `bon-intern.png`, `kosten.pdf` – share exports (customer receipt, internal receipt, PDF)
@@ -460,7 +474,7 @@ in **hell und dunkel** (Einstellungen → Ansicht → Farbschema, oder automatis
   +35, sehr ähnliches Vorschaubild +25, gleiche Druckdatei +10, gleiche Platte +5, Gewicht pro Stück ±15 % +5. Ab 85 Punkten
   ordnet es automatisch zu, bei 60–84 vorläufig mit Nachfrage, bei 35–59 macht es nur einen Vorschlag, darunter legt es ein
   neues Modell an. Passen zwei Modelle fast gleich gut, fragt es immer. Deine Antworten merkt es sich: ein bestätigter Name
-  wird Alias, ein abgelehntes Paar wird nie wieder vorgeschlagen. Die Seite **Modelle** zeigt alle Modelle mit ihren Drucken;
+  wird Alias, ein abgelehntes Paar wird nie wieder vorgeschlagen. Die Seite **Modelle** (Menü oben) zeigt alle Modelle mit ihren Drucken;
   dort lassen sie sich umbenennen, zusammenlegen und Aliase entfernen. Beim ersten Start sortiert printlog die vorhandene
   Historie still in Modelle ein, ohne Rückfragen.
 - **Hinweise** – eine 🔔 Glocke oben zählt offene Fragen (Drucke prüfen, Zubehör nachkaufen). Auf der Seite **Hinweise**
@@ -488,13 +502,13 @@ in **hell und dunkel** (Einstellungen → Ansicht → Farbschema, oder automatis
   - *Drucker*: Abschreibung und Wartung pro 1000 Druckstunden.
 - **Arbeit & Zubehör** – ein Kasten **Arbeit & Zubehör** in der Übersicht eines Drucks rechnet ein, was über den Drucker hinaus anfällt:
   - *Arbeitszeit* mit − / + Steppern: Vorbereitung pro Platte (Slicen, Platte, Druck starten), Nachbearbeitung pro Stück
-    (oder einmalig pro Druck) und Designzeit, jeweils mit eigenem Stundensatz (*Einstellungen → Arbeit & Zubehör*).
+    (oder einmalig pro Druck) und Designzeit, jeweils mit eigenem Stundensatz (*Einstellungen → Arbeitszeit*).
     Die Designzeit gehört zum **Modell**: Sie wird einmal beim ersten berechneten Druck des Modells berechnet (eigene Drucke,
     Geschenke und Kunden mit „Keine Abrechnung“ zählen nicht) oder auf die ersten N berechneten Drucke verteilt.
   - *Zubehör* aus einem **Inventar** (Schlüsselringe, Ketten, Magnete, Beutel …) mit Packungspreis, Stückpreis, Bestand,
     Warnung bei wenig Bestand und Kauflink. **＋ Aus Inventar** antippen, Kacheln wählen, fertig; Mengen gelten pro Stück und
     werden mit der Stückzahl multipliziert. Einmalige Posten (z. B. eine besondere Schachtel) gehen als Freitext mit Preis.
-    Eine neue Packung wird als *Zugang* gebucht, der Stückpreis wird gemittelt.
+    Eine neue Packung wird als *Zugang* gebucht, der Stückpreis wird gemittelt. Das Inventar hat eine eigene Seite **Lager** im Menü oben.
   - Zugeordnetes Zubehör ist **reserviert**; vom Bestand geht es ab, wenn Stück als **🔧 Montiert** gezählt werden
     (Teilmengen gehen) oder wenn die Stücke übergeben werden.
   - **Übernehmen** kopiert Arbeit und Zubehör vom letzten Druck mit gleichem Namen.
@@ -505,6 +519,17 @@ in **hell und dunkel** (Einstellungen → Ansicht → Farbschema, oder automatis
   - Mehr bezahlt als der Preis (aufgerundet, Trinkgeld)? Dann gilt der gezahlte Betrag als tatsächlicher Preis: in der Liste,
     in der Abrechnung und im Preiskasten, und der Gewinn wird daraus berechnet. Ein Klick macht ihn zum Endpreis.
   - Der Kunden-Bon kann auflisten, was enthalten ist (Zubehör, Arbeitsminuten), ohne Preise; Häkchen beim Teilen.
+- **Lager** – eigene Seite im Menü oben mit zwei Tabs:
+  - *Zubehör*: das Inventar (Suche, Filter nach Gruppe oder Lagerort, Lagerwert, was bald nachgekauft werden muss).
+  - *Lagerorte* (Kiste, Regal, Schublade …) funktionieren wie Kunden: im Auswahlfenster neu eintippen, später wieder auswählen.
+    In einem Lagerort liegen Zubehör und fertige Drucke, z. B. übrige Stücke aus dem Vorrat. Zuweisen über den Chip
+    **📦 Lagerort** im Inventar, auf der Detailseite eines Drucks, in der Ansicht **Vorrat** oder für mehrere Drucke über
+    **Auswählen → 📦 Lagerort**. Die Druckliste hat einen Filter **Lagerort**, die Suche findet den Namen des Lagerorts.
+  - Jeder Lagerort und jedes Zubehör hat eine **feste Kennung** (L-XXXX, A-XXXX) und eine eigene Seite unter fester Adresse
+    (`loc?c=XXXX`, `item?c=XXXX`), die beim Umbenennen gleich bleibt. Die Seite eines Lagerorts zeigt, was darin liegt, und
+    verschiebt Dinge; die Seite eines Zubehörs zeigt Bestand, reserviert und frei, bucht eine neue Packung oder eine Entnahme
+    und listet die Drucke, die es verwenden. Die Kennungen gehen auch in `go?q=L-XXXX`. Damit sind spätere QR-Codes zum
+    schnellen Verschieben per Scan vorbereitet.
 - **Verkaufspreise** – zwei benannte Margen, optional eine Marge pro Kunde und ein fester Endpreis pro Druck.
 - **Kunden** – Teilzahlungen und Teilübergaben, Verschenktes, offene Beträge pro Kunde. Mit dem Häkchen **Keine Abrechnung**
   wird ein Kunde zum reinen Sammelplatz für Eigenbedarf (z. B. Modelle für eigene Uploads): Kosten und Statistik zählen
@@ -533,8 +558,9 @@ in **hell und dunkel** (Einstellungen → Ansicht → Farbschema, oder automatis
 | <a href="docs/screenshots/de/assign-customer.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/assign-customer.png"><img src="docs/screenshots/de/assign-customer.png" alt="Kunde zuordnen: Chip in der Liste mit Vorschlag"></picture></a><br>**Kunde zuordnen: Chip in der Liste mit Vorschlag** | <a href="docs/screenshots/de/split-list.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/split-list.png"><img src="docs/screenshots/de/split-list.png" alt="Aufgeteilter Druck: eine Zeile, ein Chip pro Kunde und Vorrat"></picture></a><br>**Aufgeteilter Druck: eine Zeile, ein Chip pro Kunde und Vorrat** |
 | <a href="docs/screenshots/de/split-detail.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/split-detail.png"><img src="docs/screenshots/de/split-detail.png" alt="Aufteilung: jeder Kunde mit Preis, Zahlung und Übergabe, Rest im Vorrat"></picture></a><br>**Aufteilung: jeder Kunde mit Preis, Zahlung und Übergabe, Rest im Vorrat** | <a href="docs/screenshots/de/split-dialog.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/split-dialog.png"><img src="docs/screenshots/de/split-dialog.png" alt="Fenster Aufteilen: Stück pro Kunde, der Vorrat rechnet sich aus"></picture></a><br>**Fenster „Aufteilen“: Stück pro Kunde, der Vorrat rechnet sich aus** |
 | <a href="docs/screenshots/de/stock.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/stock.png"><img src="docs/screenshots/de/stock.png" alt="Vorrat: was im Regal liegt und was es wert ist"></picture></a><br>**Vorrat: was im Regal liegt und was es wert ist** | <a href="docs/screenshots/de/work-accessories.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/work-accessories.png"><img src="docs/screenshots/de/work-accessories.png" alt="Arbeit &amp; Zubehör in der Übersicht"></picture></a><br>**Arbeit & Zubehör in der Übersicht** |
-| <a href="docs/screenshots/de/accessory-picker.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/accessory-picker.png"><img src="docs/screenshots/de/accessory-picker.png" alt="Zubehör aus dem Inventar wählen"></picture></a><br>**Zubehör aus dem Inventar wählen** | <a href="docs/screenshots/de/accessory-inventory.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/accessory-inventory.png"><img src="docs/screenshots/de/accessory-inventory.png" alt="Zubehör-Inventar mit Bestand und Kauflink"></picture></a><br>**Zubehör-Inventar mit Bestand und Kauflink** |
+| <a href="docs/screenshots/de/accessory-picker.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/accessory-picker.png"><img src="docs/screenshots/de/accessory-picker.png" alt="Zubehör aus dem Inventar wählen"></picture></a><br>**Zubehör aus dem Inventar wählen** | <a href="docs/screenshots/de/accessory-inventory.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/accessory-inventory.png"><img src="docs/screenshots/de/accessory-inventory.png" alt="Lager: Zubehör-Inventar mit Lagerort und Kauflink"></picture></a><br>**Lager: Zubehör-Inventar mit Lagerort und Kauflink** |
 | <a href="docs/screenshots/de/hints.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/hints.png"><img src="docs/screenshots/de/hints.png" alt="Hinweise: Modelle mit einem Tipp prüfen"></picture></a><br>**Hinweise: Modelle mit einem Tipp prüfen** | <a href="docs/screenshots/de/models.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/models.png"><img src="docs/screenshots/de/models.png" alt="Modelle: umbenennen, Designzeit, zusammenlegen"></picture></a><br>**Modelle: umbenennen, Designzeit, zusammenlegen** |
+| <a href="docs/screenshots/de/locations.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/locations.png"><img src="docs/screenshots/de/locations.png" alt="Lager: Lagerorte für Zubehör und Drucke"></picture></a><br>**Lager: Lagerorte für Zubehör und Drucke** | <a href="docs/screenshots/de/location.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/location.png"><img src="docs/screenshots/de/location.png" alt="Ein Lagerort mit fester Kennung und Inhalt"></picture></a><br>**Ein Lagerort mit fester Kennung und Inhalt** |
 
 | Handy: Drucke | Handy: Druckdetails | Handy: Offen | Handy: Vorrat |
 |---|---|---|---|

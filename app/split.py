@@ -448,10 +448,13 @@ def stock_count(store: Store) -> int:
 
 
 def stock_view(store: Store, f: dict[str, str | None]) -> str:
+    from .storage import loc_chip
+
     items = store.stock_items()
     q = (f.get("q") or "").strip().lower()
     if q:
-        items = [j for j in items if q in (j.get("task_name") or "").lower() or q in code_label(j.get("code")).lower()]
+        items = [j for j in items if q in (j.get("task_name") or "").lower() or q in code_label(j.get("code")).lower()
+                 or q in (j.get("location_name") or "").lower()]
     if not items:
         empty = t("Nichts im Vorrat. Teile einen Druck mit mehreren Stück über „✂ Aufteilen“ auf, dann landet der Rest hier.")
         return f'<div class="oempty">{empty}</div>'
@@ -491,7 +494,7 @@ def stock_view(store: Store, f: dict[str, str | None]) -> str:
         u = unit_cost(j)
         cfg = json.dumps(give_config(store, j, j["_kids"]), ensure_ascii=False)
         rows.append(f'<div class="or vr">{pic}<div class="oname"><b><a href="job?id={j["id"]}#split">{e(j.get("task_name") or "–")}</a>{_pid(j)}</b>'
-                    f'<span>{e(" · ".join(sub))}</span></div>'
+                    f'<span>{e(" · ".join(sub))}</span><span class="vloc">{loc_chip(j, "tag")}</span></div>'
                     f'<div class="vc"><b>{e(stock_text(j, short=True))}</b><span>{t("im Vorrat")}</span></div>'
                     f'<div class="vc calc"><b>{fmt_num(u, 2, "€")}</b><span>{t("Kosten pro Satz") if j.get("kind") == "project" else t("Kosten/Stk.")}</span></div>'
                     f'<div class="vc calc"><b>{fmt_num(stock_value(j, j["_kids"]), 2, "€")}</b><span>{t("Wert")}</span></div>'

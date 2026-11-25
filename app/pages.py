@@ -30,7 +30,7 @@ from .ui import (
     printer_names,
 )
 
-FILTER_KEYS = ("q", "printer", "month", "day", "status", "material", "customer", "model", "view", "group", "todo")
+FILTER_KEYS = ("q", "printer", "month", "day", "status", "material", "customer", "model", "loc", "view", "group", "todo")
 # Nur Darstellung, kein Datenbankfilter
 VIEW_KEYS = ("view", "group", "todo")
 
@@ -527,7 +527,7 @@ const picked=new Set(),sb=document.getElementById('selbar'),selBtn=form.querySel
 const ITEMS='.jr[data-href],.gcard,.mcard';
 function idOf(el){const m=(el.dataset.href||el.getAttribute('href')||'').match(/id=(\\d+)/);return m?m[1]:null}
 function markPicked(){document.querySelectorAll(ITEMS).forEach(el=>el.classList.toggle('picked',picked.has(idOf(el))));
-  sb.querySelector('.n').textContent=picked.size;sb.querySelector('.del').disabled=!picked.size;sb.querySelector('.pjbtn').disabled=!picked.size;sb.querySelector('.kbtn').disabled=!picked.size}
+  sb.querySelector('.n').textContent=picked.size;sb.querySelector('.del').disabled=!picked.size;sb.querySelector('.pjbtn').disabled=!picked.size;sb.querySelectorAll('.kbtn').forEach(b=>b.disabled=!picked.size)}
 function setSel(on){document.body.classList.toggle('selmode',on);selBtn.classList.toggle('on',on);sb.hidden=!on;if(!on)picked.clear();markPicked()}
 selBtn.onclick=()=>setSel(!document.body.classList.contains('selmode'));
 document.addEventListener('click',ev=>{if(!document.body.classList.contains('selmode')||ev.target.closest('.xp'))return;
@@ -573,9 +573,16 @@ function assigned(d,what){refresh();
   showToast(d.customer_id?what+' → '+d.name:_t("{what}: Kunde entfernt").replace('{what}',what),()=>KP.undo(d.prev))}
 document.addEventListener('click',ev=>{kpChip(ev,(d,el)=>{const c=el.closest('[data-kname]')||el.closest('.kchip')&&el.closest('.kchip').querySelector('[data-kname]');
   assigned(d,(c&&c.dataset.kname)||_t("Druck"))})},true);
-sb.querySelector('.kbtn').onclick=ev=>{ev.stopPropagation();const ids=[...picked];if(!ids.length)return;
+sb.querySelector('.kbtn:not(.lbtn)').onclick=ev=>{ev.stopPropagation();const ids=[...picked];if(!ids.length)return;
   const n=ids.length==1?_t("1 Druck"):_t("{n} Drucke").replace('{n}',ids.length);
   KP.open(sb.querySelector('.kbtn'),{ids,title:n,prefix:_t("Kunde zuweisen für")+' ',bulk:true,done:d=>{setSel(false);assigned(d,n)}})};
+// Lagerort: Chip in der Ansicht „Vorrat“ oder „Lagerort“ in der Auswahlleiste
+function stored(d,what){refresh();
+  showToast(d.location_id?what+' → 📦 '+d.name:_t("{what}: Lagerort entfernt").replace('{what}',what),()=>LP.undo(d.prev))}
+document.addEventListener('click',ev=>{lpChip(ev,(d,el)=>stored(d,el.dataset.lname||_t("Druck")))},true);
+sb.querySelector('.lbtn').onclick=ev=>{ev.stopPropagation();const ids=[...picked];if(!ids.length)return;
+  const n=ids.length==1?_t("1 Druck"):_t("{n} Drucke").replace('{n}',ids.length);
+  LP.open(sb.querySelector('.lbtn'),{ids,title:n,prefix:_t("Lagerort für")+' ',bulk:true,done:d=>{setSel(false);stored(d,n)}})};
 sb.querySelector('.del').onclick=async()=>{const n=picked.size;if(!n)return;
   if(!confirm((n==1?_t("1 Druck in den Papierkorb legen? Du kannst ihn dort wiederherstellen."):_t("{n} Drucke in den Papierkorb legen? Du kannst sie dort wiederherstellen.").replace('{n}',n))))return;
   const fd=new FormData();fd.append('ids',[...picked].join(','));
@@ -647,73 +654,75 @@ KPICK_CSS = """
  #selbar{flex-wrap:nowrap}#selbar b{font-size:14px;line-height:1.2}#selbar button{padding-left:10px;padding-right:10px}}
 .mcard .kchip{margin-top:6px;width:max-content;font-size:14px;padding:4px 12px}.mcard .kchip.sug{padding:0}.mcard .kchip.sug .kok{min-width:28px;height:28px}
 .badges .kchip{font-size:14px;padding:5px 13px}.badges .kchip.sug{padding:0}.badges .kchip.sug .kc{padding:5px 8px 5px 13px}.badges .kchip.sug .kok{min-width:28px;height:28px;margin:2px 3px 2px 0}
-#kpop{position:absolute;z-index:70;width:340px;max-width:calc(100vw - 16px);background:var(--card);border:1px solid var(--line);border-radius:16px;
+.kpop{position:absolute;z-index:70;width:340px;max-width:calc(100vw - 16px);background:var(--card);border:1px solid var(--line);border-radius:16px;
  box-shadow:0 24px 70px rgba(0,0,0,.45);padding:12px;font-size:14px;display:flex;flex-direction:column}
-#kpop[hidden],#kbg[hidden]{display:none}
-#kpop .hd{font-size:12.5px;color:var(--muted);margin:0 4px 8px;line-height:1.35}#kpop .hd b{color:var(--fg)}
-#kpop .srch{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:11px;padding:0 12px;background:var(--bg);margin-bottom:6px}
-#kpop .srch:focus-within{border-color:var(--accent)}
-#kpop .srch input{flex:1;border:0;background:transparent;color:var(--fg);font:inherit;padding:10px 0;outline:0;min-width:0}
-#kpop .lst{overflow:auto;max-height:min(360px,50vh);overscroll-behavior:contain}
-#kpop .lbl{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:700;margin:10px 6px 4px}
-#kpop .it{display:flex;align-items:center;gap:10px;padding:8px;border-radius:10px;font-weight:600;color:var(--fg);cursor:pointer;width:100%;
+.kpop[hidden],.kbg[hidden]{display:none}
+.kpop .hd{font-size:12.5px;color:var(--muted);margin:0 4px 8px;line-height:1.35}.kpop .hd b{color:var(--fg)}
+.kpop .srch{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:11px;padding:0 12px;background:var(--bg);margin-bottom:6px}
+.kpop .srch:focus-within{border-color:var(--accent)}
+.kpop .srch input{flex:1;border:0;background:transparent;color:var(--fg);font:inherit;padding:10px 0;outline:0;min-width:0}
+.kpop .lst{overflow:auto;max-height:min(360px,50vh);overscroll-behavior:contain}
+.kpop .lbl{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:700;margin:10px 6px 4px}
+.kpop .it{display:flex;align-items:center;gap:10px;padding:8px;border-radius:10px;font-weight:600;color:var(--fg);cursor:pointer;width:100%;
  border:1px solid transparent;background:none;font:inherit;font-weight:600;text-align:left}
-#kpop .it:hover,#kpop .it.hl{background:color-mix(in srgb,var(--fg) 7%,transparent)}
-#kpop .it .av{width:28px;height:28px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:800;color:#111;flex:none}
-#kpop .it span.n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#kpop .it small{margin-left:auto;color:var(--muted);font-weight:500;font-size:12px;white-space:nowrap;padding-left:8px}
-#kpop .it.sg{background:color-mix(in srgb,var(--accent) 13%,transparent);border-color:color-mix(in srgb,var(--accent) 45%,var(--line))}
-#kpop .it.sg small,#kpop .it.cur small{color:var(--accent)}
-#kpop .it.nw{color:var(--accent)}
-#kpop .ft{display:flex;gap:8px;margin-top:10px;border-top:1px solid var(--line);padding-top:10px}
-#kpop .ft button{flex:1;border:1px solid var(--line);border-radius:10px;padding:9px;font-weight:700;font-size:13.5px;background:var(--bg);color:var(--fg);cursor:pointer}
-#kpop .ft .nwb{color:var(--accent)}#kpop .ft button[hidden]{display:none}
-#kpop .nwf{display:flex;gap:8px;margin-top:10px;border-top:1px solid var(--line);padding-top:10px}#kpop .nwf[hidden]{display:none}
-#kpop .nwf input{flex:1;min-width:0;border:1px solid var(--accent);border-radius:10px;background:var(--bg);color:var(--fg);font:inherit;padding:9px 12px}
-#kpop .nwf button{border:0;border-radius:10px;background:var(--accent);color:var(--bg);font-weight:800;padding:9px 14px;cursor:pointer}
-#kpop .none{color:var(--muted);padding:10px 8px}
-#kbg{position:fixed;inset:0;z-index:69;background:transparent}
+.kpop .it:hover,.kpop .it.hl{background:color-mix(in srgb,var(--fg) 7%,transparent)}
+.kpop .it .av{width:28px;height:28px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:800;color:#111;flex:none}
+.kpop .it span.n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kpop .it small{margin-left:auto;color:var(--muted);font-weight:500;font-size:12px;white-space:nowrap;padding-left:8px}
+.kpop .it.sg{background:color-mix(in srgb,var(--accent) 13%,transparent);border-color:color-mix(in srgb,var(--accent) 45%,var(--line))}
+.kpop .it.sg small,.kpop .it.cur small{color:var(--accent)}
+.kpop .it.nw{color:var(--accent)}
+.kpop .ft{display:flex;gap:8px;margin-top:10px;border-top:1px solid var(--line);padding-top:10px}
+.kpop .ft button{flex:1;border:1px solid var(--line);border-radius:10px;padding:9px;font-weight:700;font-size:13.5px;background:var(--bg);color:var(--fg);cursor:pointer}
+.kpop .ft .nwb{color:var(--accent)}.kpop .ft button[hidden]{display:none}
+.kpop .nwf{display:flex;gap:8px;margin-top:10px;border-top:1px solid var(--line);padding-top:10px}.kpop .nwf[hidden]{display:none}
+.kpop .nwf input{flex:1;min-width:0;border:1px solid var(--accent);border-radius:10px;background:var(--bg);color:var(--fg);font:inherit;padding:9px 12px}
+.kpop .nwf button{border:0;border-radius:10px;background:var(--accent);color:var(--bg);font-weight:800;padding:9px 14px;cursor:pointer}
+.kpop .none{color:var(--muted);padding:10px 8px}
+.kbg{position:fixed;inset:0;z-index:69;background:transparent}
 @media (max-width:700px){
- #kbg{background:rgba(0,0,0,.55)}
- #kpop{position:fixed;left:0!important;right:0;bottom:0;top:auto!important;width:auto;max-width:none;border-radius:22px 22px 0 0;padding:10px 16px calc(18px + env(safe-area-inset-bottom));font-size:16px}
- #kpop:before{content:"";display:block;width:44px;height:5px;border-radius:3px;background:var(--line);margin:0 auto 12px}
- #kpop .it{padding:11px 8px}#kpop .it .av{width:34px;height:34px;font-size:13px}#kpop .lst{max-height:46vh}
- #kpop .srch input{font-size:16px}}
+ .kbg{background:rgba(0,0,0,.55)}
+ .kpop{position:fixed;left:0!important;right:0;bottom:0;top:auto!important;width:auto;max-width:none;border-radius:22px 22px 0 0;padding:10px 16px calc(18px + env(safe-area-inset-bottom));font-size:16px}
+ .kpop:before{content:"";display:block;width:44px;height:5px;border-radius:3px;background:var(--line);margin:0 auto 12px}
+ .kpop .it{padding:11px 8px}.kpop .it .av{width:34px;height:34px;font-size:13px}.kpop .lst{max-height:46vh}
+ .kpop .srch input{font-size:16px}}
+.kpop .it .av.ic{background:color-mix(in srgb,var(--fg) 8%,transparent);font-size:15px}
 """
 
 KPICK_JS = r"""
-// Kunden-Schnellauswahl: ein Fenster für Listen-Chips, Detailkopf und Mehrfachauswahl
-const KP=(()=>{
-  let custs=[];try{custs=JSON.parse(document.getElementById('kdata').textContent)}catch(_){}
+// Schnellauswahl (Kunden, Lagerorte): ein Fenster für Listen-Chips, Detailkopf und Mehrfachauswahl.
+// c = {data, id, api, field, ph, nw, none, nwph, forp, all, empty, mk, icon}
+function mkPick(c){
+  let custs=[];try{custs=JSON.parse(document.getElementById(c.data).textContent)}catch(_){}
   const COL=['#7dd3fc','#fda4af','#fcd34d','#a5b4fc','#fdba74','#86efac','#f0abfc','#5eead4','#fca5a5','#c4b5fd'];
   const col=n=>{let h=0;for(const ch of n)h=(h*31+ch.charCodeAt(0))>>>0;return COL[h%COL.length]};
   const ini=n=>n.replace(/[^\p{L}\p{N}\s-]/gu,'').split(/[\s-]+/).filter(Boolean).slice(0,2).map(x=>x[0]).join('').toUpperCase();
-  const bg=document.createElement('div');bg.id='kbg';bg.hidden=true;
-  const pop=document.createElement('div');pop.id='kpop';pop.hidden=true;pop.setAttribute('role','dialog');
-  pop.innerHTML='<div class="hd"></div><label class="srch">🔍<input type="search" autocomplete="off" placeholder='+JSON.stringify(_t("Kunde suchen …"))+'></label>'+
-    '<div class="lst"></div><div class="ft"><button type="button" class="nwb">'+_t("＋ Neuer Kunde")+'</button><button type="button" class="nob">'+_t("Ohne Kunde")+'</button></div>'+
-    '<form class="nwf" hidden><input name="n" maxlength="120" required placeholder='+JSON.stringify(_t("Name des Kunden"))+'><button>'+_t("Anlegen")+'</button></form>';
+  const bg=document.createElement('div');bg.id=c.id+'bg';bg.className='kbg';bg.hidden=true;
+  const pop=document.createElement('div');pop.id=c.id;pop.className='kpop';pop.hidden=true;pop.setAttribute('role','dialog');
+  pop.innerHTML='<div class="hd"></div><label class="srch">🔍<input type="search" autocomplete="off" placeholder='+JSON.stringify(c.ph)+'></label>'+
+    '<div class="lst"></div><div class="ft"><button type="button" class="nwb">'+c.nw+'</button><button type="button" class="nob">'+c.none+'</button></div>'+
+    '<form class="nwf" hidden><input name="n" maxlength="120" required placeholder='+JSON.stringify(c.nwph)+'><button>'+_t("Anlegen")+'</button></form>';
   document.body.append(bg,pop);
   const q=pop.querySelector('input[type=search]'),lst=pop.querySelector('.lst'),nwf=pop.querySelector('.nwf');
   let cur=null,anchor=null;
-  function item(c,small,cls){const b=document.createElement('button');b.type='button';b.className='it'+(cls?' '+cls:'');b.dataset.id=c.id;
-    const av=document.createElement('span');av.className='av';av.style.background=col(c.name);av.textContent=ini(c.name);
-    const n=document.createElement('span');n.className='n';n.textContent=c.name;b.append(av,n);
+  function item(x,small,cls){const b=document.createElement('button');b.type='button';b.className='it'+(cls?' '+cls:'');b.dataset.id=x.id;
+    const av=document.createElement('span');av.className='av'+(c.icon?' ic':'');if(c.icon)av.textContent=c.icon;else{av.style.background=col(x.name);av.textContent=ini(x.name)}
+    const n=document.createElement('span');n.className='n';n.textContent=x.name;b.append(av,n);
     if(small){const s=document.createElement('small');s.textContent=small;b.append(s)}return b}
   function label(txt){const d=document.createElement('div');d.className='lbl';d.textContent=txt;return d}
   function render(){lst.textContent='';const term=q.value.trim().toLowerCase();const cid=cur.cur?+cur.cur:null;
-    if(term){const m=custs.filter(c=>c.name.toLowerCase().includes(term));
-      m.forEach((c,i)=>lst.append(item(c,c.id===cid?'✓':'',(i===0?'hl ':'')+(c.id===cid?'cur':''))));
-      if(!custs.some(c=>c.name.toLowerCase()===term)){const b=document.createElement('button');b.type='button';b.className='it nw'+(m.length?'':' hl');
-        b.dataset.new=q.value.trim();b.textContent=_t("＋ „{name}“ als neuen Kunden anlegen").replace('{name}',q.value.trim());lst.append(b)}
+    if(term){const m=custs.filter(x=>x.name.toLowerCase().includes(term));
+      m.forEach((x,i)=>lst.append(item(x,x.id===cid?'✓':'',(i===0?'hl ':'')+(x.id===cid?'cur':''))));
+      if(!custs.some(x=>x.name.toLowerCase()===term)){const b=document.createElement('button');b.type='button';b.className='it nw'+(m.length?'':' hl');
+        b.dataset.new=q.value.trim();b.textContent=c.mk.replace('{name}',q.value.trim());lst.append(b)}
       return}
-    const sug=cur.sug?custs.find(c=>c.id===+cur.sug):null;
+    const sug=cur.sug?custs.find(x=>x.id===+cur.sug):null;
     if(sug){lst.append(label(_t("Vorschlag")),item(sug,cur.why||'','sg'+(sug.id===cid?' cur':'')))}
-    const rec=custs.filter(c=>c.last&&c!==sug).sort((a,b)=>b.last-a.last).slice(0,3);
-    if(rec.length){lst.append(label(_t("Zuletzt")));rec.forEach(c=>lst.append(item(c,c.id===cid?'✓ '+c.ago:c.ago,c.id===cid?'cur':'')))}
-    lst.append(label(_t("Alle Kunden")));
-    if(!custs.length){const d=document.createElement('div');d.className='none';d.textContent=_t("Noch keine Kunden.");lst.append(d)}
-    custs.forEach(c=>lst.append(item(c,c.id===cid?'✓':'',c.id===cid?'cur':'')))}
+    const rec=custs.filter(x=>x.last&&x!==sug).sort((a,b)=>b.last-a.last).slice(0,3);
+    if(rec.length){lst.append(label(_t("Zuletzt")));rec.forEach(x=>lst.append(item(x,x.id===cid?'✓ '+x.ago:x.ago,x.id===cid?'cur':'')))}
+    lst.append(label(c.all));
+    if(!custs.length){const d=document.createElement('div');d.className='none';d.textContent=c.empty;lst.append(d)}
+    custs.forEach(x=>lst.append(item(x,x.id===cid?'✓':'',x.id===cid?'cur':'')))}
   function place(){if(innerWidth<=700){pop.style.left='';pop.style.top='';return}
     const r=anchor.getBoundingClientRect(),w=pop.offsetWidth,h=pop.offsetHeight;
     let left=Math.min(Math.max(8,r.left),innerWidth-w-8),top=r.bottom+8;
@@ -721,17 +730,17 @@ const KP=(()=>{
     pop.style.left=(left+scrollX)+'px';pop.style.top=(top+scrollY)+'px'}
   function open(a,opt){close();anchor=a;cur=opt;a.classList.add('act');
     const hd=pop.querySelector('.hd');hd.textContent='';
-    if(opt.title){hd.append(opt.prefix||_t("Kunde für")+' ');const b=document.createElement('b');b.textContent=opt.title;hd.append(b)}
+    if(opt.title){hd.append(opt.prefix||c.forp+' ');const b=document.createElement('b');b.textContent=opt.title;hd.append(b)}
     q.value='';nwf.hidden=true;pop.querySelector('.ft').hidden=false;pop.querySelector('.nob').hidden=!opt.cur&&!opt.bulk;
     render();bg.hidden=false;pop.hidden=false;place();
     if(matchMedia('(pointer:fine)').matches)q.focus()}
   function close(){if(pop.hidden)return;pop.hidden=true;bg.hidden=true;if(anchor)anchor.classList.remove('act');anchor=null}
   async function save(fd){const o=cur;close();if(o.onpick){o.onpick(fd);return}fd.append('ids',o.ids.join(','));
-    try{const r=await fetch('api/customers/assign',{method:'POST',body:fd});if(!r.ok)return;const d=await r.json();
-      if(d.customer_id&&!custs.some(c=>c.id===d.customer_id))custs.push({id:d.customer_id,name:d.name,last:0,ago:''});
-      const c=custs.find(x=>x.id===d.customer_id);if(c){c.last=Date.now()/1000;c.ago=_t("heute")}
+    try{const r=await fetch(c.api,{method:'POST',body:fd});if(!r.ok)return;const d=await r.json();const id=d[c.field];
+      if(id&&!custs.some(x=>x.id===id))custs.push({id,name:d.name,last:0,ago:''});
+      const x=custs.find(y=>y.id===id);if(x){x.last=Date.now()/1000;x.ago=_t("heute")}
       custs.sort((a,b)=>a.name.localeCompare(b.name));o.done&&o.done(d)}catch(_){}}
-  function pick(id){const fd=new FormData();fd.append('customer_id',id==null?'':id);save(fd)}
+  function pick(id){const fd=new FormData();fd.append(c.field,id==null?'':id);save(fd)}
   lst.addEventListener('click',ev=>{const b=ev.target.closest('.it');if(!b)return;
     if(b.dataset.new!==undefined){const fd=new FormData();fd.append('new_name',b.dataset.new);save(fd)}else pick(+b.dataset.id)});
   q.addEventListener('input',render);
@@ -741,12 +750,15 @@ const KP=(()=>{
   nwf.onsubmit=ev=>{ev.preventDefault();const n=nwf.querySelector('input').value.trim();if(!n)return;const fd=new FormData();fd.append('new_name',n);save(fd)};
   bg.onclick=close;document.addEventListener('keydown',ev=>{if(ev.key==='Escape')close()});
   addEventListener('resize',()=>{if(!pop.hidden&&anchor)place()});
-  // Rückgängig: frühere Kunden wiederherstellen (nach Kunde gruppiert)
-  async function undo(prev){const by=new Map();prev.forEach(([id,c])=>{const k=c==null?'':String(c);by.set(k,[...(by.get(k)||[]),id])});
-    for(const [c,ids] of by){const fd=new FormData();fd.append('ids',ids.join(','));fd.append('customer_id',c);
-      await fetch('api/customers/assign',{method:'POST',body:fd})}}
+  // Rückgängig: frühere Zuordnung wiederherstellen (nach Wert gruppiert)
+  async function undo(prev){const by=new Map();prev.forEach(([id,v])=>{const k=v==null?'':String(v);by.set(k,[...(by.get(k)||[]),id])});
+    for(const [v,ids] of by){const fd=new FormData();fd.append('ids',ids.join(','));fd.append(c.field,v);
+      await fetch(c.api,{method:'POST',body:fd})}}
   return {open,close,pick,save,undo,get custs(){return custs}};
-})();
+}
+const KP=document.getElementById('kdata')?mkPick({data:'kdata',id:'kpop',api:'api/customers/assign',field:'customer_id',
+  ph:_t("Kunde suchen …"),nw:_t("＋ Neuer Kunde"),none:_t("Ohne Kunde"),nwph:_t("Name des Kunden"),forp:_t("Kunde für"),
+  all:_t("Alle Kunden"),empty:_t("Noch keine Kunden."),mk:_t("＋ „{name}“ als neuen Kunden anlegen")}):null;
 // Chips: Antippen öffnet die Auswahl, ✓ übernimmt den Vorschlag
 function kpChip(ev,done){
   if(document.body.classList.contains('selmode'))return false;
@@ -825,10 +837,15 @@ def page_jobs(store: Store, f: dict[str, str | None], connected: bool) -> str:
     pills = "".join(_pill(name, label, opts, f.get(name)) for name, label, opts in (
         ("printer", t("Drucker"), printer_opts), ("month", t("Monat"), month_opts), ("status", t("Status"), status_opts),
         ("material", t("Material"), mat_opts), ("customer", t("Kunde"), cust_opts), ("todo", t("Zahlung/Übergabe"), todo_opts)))
+    locs = _storage.locations(store)
+    if locs or f.get("loc"):
+        loc_opts = opt("", t("Alle Lagerorte"), f.get("loc")) + opt("none", t("ohne Lagerort"), f.get("loc")) + "".join(
+            opt(str(r["id"]), r["name"], f.get("loc")) for r in locs)
+        pills += _pill("loc", t("Lagerort"), loc_opts, f.get("loc"))
     if f.get("model"):
         mname = _models.names(store).get(int(f["model"]), "?")
         pills += _pill("model", t("Modell"), opt("", t("Alle Modelle"), f["model"]) + opt(f["model"], mname, f["model"]), f["model"])
-    active = any(f.get(k) for k in ("printer", "month", "status", "material", "customer", "model", "todo", "day"))
+    active = any(f.get(k) for k in ("printer", "month", "status", "material", "customer", "model", "loc", "todo", "day"))
     n_open = store.count_jobs(pending="1")
 
     def view_link(key: str, icon: str, label: str, extra: str = "") -> str:
@@ -851,12 +868,13 @@ def page_jobs(store: Store, f: dict[str, str | None], connected: bool) -> str:
 <div id="selbar" hidden><b>{t('<span class="n">0</span> ausgewählt')}</b><button type="button" class="all">{t("Alle")}</button>
 <button type="button" class="none">{t("Keine")}</button><span class="sp"></span><button type="button" class="cancel" title="{e(t("Abbrechen"))}"><span class="bl">{t("Abbrechen")}</span><span class="bs">✕</span></button>
 <button type="button" class="btn kbtn" disabled title="{e(t("Ausgewählten Drucken einen Kunden zuweisen"))}">👤 <span class="bl">{t("Kunde zuweisen")}</span><span class="bs">{t("Kunde")}</span></button>
+<button type="button" class="btn kbtn lbtn" disabled title="{e(t("Ausgewählten Drucken einen Lagerort zuweisen"))}">📦 <span class="bl">{t("Lagerort")}</span></button>
 <button type="button" class="btn pjbtn" disabled title="{e(t("Ausgewählte Drucke zu einem Projekt zusammenfassen"))}">📦 <span class="bl">{t("Projekt bilden")}</span></button>
 <button type="button" class="btn danger del" disabled title="{e(t("Löschen"))}">🗑 <span class="bl">{t("Löschen")}</span></button></div>
-{_project_dialog(store, customers)}{customer_picker(customers)}
+{_project_dialog(store, customers)}{customer_picker(customers)}{_storage.picker_data(store)}
 <div id="toast" hidden><span></span><button type="button">{t("Rückgängig")}</button></div>"""
-    return layout("Printlog", "jobs", f"<style>{MOS_CSS}{_models.CSS}{JOBS_CSS}{ACT_CSS}{TODO_CSS}{KPICK_CSS}{_split.SPLIT_CSS}</style>" + body,
-                  ACT_JS + KPICK_JS + JOBS_JS + _split.SPLIT_JS)
+    return layout("Printlog", "jobs", f"<style>{MOS_CSS}{_models.CSS}{JOBS_CSS}{ACT_CSS}{TODO_CSS}{KPICK_CSS}{_split.SPLIT_CSS}{_storage.LOC_CSS}</style>" + body,
+                  ACT_JS + KPICK_JS + _storage.LPICK_JS + JOBS_JS + _split.SPLIT_JS)
 
 
 def _project_dialog(store: Store, customers: list[dict[str, Any]]) -> str:
@@ -2108,6 +2126,8 @@ def page_job(store: Store, job: dict[str, Any], saved: str | None) -> str:
                    f'title="{e(t("Projekt-ID: tippe sie in die Suche, um den Druck wiederzufinden. Klick kopiert."))}">'
                    f'# {e(code_label(job["code"]))}</button>')
     badges += _models.chip(store, job)
+    if not parent and job.get("kind") != "share":
+        badges += _storage.loc_chip(job)
     if job.get("is_scrap"):
         lbl = defect_label(job)
         badges += f'<a class="bdg st st-bad" href="#ov" data-goto="ov">⚠ {t("Fehldruck")}{" · " + e(lbl) if lbl else ""}</a>'
@@ -2291,9 +2311,10 @@ def page_job(store: Store, job: dict[str, Any], saved: str | None) -> str:
 {f'<div class="photos lg">{_photo_tiles(photos)}</div>' if photos else f'<p class="muted">{t("Noch keine eigenen Fotos.")}</p>'}</div></section>
 </div>"""
     sp = _split.dialogs(store, job) if not parent else ""
-    return layout(job["task_name"] or t("Druck"), "jobs", f"<style>{MOS_CSS}{DETAIL_CSS}{PROJ_CSS}{ACT_CSS}{KPICK_CSS}{_split.SPLIT_CSS}{_extras.BOX_CSS}{_models.CSS}</style>"
-                  + body + customer_picker(customers) + sp + _extras.picker(store, job),
-                  ACT_JS + DETAIL_JS + SHARE_JS + KPICK_JS + KPICK_DETAIL_JS + _split.SPLIT_JS + _extras.box_js(job))
+    return layout(job["task_name"] or t("Druck"), "jobs", f"<style>{MOS_CSS}{DETAIL_CSS}{PROJ_CSS}{ACT_CSS}{KPICK_CSS}{_split.SPLIT_CSS}{_extras.BOX_CSS}{_models.CSS}{_storage.LOC_CSS}</style>"
+                  + body + customer_picker(customers) + _storage.picker_data(store) + sp + _extras.picker(store, job),
+                  ACT_JS + DETAIL_JS + SHARE_JS + KPICK_JS + KPICK_DETAIL_JS + _storage.LPICK_JS + _storage.LPICK_RELOAD_JS
+                  + _split.SPLIT_JS + _extras.box_js(job))
 
 
 # ---- Projekt (mehrere Drucke als ein Auftrag) -------------------------------------
@@ -2465,7 +2486,7 @@ def page_project(store: Store, p: dict[str, Any], saved: str | None) -> str:
 
     tone = _STATUS_TONE.get(status.split()[0], "")
     badges = f'<span class="bdg st st-{tone}">{e(t(status))}</span>'
-    badges += cust_chip(p, "bdg") + _split.split_button(p)
+    badges += cust_chip(p, "bdg") + _split.split_button(p) + _storage.loc_chip(p)
     badges += f'<span class="bdg pjb">📦 {t("Projekt")} · {tn(len(kids), "{n} Druck", "{n} Drucke")}</span>'
     if p.get("code"):
         badges += (f'<button type="button" class="bdg pidb" data-copy="{e(code_label(p["code"]))}" '
@@ -2547,9 +2568,10 @@ def page_project(store: Store, p: dict[str, Any], saved: str | None) -> str:
 <p>{t("Die Drucke bleiben erhalten und werden wieder einzeln geführt. Zahlungen gehen an den ersten Druck.")}</p></form></section>
 <section class="pane" data-pane="ph"><div class="box">{_upload_form(p["id"])}{all_photos}{kid_box}</div></section>
 </div>"""
-    return layout(p["task_name"] or t("Projekt"), "jobs", f"<style>{MOS_CSS}{DETAIL_CSS}{PROJ_CSS}{ACT_CSS}{KPICK_CSS}{_split.SPLIT_CSS}{_extras.BOX_CSS}</style>" + body
-                  + customer_picker(customers) + _split.dialogs(store, p, kids) + _extras.picker(store, p),
-                  ACT_JS + DETAIL_JS + SHARE_JS + KPICK_JS + KPICK_DETAIL_JS + _split.SPLIT_JS + _extras.box_js(p))
+    return layout(p["task_name"] or t("Projekt"), "jobs", f"<style>{MOS_CSS}{DETAIL_CSS}{PROJ_CSS}{ACT_CSS}{KPICK_CSS}{_split.SPLIT_CSS}{_extras.BOX_CSS}{_storage.LOC_CSS}</style>" + body
+                  + customer_picker(customers) + _storage.picker_data(store) + _split.dialogs(store, p, kids) + _extras.picker(store, p),
+                  ACT_JS + DETAIL_JS + SHARE_JS + KPICK_JS + KPICK_DETAIL_JS + _storage.LPICK_JS + _storage.LPICK_RELOAD_JS
+                  + _split.SPLIT_JS + _extras.box_js(p))
 
 
 # ---- Kunden -------------------------------------------------------------------
@@ -2923,7 +2945,7 @@ def page_settings(store: Store, saved: str | None, logo: str | None = None,
 <h2>{t("Filamentpreise nach Sorte (optional)")}</h2>
 <p class="muted">{t("Überschreibt den Typpreis für eine bestimmte Sorte, z. B. „Bambu PLA Matte“. Leer lassen = Typpreis.")}</p>
 {f'<div class="fgrid wide">{name_rows}</div>' if name_rows else f'<p class="muted">{t("Erscheint, sobald Drucke mit Materialangaben erfasst sind.")}</p>'}"""),
-        pane("zubehoer", t("Arbeit &amp; Zubehör"), _extras.settings_section(store)),
+        pane("arbeit", t("Arbeitszeit"), _extras.settings_section(store)),
         pane("margen", t("Margen"), f"""<h2 style="margin-top:0">{t("Margen")}</h2>
 <p class="muted">{t("Bis zu zwei allgemeine Aufschläge auf die Gesamtkosten. Jede Marge bekommt in der Tabelle eine eigene Spalte mit Verkaufspreis (und Preis pro Stück). Eine Marge pro Kunde stellst du unter „Kunden“ ein.")}</p>
 <div class="fbox">{margin_rows}</div>
@@ -3349,3 +3371,4 @@ DATA_CSS = """
 from . import split as _split  # noqa: E402  (nutzt Helfer aus diesem Modul)
 from . import extras as _extras  # noqa: E402
 from . import models as _models  # noqa: E402
+from . import storage as _storage  # noqa: E402
