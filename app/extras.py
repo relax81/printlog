@@ -276,13 +276,14 @@ def on_delivered(store: Store, job_id: int) -> None:
 
 
 def last_like(store: Store, job: dict[str, Any]) -> dict[str, Any] | None:
-    """Letzter anderer Druck mit gleichem Namen, der Arbeit oder Zubehör hat (Vorschlag „Übernehmen“)."""
+    """Letzter anderer Druck mit gleichem Namen oder Modell, der Arbeit oder Zubehör hat (Vorschlag „Übernehmen“)."""
     if not job.get("task_name"):
         return None
     r = store._conn.execute(
-        "SELECT * FROM jobs WHERE id <> ? AND task_name = ? AND COALESCE(kind, '') <> 'share' AND "
+        "SELECT * FROM jobs WHERE id <> ? AND (task_name = ? OR (model_id IS NOT NULL AND model_id = ?)) "
+        "AND COALESCE(kind, '') <> 'share' AND "
         "(prep_min IS NOT NULL OR post_min IS NOT NULL OR EXISTS (SELECT 1 FROM job_extras x WHERE x.job_id = jobs.id)) "
-        "ORDER BY start_ts DESC LIMIT 1", (job["id"], job["task_name"])).fetchone()
+        "ORDER BY start_ts DESC LIMIT 1", (job["id"], job["task_name"], job.get("model_id"))).fetchone()
     return dict(r) if r else None
 
 
@@ -353,13 +354,30 @@ def box(store: Store, job: dict[str, Any], picker: bool = True) -> str:
         if like.get("post_min"):
             parts.append(t("{m} Nachbearbeitung", m=_min(like["post_min"])))
         sug = (f'<form class="zsug" method="post" action="api/jobs/{jid}/extras"><input type="hidden" name="copy" value="{like["id"]}">'
-               f'💡 <span>{t("Beim letzten Druck mit diesem Namen ({ref}):", ref=e(code_label(like.get("code"))))} <b>{e(", ".join(parts) or t("Arbeitszeit"))}</b></span>'
+               f'💡 <span>{t("Beim letzten Druck dieses Modells ({ref}):", ref=e(code_label(like.get("code"))))} <b>{e(", ".join(parts) or t("Arbeitszeit"))}</b></span>'
                f'<button class="btn sm">{t("Übernehmen")}</button></form>')
     if not has_any and not sug:
         return (f'<div class="zkmin calc"><button type="button" class="btn" data-zk-open>🧰 {t("＋ Arbeit & Zubehör")}</button>'
                 f'<span class="muted">{t("Vorbereitung, Nachbearbeitung, Design und Zubehör wie Ringe oder Magnete")}</span></div>'
                 f'<section class="zk calc" id="zk" hidden>{_inner(store, job, xs, act, wr, dr, q, unit, settings)}</section>')
     return f'<section class="zk calc" id="zk">{sug}{_inner(store, job, xs, act, wr, dr, q, unit, settings)}</section>'
+
+
+def _design_row(store: Store, job: dict[str, Any], act: str, design: float, cost: str) -> str:
+    """Designzeit: am Modell (einmal beim ersten berechneten Druck oder verteilt) oder am Druck ohne Modell."""
+    from . import models  # Kreisimport vermeiden
+
+    m = models.model(store, job.get("model_id")) if job.get("kind") is None else None
+    if not m:
+        return (f'<div class="ar"><div class="l"><b>✏️ {t("Design")}</b><small>{t("einmalig · eigener Stundensatz")}</small></div>'
+                f'{_stepper(act, "design_min", job.get("design_min"), 15, t("Design"))}<div class="v">{cost}</div></div>')
+    spread = m.get("design_mode") == "spread"
+    mode = (f'<form class="mini" method="post" action="{act}"><input type="hidden" name="field" value="design_mode">'
+            f'<button name="value" value="first" class="{"" if spread else "on"}">{t("einmal")}</button>'
+            f'<button name="value" value="spread" class="{"on" if spread else ""}">{t("verteilt auf {n}", n=m.get("spread_n") or 3)}</button></form>')
+    return (f'<div class="ar"><div class="l"><b>✏️ {t("Design")}</b>'
+            f'<small><a class="zmod" href="models#m{m["id"]}">🧩 {e(m["name"])}</a> · {e(models.design_note(store, job))}</small>{mode}</div>'
+            f'{_stepper(act, "design_min", m.get("design_min"), 15, t("Design"))}<div class="v">{cost if design else fmt_num(0, 2, "€") if m.get("design_min") else "–"}</div></div>')
 
 
 def _inner(store: Store, job: dict[str, Any], xs: list[dict[str, Any]], act: str, wr: float | None, dr: float | None,
@@ -379,8 +397,7 @@ def _inner(store: Store, job: dict[str, Any], xs: list[dict[str, Any]], act: str
             f'<button name="value" value="0" class="{"" if once else "on"}">{t("pro {u}", u=unit)}</button>'
             f'<button name="value" value="1" class="{"on" if once else ""}">{t("einmalig")}</button></form></div>'
             f'{_stepper(act, "post_min", job.get("post_min"), 0.5 if not once else 5, t("Nachbearbeitung"))}<div class="v">{eur(post, wr)}</div></div>'
-            f'<div class="ar"><div class="l"><b>✏️ {t("Design")}</b><small>{t("einmalig · eigener Stundensatz")}</small></div>'
-            f'{_stepper(act, "design_min", job.get("design_min"), 15, t("Design"))}<div class="v">{eur(design, dr)}</div></div>'
+            + _design_row(store, job, act, design, eur(design, dr)) +
             f'<div class="muted zh2">{e(rate_hint)}</div></div>')
 
     rows = ""
@@ -491,7 +508,7 @@ BOX_CSS = """
 .zkg{display:grid;grid-template-columns:1.05fr 1.25fr .8fr;gap:22px}
 .zkg h4{margin:0 0 8px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
 .zk .ar{display:grid;grid-template-columns:minmax(0,1fr) auto 70px;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}
-.zk .ar .l b{display:block;font-size:15px}.zk .ar .l small{display:block;color:var(--muted);font-size:12.5px}
+.zk .ar .l b{display:block;font-size:15px}.zk .zmod{font-weight:600;color:var(--fg);text-decoration:none}.zk .ar .l small{display:block;color:var(--muted);font-size:12.5px}
 .zk .v{text-align:right;font-variant-numeric:tabular-nums;font-weight:700}
 .zk .zh2{font-size:12.5px;margin-top:8px}
 .zstp{display:flex;align-items:center;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--bg)}

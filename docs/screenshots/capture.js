@@ -101,6 +101,9 @@ const hdr = { 'Accept-Language': lang };
     const s = await p.$eval('table.acc', el => { const b = el.getBoundingClientRect(); return { y: b.top + scrollY, h: b.height }; });
     await p.screenshot({ path: `${out}/accessory-inventory.png`, clip: { x: 0, y: 0, width: 1000, height: s.y + s.h + 16 }, fullPage: true });
   }
+  // Modelle: Hinweise (Glocke) und Modellliste
+  await shot('hints', 'hints', { h: 760 });
+  await shot('models', 'models', { h: 860 });
   // phone
   const ph = await b.newContext({ ...devices['iPhone 13'], locale: lang, colorScheme: scheme, extraHTTPHeaders: hdr });
   await ph.addInitScript(init);

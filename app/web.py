@@ -19,6 +19,7 @@ from aiohttp import web
 
 from . import archive
 from . import extras as zk
+from . import models as mdl
 from .costing import compute, parse_materials, recompute_all
 from .db import Store
 from .defects import DEFECTS
@@ -44,7 +45,7 @@ from .pages import (
     results,
 )
 from .stats import page_calendar, page_stats
-from .ui import STATIC_DIR, THEME, THEMES, parse_num, printer_names
+from .ui import HINTS, STATIC_DIR, THEME, THEMES, parse_num, printer_names
 
 log = logging.getLogger("printlog.web")
 
@@ -77,6 +78,8 @@ def _filters(request: web.Request) -> dict[str, str | None]:
     f: dict[str, str | None] = {k: (request.query.get(k) or None) for k in FILTER_KEYS}
     if f["customer"] and f["customer"] != "none" and not f["customer"].isdigit():
         f["customer"] = None
+    if f["model"] and not f["model"].isdigit():
+        f["model"] = None
     if f["day"] and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", f["day"]):
         f["day"] = None
     if f["todo"] not in TODO_OPTIONS:
@@ -193,9 +196,17 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
         cfg = store.settings()
         token = LANG.set(resolve(cfg.get("language"), request.headers.get("Accept-Language")))
         theme = THEME.set(cfg.get("theme") if cfg.get("theme") in THEMES else "auto")
+        hints = HINTS.set(mdl.hint_count(store) if request.method == "GET" else None)
         try:
             return await handler(request)
         finally:
+            if request.method == "POST" and not request.path.endswith(("/photos", "/logo", "/restore")):
+                # Kunde, Geschenk, Projekt … geändert: Designkosten der Modelle neu verteilen
+                try:
+                    mdl.apply_all(store)
+                except Exception:  # noqa: BLE001
+                    log.exception("Designkosten neu verteilen fehlgeschlagen")
+            HINTS.reset(hints)
             THEME.reset(theme)
             LANG.reset(token)
 
@@ -321,6 +332,9 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
         if "language" in form:
             choice = str(form.get("language") or "")
             store.set_setting("language", choice if choice in LANGS else "auto")
+        if "hint_notify" in form:
+            hn = str(form.get("hint_notify") or "").strip()
+            store.set_setting("hint_notify", hn if re.fullmatch(r"[a-z_]+(\.[a-z0-9_]+)?", hn) else None)
         if "theme" in form:
             store.set_setting("theme", str(form["theme"]) if form.get("theme") in THEMES else "auto")
         for key in ("backup_interval", "backup_weekday", "backup_hour"):
@@ -677,12 +691,80 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
         fld = str(form.get("field") or "")
         if fld == "post_once":
             store.update(job_id, post_once=1 if str(form.get("value")) == "1" else None)
+        elif fld == "design_min" and job.get("model_id") and mdl.model(store, job["model_id"]):
+            # Designzeit gehört zum Modell, nicht zum einzelnen Druck
+            m = mdl.model(store, job["model_id"]) or {}
+            delta = parse_num(form.get("delta"))
+            val = (m.get("design_min") or 0) + delta if delta is not None else parse_num(form.get("value"))
+            mdl.save_model(store, m["id"], design_min=None if not val or val <= 0 else round(val, 2))
+        elif fld == "design_mode" and job.get("model_id"):
+            mdl.save_model(store, job["model_id"], design_mode="spread" if str(form.get("value")) == "spread" else None)
         elif fld in ("prep_min", "post_min", "design_min"):
             delta = parse_num(form.get("delta"))
             val = (job.get(fld) or 0) + delta if delta is not None else parse_num(form.get("value"))
             store.update(job_id, **{fld: None if not val or val <= 0 else round(val, 2)})
         zk.refresh(store, job_id)
         raise web.HTTPSeeOther(f"../../../job?id={job_id}#zk")
+
+    @routes.post("/api/jobs/{job_id:\\d+}/model")
+    async def api_model(request: web.Request) -> web.Response:
+        """Modell-Hinweis beantworten: model = ID (bestätigen/zuordnen) | do = new (eigenes Modell) | keep."""
+        job_id = _job_id(request)
+        if not store.get(job_id):
+            raise web.HTTPNotFound()
+        form = await request.post()
+        mid = str(form.get("model") or "")
+        do = str(form.get("do") or "")
+        if mid.isdigit():
+            mdl.assign(store, job_id, int(mid))
+        elif do == "new":
+            mdl.make_new(store, job_id)
+        elif do == "keep":
+            mdl.dismiss(store, job_id)
+        back = str(form.get("back") or "")
+        if not re.fullmatch(r"(hints|models|job\?id=\d+)", back):
+            back = f"job?id={job_id}"
+        raise web.HTTPSeeOther("../../../" + back)
+
+    @routes.post("/api/models/{model_id:\\d+}")
+    async def api_model_edit(request: web.Request) -> web.Response:
+        """Modell bearbeiten: name, design_min, design_mode, spread_n | merge = Ziel-ID | unalias = Alias."""
+        mid = int(request.match_info["model_id"])
+        if not mdl.model(store, mid):
+            raise web.HTTPNotFound()
+        form = await request.post()
+        target = mid
+        if str(form.get("merge") or "").isdigit():
+            target = int(str(form["merge"]))
+            mdl.merge(store, mid, target)
+        elif "unalias" in form:
+            mdl.remove_alias(store, mid, str(form["unalias"]))
+        else:
+            f: dict[str, Any] = {}
+            name = str(form.get("name") or "").strip()
+            if name:
+                f["name"] = name[:120]
+            if "design_min" in form:
+                dm = parse_num(form.get("design_min"))
+                f["design_min"] = None if not dm or dm <= 0 else round(dm, 2)
+            if "design_mode" in form:
+                f["design_mode"] = "spread" if str(form["design_mode"]) == "spread" else None
+            if "spread_n" in form:
+                n = parse_num(form.get("spread_n"))
+                f["spread_n"] = max(2, min(int(n), 999)) if n else None
+            mdl.save_model(store, mid, **f)
+        back = str(form.get("back") or "")
+        if re.fullmatch(r"job\?id=\d+", back):
+            raise web.HTTPSeeOther(f"../../{back}#zk")
+        raise web.HTTPSeeOther(f"../../models#m{target}")
+
+    @routes.get("/models")
+    async def models_page(request: web.Request) -> web.Response:
+        return _html(mdl.page_models(store, request.query.get("q")))
+
+    @routes.get("/hints")
+    async def hints_page(request: web.Request) -> web.Response:
+        return _html(mdl.page_hints(store))
 
     @routes.post("/api/jobs/{job_id:\\d+}/extras")
     async def api_extras(request: web.Request) -> web.Response:

@@ -19,6 +19,8 @@ DEMO: contextvars.ContextVar[bool] = contextvars.ContextVar("printlog_demo", def
 # Farbschema dieser Anfrage aus den Einstellungen: "auto" (System), "light" oder "dark"
 THEMES = {"auto": N_("Automatisch (wie das Gerät)"), "light": N_("Hell"), "dark": N_("Dunkel")}
 THEME: contextvars.ContextVar[str] = contextvars.ContextVar("printlog_theme", default="auto")
+# Offene Hinweise (Glocke im Kopf); None = Glocke nicht zeigen
+HINTS: contextvars.ContextVar[int | None] = contextvars.ContextVar("printlog_hints", default=None)
 
 NAV = [
     ("./", N_("Drucke"), "jobs"),
@@ -171,6 +173,10 @@ color:var(--muted);border:1px solid var(--line);border-radius:5px;padding:0 5px;
 .meta .pid,.badge .pid{margin-left:0;vertical-align:0}
 button.pidb{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.04em;cursor:copy}
 .top{display:flex;gap:8px 14px;align-items:center;margin-bottom:12px}.top .logo{margin-right:auto}
+.tact{display:flex;align-items:center;gap:6px}
+.bell{position:relative;display:grid;place-items:center;width:34px;height:34px;margin:-6px 0;color:var(--muted);border-radius:10px}
+.bell.on{color:var(--fg)}.bell i{position:absolute;top:0;right:-2px;background:var(--bad);color:#fff;font-style:normal;font-size:10.5px;
+ font-weight:700;border-radius:999px;padding:0 5px;line-height:16px;min-width:16px;text-align:center;box-sizing:border-box}
 nav{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:center}
 nav a{text-decoration:none;font-weight:600;color:var(--muted)}nav a.on{color:var(--fg)}
 @media (max-width:700px){.top{display:grid;grid-template-columns:1fr auto;gap:6px 8px}
@@ -300,6 +306,18 @@ def theme_attr() -> str:
     return f' data-theme="{th}"' if th in ("light", "dark") else ""
 
 
+def bell() -> str:
+    """Glocke mit Zähler der offenen Hinweise (Seite „Hinweise“)."""
+    count = HINTS.get()
+    if count is None:
+        return ""
+    badge = f'<i>{count if count < 100 else "99+"}</i>' if count else ""
+    return (f'<a class="bell{" on" if count else ""}" href="hints" title="{e(t("Hinweise"))}" aria-label="{e(t("Hinweise"))}">'
+            '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" '
+            'stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>'
+            f'{badge}</a>')
+
+
 def layout(title: str, active: str, body: str, script: str = "") -> str:
     links = "".join(
         f'<a href="{href}" class="{"on" if key == active else ""}">{e(t(label))}</a>' for href, label, key in NAV
@@ -318,7 +336,7 @@ def layout(title: str, active: str, body: str, script: str = "") -> str:
 <script>try{{if(localStorage.getItem('pl_priv')==='1')document.documentElement.classList.add('priv')}}catch(_){{}}</script>
 <style>{CSS}</style></head><body><div class="page">
 <div class="top"><h1 class="logo"><a href="./" title="Printlog">{LOGO_SVG}</a>{demo_pill}</h1><nav>{links}</nav>
-<button type="button" class="eye" id="eye" title="{e(t("Kalkulation aus-/einblenden (Diskret-Modus)"))}" aria-label="{e(t("Kalkulation aus- oder einblenden"))}">{EYE_SVG}</button></div>
+<span class="tact">{bell()}<button type="button" class="eye" id="eye" title="{e(t("Kalkulation aus-/einblenden (Diskret-Modus)"))}" aria-label="{e(t("Kalkulation aus- oder einblenden"))}">{EYE_SVG}</button></span></div>
 {demo_bar_html}{body}
 </div><div id="zoom"><img alt=""></div><div id="tip" class="tip"></div>
 <script>{BASE_JS}{DEMO_JS if demo_pill else ""}{js(script)}</script></body></html>"""

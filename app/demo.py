@@ -307,6 +307,34 @@ def _split(store: Store, jobs: list[dict[str, Any]], cust_ids: list[int], skip: 
             store.give(pid, cust_ids[7], 1, part=free[0]["id"])
 
 
+def _models(store: Store, image_dir: Path, L: Any) -> None:
+    """Modelle wie nach dem ersten Start erkennen, dann zwei offene Fragen für die Glocke."""
+    from . import models as mdl
+
+    store.set_setting("models_ready", None)
+    mdl.recognize_pending(store, image_dir)
+    rows = store._conn.execute(  # noqa: SLF001
+        "SELECT j.id, j.model_id, j.task_name FROM jobs j WHERE j.kind IS NULL AND j.state = 'done' AND j.customer_id IS NOT NULL "
+        "AND j.project_id IS NULL AND COALESCE(j.split, 0) = 0 AND (SELECT COUNT(*) FROM jobs k WHERE k.model_id = j.model_id) >= 3 "
+        "ORDER BY j.start_ts DESC").fetchall()
+    seen: set[int] = set()
+    picked = []
+    for r in rows:
+        if r["model_id"] not in seen:
+            seen.add(r["model_id"])
+            picked.append(r)
+        if len(picked) == 2:
+            break
+    if len(picked) < 2:
+        return
+    a, b = picked
+    store.update(a["id"], model_state="tentative", model_score=70, model_hint=1, gcode_plate=2,
+                 model_cands=json.dumps([[a["model_id"], 70, ["name", "plate", "gpp"]]]))
+    store.update(b["id"], model_id=None, model_state="suggest", model_score=45, model_hint=1,
+                 task_name=f'{b["task_name"]} {L(("klein", "small"))}',
+                 model_cands=json.dumps([[b["model_id"], 45, ["similar", "plate", "gpp"]]]))
+
+
 def seed(store: Store, image_dir: Path, lang: str, now: float | None = None) -> int:
     """Löscht die Demo-Datenbank und legt neue Beispieldaten an. Gibt die Zahl der Drucke zurück."""
     en = lang == "en"
@@ -585,6 +613,8 @@ def seed(store: Store, image_dir: Path, lang: str, now: float | None = None) -> 
 
     pid = _project(store, jobs, cust_ids, {j["id"] for j in trash}, now, L, image_dir)
     _split(store, jobs, cust_ids, {j["id"] for j in trash}, now, L, image_dir, pid)
+
+    _models(store, image_dir, L)
 
     store.set_setting("demo_lang", lang)
     store.set_setting("demo_ts", f"{now:.0f}")

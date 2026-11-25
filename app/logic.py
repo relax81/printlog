@@ -15,6 +15,7 @@ der Sweeper den Eintrag nach ``FINAL_GRACE_S`` mit dem Zählerstand vom
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import Any, Awaitable, Callable
 
@@ -105,6 +106,9 @@ class Processor:
                 val = _text(data.get(key))
                 if val and not old.get(key):
                     fields[key] = val
+            for key, val in _gcode(data).items():
+                if not old.get(key):
+                    fields[key] = val
             if fields:
                 self.store.update(old["id"], **fields)
             log.info("Start %s: Job %s läuft weiter (gleicher Druck)", printer, old["id"])
@@ -129,6 +133,7 @@ class Processor:
             start_kwh=_num(data.get("energy_kwh")),
             weight_g=_num(data.get("weight_g")),
             materials=_materials_json(data.get("materials")),
+            **_gcode(data),
         )
         log.info("Start %s Job %s (%s)", printer, job_id, data.get("task_name"))
         image_entity = _text(data.get("image_entity"))
@@ -153,6 +158,7 @@ class Processor:
         weight = _num(data.get("weight_g"))
         if weight:
             fields["weight_g"] = weight
+        fields.update(_gcode(data))
         materials = _materials_json(data.get("materials"))
         if materials:
             fields["materials"] = materials
@@ -289,6 +295,19 @@ def _same_print(job: dict[str, Any], printer_start: float | None, data: dict[str
     # Ohne Startzeit vom Drucker: Ein neuer Druck beginnt bei 0 %, ein fortgesetzter nicht.
     progress = _num(data.get("progress"))
     return progress is not None and progress > 0
+
+
+def _gcode(data: dict[str, Any]) -> dict[str, Any]:
+    """Plattennummer (gcode_filename …/plate_3.gcode) und Druckdatei (gcode_file_downloaded) für die Modell-Erkennung."""
+    out: dict[str, Any] = {}
+    plate = _text(data.get("gcode_plate"))
+    m = re.search(r"plate_(\d+)", plate or "")
+    if m:
+        out["gcode_plate"] = int(m.group(1))
+    file = _text(data.get("gcode_file"))
+    if file:
+        out["gcode_file"] = file.replace("\\", "/").rsplit("/", 1)[-1][:200]
+    return out
 
 
 def _estimate_kwh(watts: float | None, start: float | None, end: float | None) -> float | None:

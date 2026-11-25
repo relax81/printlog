@@ -176,6 +176,8 @@ actions:
       printer_start_time: "{{ states('sensor.' ~ prefix ~ '_start_time') }}"
       progress: "{{ states('sensor.' ~ prefix ~ '_print_progress') }}"
       task_name: "{{ states('sensor.' ~ prefix ~ '_task_name') }}"
+      gcode_plate: "{{ states('sensor.' ~ prefix ~ '_gcode_filename') }}"
+      gcode_file: "{{ states('sensor.' ~ prefix ~ '_gcode_file_downloaded') }}"
       weight_g: "{{ states('sensor.' ~ prefix ~ '_print_weight') }}"
       image_entity: "image.{{ prefix }}_cover_image"
       status_entity: "{{ status_entity }}"

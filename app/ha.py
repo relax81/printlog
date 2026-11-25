@@ -47,6 +47,18 @@ class HomeAssistant:
                 return None
             return await resp.json()
 
+    async def call_service(self, service: str, data: dict[str, Any]) -> bool:
+        """Dienst aufrufen, z. B. ``notify.mobile_app_x`` oder ``persistent_notification.create``."""
+        domain, _, name = service.partition(".")
+        if not domain or not name:
+            return False
+        url = f"{self.base_url}/api/services/{domain}/{name}"
+        async with self.session.post(url, headers=self._headers, json=data) as resp:
+            if resp.status >= 300:
+                log.warning("Dienst %s: HTTP %s", service, resp.status)
+                return False
+            return True
+
     async def download_image(self, entity_id: str, target_stem: Path) -> str | None:
         """Lädt das aktuelle Bild einer image-Entität. Gibt den Dateinamen zurück."""
         state = await self.get_state(entity_id)
