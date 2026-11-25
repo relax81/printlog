@@ -150,6 +150,10 @@ class Store:
         "material_notes": "TEXT",     # JSON {"0": "Ivory White", …}: eigene Notiz je Material-Zeile (Index in materials)
         "code": "TEXT",               # kurze Projekt-ID ohne Präfix, z. B. "7K3Q" (Anzeige "PL-7K3Q")
         "printer_start_ts": "REAL",   # Startzeit laut Drucker: erkennt Fortsetzen nach Pause als gleichen Druck
+        "defect": "TEXT",             # Fehldruck-Ursache (Schlüssel aus defects.DEFECTS), leer = nicht angegeben
+        "defect_charge": "TEXT",      # Fehldruck berechnen: leer/none = nichts, pct, amount, full
+        "defect_value": "REAL",       # Prozent (pct) oder Betrag (amount)
+        "reprint_of": "INTEGER",      # Nachdruck: ID des Fehldrucks, den dieser Druck ersetzt
     }
 
     # Übergebene Stück (Summe der Übergaben, auch Teilabholungen) und Soll-Stückzahl
@@ -157,20 +161,24 @@ class Store:
     QTY_SQL = "COALESCE(jobs.quantity, 1)"
     # Kunde mit Häkchen „Keine Abrechnung“ (z. B. Eigenbedarf): Kosten zählen, aber nie offen/unbezahlt/nicht übergeben.
     NOBILL_SQL = "COALESCE((SELECT cb.no_billing FROM customers cb WHERE cb.id = jobs.customer_id), 0) = 1"
-    DELIVERABLE_SQL = ("(jobs.customer_id IS NOT NULL AND COALESCE(jobs.scrap, jobs.status = 'abgebrochen') = 0 AND jobs.state = 'done' "
+    # Fehldruck („Ausschuss“), wenn so markiert oder (ohne Markierung) abgebrochen.
+    SCRAP_SQL = "COALESCE(jobs.scrap, jobs.status = 'abgebrochen')"
+    # Fehldruck, für den der Kunde nichts zahlt: fällt aus Offen und Abrechnung heraus.
+    NOCHARGE_SQL = f"({SCRAP_SQL} = 1 AND COALESCE(jobs.defect_charge, '') NOT IN ('pct', 'amount', 'full'))"
+    DELIVERABLE_SQL = (f"(jobs.customer_id IS NOT NULL AND NOT {NOCHARGE_SQL} AND jobs.state = 'done' "
                        f"AND NOT {NOBILL_SQL})")
 
-    # Zu zahlen: Endpreis, sonst Kosten + Kundenmarge. Gezahlt: Summe der Zahlungen.
-    DUE_SQL = ("COALESCE(jobs.final_price, jobs.cost_total * (1 + COALESCE("
-               "(SELECT c.margin_pct FROM customers c WHERE c.id = jobs.customer_id), 0) / 100.0))")
+    # Normaler Preis: Endpreis, sonst Kosten + Kundenmarge.
+    BASE_DUE_SQL = ("COALESCE(jobs.final_price, jobs.cost_total * (1 + COALESCE("
+                    "(SELECT c.margin_pct FROM customers c WHERE c.id = jobs.customer_id), 0) / 100.0))")
+    # Zu zahlen: normaler Preis, bei einem berechneten Fehldruck anteilig bzw. fester Betrag. Gezahlt: Summe der Zahlungen.
+    DUE_SQL = (f"(CASE WHEN {SCRAP_SQL} = 1 AND jobs.defect_charge = 'pct' THEN {BASE_DUE_SQL} * COALESCE(jobs.defect_value, 0) / 100.0 "
+               f"WHEN {SCRAP_SQL} = 1 AND jobs.defect_charge = 'amount' THEN COALESCE(jobs.defect_value, 0) ELSE {BASE_DUE_SQL} END)")
     PAID_SQL = "(SELECT COALESCE(SUM(p.amount),0) FROM payments p WHERE p.job_id = jobs.id)"
     GIFT_SQL = "COALESCE(jobs.gift, 0) = 1"
-    # Druck mit Kunde (mit Abrechnung), der kein Ausschuss, nicht verschenkt ist und einen Preis hat: dafür wird Geld erwartet.
+    # Druck mit Kunde (mit Abrechnung), kein unberechneter Fehldruck, nicht verschenkt, mit Preis: dafür wird Geld erwartet.
     PAYABLE_SQL = (f"(jobs.customer_id IS NOT NULL AND {DUE_SQL} IS NOT NULL "
-                   f"AND COALESCE(jobs.scrap, jobs.status = 'abgebrochen') = 0 AND COALESCE(jobs.gift, 0) = 0 AND NOT {NOBILL_SQL})")
-
-    # Ausschuss, wenn so markiert oder (ohne Markierung) abgebrochen.
-    SCRAP_SQL = "COALESCE(jobs.scrap, jobs.status = 'abgebrochen')"
+                   f"AND NOT {NOCHARGE_SQL} AND COALESCE(jobs.gift, 0) = 0 AND NOT {NOBILL_SQL})")
 
     def _migrate(self) -> None:
         have = {r["name"] for r in self._conn.execute("PRAGMA table_info(jobs)")}
@@ -443,7 +451,9 @@ class Store:
             f"COALESCE(SUM(cost_printer),0) cost_printer, COALESCE(SUM(cost_filament),0) cost_filament, "
             f"COALESCE(SUM(cost_total),0) cost_total, "
             f"COALESCE(SUM(CASE WHEN {Store.SCRAP_SQL} THEN 1 ELSE 0 END),0) scrap_n, "
-            f"COALESCE(SUM(CASE WHEN {Store.SCRAP_SQL} THEN cost_total ELSE 0 END),0) scrap_cost FROM jobs {where}",
+            f"COALESCE(SUM(CASE WHEN {Store.SCRAP_SQL} THEN cost_total ELSE 0 END),0) scrap_cost, "
+            f"COALESCE(SUM(CASE WHEN {Store.SCRAP_SQL} AND NOT {Store.NOCHARGE_SQL} AND jobs.customer_id IS NOT NULL "
+            f"AND NOT {Store.NOBILL_SQL} AND COALESCE(jobs.gift, 0) = 0 THEN {Store.DUE_SQL} ELSE 0 END),0) scrap_charged FROM jobs {where}",
             args,
         ).fetchone()
         per_printer = self._conn.execute(
@@ -496,6 +506,14 @@ class Store:
             args.append(day)
         if status == "ausschuss":
             clauses.append(f"{Store.SCRAP_SQL} = 1")
+        elif status and status.startswith("fd:"):
+            # Fehldrucke einer Ursache; fd:none = ohne Angabe
+            clauses.append(f"{Store.SCRAP_SQL} = 1")
+            if status == "fd:none":
+                clauses.append("jobs.defect IS NULL")
+            else:
+                clauses.append("jobs.defect = ?")
+                args.append(status[3:])
         elif status == "gut":
             clauses.append(f"{Store.SCRAP_SQL} = 0")
         elif status:
@@ -568,7 +586,7 @@ class Store:
 
     def gifts_by_customer(self, since: float | None = None, until: float | None = None) -> dict[int | None, dict[str, Any]]:
         """Verschenktes pro Kunde (None = ohne Kunde) im Zeitraum: Anzahl, Stück, Kosten, Preis."""
-        DUE = self.DUE_SQL
+        DUE = self.BASE_DUE_SQL
         q = (f"SELECT customer_id, COUNT(*) n, COALESCE(SUM({self.QTY_SQL}),0) pieces, COALESCE(SUM(cost_total),0) cost, "
              f"COALESCE(SUM({DUE}),0) value FROM jobs WHERE {self.GIFT_SQL}")
         args: list[Any] = []
@@ -659,12 +677,54 @@ class Store:
             "COALESCE(SUM(COALESCE(filament_g, weight_g)),0) grams, COALESCE(SUM(kwh),0) kwh, "
             "COALESCE(SUM(cost),0) cost_energy, COALESCE(SUM(cost_filament),0) cost_filament, "
             "COALESCE(SUM(cost_printer),0) cost_printer, COALESCE(SUM(cost_total),0) cost_total, "
-            f"SUM(NOT {Store.SCRAP_SQL}) ok, SUM({Store.SCRAP_SQL}) failed, "
-            f"COALESCE(SUM(CASE WHEN {Store.SCRAP_SQL} THEN cost_total ELSE 0 END),0) scrap_cost "
+            # „Kundenwunsch geändert“ liegt nicht am Druck: zählt nicht als Fehlschlag
+            f"SUM(NOT {Store.SCRAP_SQL} OR COALESCE(jobs.defect, '') = 'customer') ok, "
+            f"SUM({Store.SCRAP_SQL} AND COALESCE(jobs.defect, '') <> 'customer') failed, "
+            f"COALESCE(SUM(CASE WHEN {Store.SCRAP_SQL} THEN cost_total ELSE 0 END),0) scrap_cost, "
+            f"COALESCE(SUM(CASE WHEN {Store.SCRAP_SQL} THEN 0 ELSE cost END),0) good_energy, "
+            f"COALESCE(SUM(CASE WHEN {Store.SCRAP_SQL} THEN 0 ELSE cost_filament END),0) good_filament, "
+            f"COALESCE(SUM(CASE WHEN {Store.SCRAP_SQL} THEN 0 ELSE cost_printer END),0) good_printer "
             "FROM jobs WHERE start_ts >= ? AND start_ts < ? GROUP BY bucket, printer ORDER BY bucket",
             (since, until),
         ).fetchall()
         return [dict(r) for r in rows]
+
+    def defect_stats(self, since: float, until: float) -> dict[str, Any]:
+        """Fehldrucke im Zeitraum: pro Ursache (None = nicht angegeben) Anzahl und Kosten, dazu berechnet und Nachdrucke."""
+        charged = (f"CASE WHEN NOT {Store.NOCHARGE_SQL} AND jobs.customer_id IS NOT NULL AND NOT {Store.NOBILL_SQL} "
+                   f"AND COALESCE(jobs.gift, 0) = 0 THEN {Store.DUE_SQL} ELSE 0 END")
+        rows = self._conn.execute(
+            f"SELECT jobs.defect, COUNT(*) n, COALESCE(SUM(cost_total),0) cost, COALESCE(SUM({charged}),0) charged, "
+            f"SUM(CASE WHEN {charged} > 0 THEN 1 ELSE 0 END) n_charged, "
+            "SUM(CASE WHEN jobs.defect_charge = 'full' THEN 1 ELSE 0 END) n_full "
+            f"FROM jobs WHERE {Store.SCRAP_SQL} = 1 AND start_ts >= ? AND start_ts < ? GROUP BY jobs.defect",
+            (since, until)).fetchall()
+        rp = self._conn.execute(
+            "SELECT COUNT(*) n, COALESCE(SUM(cost_total),0) cost FROM jobs WHERE reprint_of IS NOT NULL "
+            "AND start_ts >= ? AND start_ts < ?", (since, until)).fetchone()
+        return {"rows": [dict(r) for r in rows], "reprints": dict(rp)}
+
+    def reprints(self, job_id: int) -> list[dict[str, Any]]:
+        """Nachdrucke eines Fehldrucks."""
+        rows = self._conn.execute(
+            f"SELECT jobs.*, {Store.SCRAP_SQL} AS is_scrap FROM jobs WHERE reprint_of = ? ORDER BY start_ts", (job_id,)).fetchall()
+        return [dict(r) for r in rows]
+
+    def reprint_candidates(self, job: dict[str, Any], limit: int = 15) -> list[dict[str, Any]]:
+        """Drucke, die als Nachdruck in Frage kommen: später gestartet, gleicher Kunde oder gleicher Name, passende zuerst."""
+        rows = self._conn.execute(
+            "SELECT id, code, task_name, start_ts, status, customer_id, reprint_of FROM jobs "
+            "WHERE id <> ? AND start_ts >= ? AND (reprint_of IS NULL OR reprint_of = ?) "
+            "ORDER BY (task_name = ?) + (customer_id IS NOT NULL AND customer_id = ?) DESC, start_ts LIMIT ?",
+            (job["id"], job.get("start_ts") or 0, job["id"], job.get("task_name"), job.get("customer_id"), limit)).fetchall()
+        return [dict(r) for r in rows]
+
+    def set_reprint(self, job_id: int, reprint_id: int | None) -> None:
+        """Nachdruck zuordnen (``None`` löst die Zuordnung)."""
+        with self._lock, self._conn:
+            self._conn.execute("UPDATE jobs SET reprint_of = NULL WHERE reprint_of = ?", (job_id,))
+            if reprint_id and reprint_id != job_id:
+                self._conn.execute("UPDATE jobs SET reprint_of = ? WHERE id = ?", (job_id, reprint_id))
 
     def material_buckets(self, period: str, since: float, until: float) -> list[dict[str, Any]]:
         fmt = {"day": "%Y-%m-%d", "week": "%Y-W%W", "month": "%Y-%m"}[period]

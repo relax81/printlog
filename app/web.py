@@ -20,6 +20,7 @@ from aiohttp import web
 from . import archive
 from .costing import compute, parse_materials, recompute_all
 from .db import Store
+from .defects import DEFECTS
 from .export import bon_png, collect, file_name, report_pdf
 from .i18n import LANG, LANGS, is_en, resolve, t
 from .media import save_logo, clean_local_path, fetch_title, shrink_photo, title_from_url
@@ -577,6 +578,30 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
             fields["material_notes"] = json.dumps(notes, ensure_ascii=False) if notes else None
         if "gift" in form:
             fields["gift"] = 1 if str(form["gift"]) == "1" else None
+        if "defect" in form:
+            # Fehldruck-Ursache; eine Ursache zu wählen macht den Druck zum Fehldruck
+            dv = str(form["defect"])
+            fields["defect"] = dv if dv in DEFECTS else None
+            if fields["defect"] and not job.get("is_scrap"):
+                fields["scrap"] = 1
+        if "defect_charge" in form:
+            mode = str(form["defect_charge"])
+            if mode == "full":
+                fields["defect_charge"] = "full"
+            elif mode == "part":
+                unit = str(form.get("defect_unit") or ("eur" if job.get("defect_charge") == "amount" else "pct"))
+                val = parse_num(form.get("defect_value")) if "defect_value" in form else job.get("defect_value")
+                if job.get("defect_charge") not in ("pct", "amount") and "defect_value" not in form:
+                    unit, val = "pct", 50.0  # erster Klick auf „Anteilig“: halber Preis
+                if unit == "eur":
+                    fields["defect_charge"], fields["defect_value"] = "amount", max(0.0, round(val or 0.0, 2))
+                else:
+                    fields["defect_charge"], fields["defect_value"] = "pct", min(100.0, max(0.0, val if val is not None else 50.0))
+            else:
+                fields["defect_charge"] = None
+        if "reprint" in form:
+            rv = str(form["reprint"])
+            store.set_reprint(job_id, int(rv) if rv.isdigit() else None)
         if fields:
             store.update(job_id, **fields)
         if request.query.get("redirect"):

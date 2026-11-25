@@ -136,6 +136,16 @@ JOB_NOTES = [("Magnete 6×3 mm eingesetzt", "Inserted 6×3 mm magnets"),
              ("Kunde möchte noch eine zweite Farbe", "Customer wants a second colour too")]
 SCRAP_NOTES = [("Warping an der Ecke", "Warping at one corner"), ("Layer-Shift nach 2 h", "Layer shift after 2 h"),
                ("Haftung verloren, Spaghetti", "Lost bed adhesion, spaghetti")]
+# Fehldruck-Ursache passend zur Notiz (eigener Zufall, damit die übrigen Beispieldaten gleich bleiben)
+SCRAP_CAUSE = {"Warping an der Ecke": "adhesion", "Warping at one corner": "adhesion", "Layer-Shift nach 2 h": "printer",
+               "Layer shift after 2 h": "printer", "Haftung verloren, Spaghetti": "adhesion", "Lost bed adhesion, spaghetti": "adhesion"}
+DEFECT_NOTES = {
+    "settings": ("Profil zu schnell (0,28 mm Draft): Oberfläche rau, Naht deutlich sichtbar. Nachdruck mit 0,16 mm.",
+                 "Profile too fast (0.28 mm draft): rough surface, seam clearly visible. Reprint at 0.16 mm."),
+    "material": ("Filament war feucht: Fäden und kleine Blasen an der Oberfläche.", "Filament was wet: stringing and small bubbles on the surface."),
+    "customer": ("Kunde wollte doch eine andere Farbe.", "Customer changed their mind about the colour."),
+    "other": ("Teil beim Ablösen von der Platte gebrochen.", "Part broke when taking it off the plate."),
+}
 PAY_NOTES = [("bar", "cash"), ("PayPal", "PayPal"), ("Überweisung", "bank transfer")]
 HANDOVER_NOTES = [(None, None), (None, None), ("abgeholt", "picked up"), ("per Post", "by post")]
 
@@ -197,6 +207,36 @@ def _materials(rnd: random.Random, mtype: str, grams: float, ams_units: int) -> 
         out.append({"slot": f"AMS {unit} Tray {tray}", "name": name, "type": mtype, "color": hexc,
                     "grams": round(grams * share * rnd.uniform(0.95, 1.05), 2)})
     return out
+
+
+def _defects(store: Store, jobs: list[dict[str, Any]], L: Any, en: bool) -> None:
+    """Fehldrucke: Ursache, Berechnung und Nachdruck für die Beispieldaten."""
+    r = random.Random(SEED + 7)
+    scrap = [j for j in jobs if j.get("scrap")]
+    # Nicht abgebrochen, aber trotzdem Fehldruck: andere Ursachen mit passender Notiz, Drucke mit Kunde zuerst
+    done = sorted((j for j in scrap if (store.get(j["id"]) or {}).get("status") == "fertig"),
+                  key=lambda j: (j.get("cust") is None, -j["start"]))
+    extra = dict(zip((j["id"] for j in done), ["settings", "customer", "material", "settings"]))
+    for j in scrap:
+        job = store.get(j["id"]) or {}
+        cause = SCRAP_CAUSE.get(job.get("job_note") or "")
+        fields: dict[str, Any] = {}
+        if j["id"] in extra:
+            cause = extra[j["id"]]
+            if cause == "customer" and not job.get("customer_id"):
+                cause = "other"
+            fields["job_note"] = L(DEFECT_NOTES[cause])
+        elif job.get("status") != "fertig" and r.random() < 0.35:
+            cause = None  # Ursache noch nicht angegeben
+        fields["defect"] = cause
+        if job.get("customer_id") and job.get("status") == "fertig" and cause in ("settings", "customer"):
+            fields["defect_charge"], fields["defect_value"] = ("full", None) if cause == "customer" else ("pct", 50.0)
+        store.update(j["id"], **fields)
+        later = [x for x in jobs if x["id"] != j["id"] and x.get("start") and x["start"] > j["start"]
+                 and x.get("obj") is j.get("obj") and x["start"] - j["start"] < 21 * 86400 and not x.get("scrap")]
+        later.sort(key=lambda x: x["start"])
+        if later and r.random() < 0.8:
+            store.set_reprint(j["id"], later[0]["id"])
 
 
 def seed(store: Store, image_dir: Path, lang: str, now: float | None = None) -> int:
@@ -350,6 +390,8 @@ def seed(store: Store, image_dir: Path, lang: str, now: float | None = None) -> 
         store.update(job_id, **compute(store.get(job_id) or {}, store))
         j["id"], j["status"], j["scrap"] = job_id, status, scrap or status == "abgebrochen"
         out_ids.append(job_id)
+
+    _defects(store, jobs, L, en)
 
     # Laufende Drucke
     for key, (o, hours_ago, cust, qty) in running.items():

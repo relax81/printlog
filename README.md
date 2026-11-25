@@ -43,10 +43,14 @@ in a **light and a dark** colour scheme (Settings → View → Colour scheme, or
   table or gallery, optionally grouped by day.
 - **Open items** – the **Open** view next to Table and Gallery lists every print that is not fully paid or handed over yet,
   grouped by customer with the open amount and pieces per customer and buttons to record a payment or hand-over right there.
-  Customers with **No billing** and scrap are left out; gifted prints only show up until they are handed over.
+  Customers with **No billing** and failed prints that are not charged are left out; gifted prints only show up until they are handed over.
 - **Your own details** – photos (camera upload, auto-resized), notes, filament notes (e.g. the exact colour name),
   MakerWorld / Printables links with their title, a local folder path, and a short project ID per print (e.g. `PL-7K3Q`).
-- **Scrap marking** – failed prints count as scrap automatically, and you can mark any print yourself.
+- **Failed prints** – cancelled prints count as failed automatically, and you can mark any print yourself, e.g. when it
+  finished but the settings were off. Pick a cause (settings, material, adhesion, printer fault, customer changed their mind,
+  other) and decide what the customer pays: nothing, a share (in % or as an amount) or the full price. A charged failed
+  print then shows under **Open**, on the receipt and in the PDF like any other print. Notes and photos document what
+  happened, and the reprint can be linked. Statistics show failed prints by cause, what was charged and what you carry yourself.
 - **Trash bin** with restore; deleted prints are removed for good only after a configurable number of days.
 - **Robust** – after a restart or a lost connection, printlog replays missed prints from Home Assistant's history (up to 7 days).
 
@@ -73,7 +77,7 @@ in a **light and a dark** colour scheme (Settings → View → Colour scheme, or
   and an A4 PDF cost sheet, in the language of the interface.
 - **Discreet mode** – one click blurs all internal figures when a customer is watching.
 - **Demo mode** – *Settings → View → Open demo* shows the whole app with a year of made-up prints (three Bambu printers,
-  customers with partial payments and open hand-overs, gifts, scrap, running prints, photos). Handy for screenshots
+  customers with partial payments and open hand-overs, gifts, failed prints, running prints, photos). Handy for screenshots
   and for trying printlog out. The demo has its own database; your real prints, Home Assistant and the backup are never touched.
 
 ### Screenshots
@@ -84,6 +88,7 @@ in a **light and a dark** colour scheme (Settings → View → Colour scheme, or
 | <a href="docs/screenshots/en/open-items.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/open-items.png"><img src="docs/screenshots/en/open-items.png" alt="Open: still to be paid or handed over"></picture></a><br>**Open: still to be paid or handed over** | <a href="docs/screenshots/en/print-detail.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/print-detail.png"><img src="docs/screenshots/en/print-detail.png" alt="Print detail with costs and selling prices"></picture></a><br>**Print detail with costs and selling prices** |
 | <a href="docs/screenshots/en/print-billing.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/print-billing.png"><img src="docs/screenshots/en/print-billing.png" alt="Billing: final price, payments, hand-overs"></picture></a><br>**Billing: final price, payments, hand-overs** | <a href="docs/screenshots/en/statistics.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/statistics.png"><img src="docs/screenshots/en/statistics.png" alt="Statistics"></picture></a><br>**Statistics** |
 | <a href="docs/screenshots/en/calendar.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/calendar.png"><img src="docs/screenshots/en/calendar.png" alt="Calendar"></picture></a><br>**Calendar** | <a href="docs/screenshots/en/customers.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/customers.png"><img src="docs/screenshots/en/customers.png" alt="Customers"></picture></a><br>**Customers** |
+| <a href="docs/screenshots/en/failed-print.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/failed-print.png"><img src="docs/screenshots/en/failed-print.png" alt="Failed print: cause, charge and reprint"></picture></a><br>**Failed print: cause, charge and reprint** | <a href="docs/screenshots/en/failed-print-stats.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/failed-print-stats.png"><img src="docs/screenshots/en/failed-print-stats.png" alt="Failed prints by cause and what they cost"></picture></a><br>**Failed prints by cause and what they cost** |
 
 | Phone: prints | Phone: print detail | Phone: open items |
 |---|---|---|
@@ -351,10 +356,15 @@ in **hell und dunkel** (Einstellungen → Ansicht → Farbschema, oder automatis
   Tabelle oder Galerie, wahlweise nach Tagen gruppiert.
 - **Offene Posten** – die Ansicht **Offen** neben Tabelle und Galerie zeigt alle Drucke, die noch nicht ganz bezahlt oder
   übergeben sind, nach Kunden gruppiert mit offenem Betrag und Stückzahl pro Kunde und Knöpfen, um Zahlung oder Übergabe
-  direkt einzutragen. Kunden mit **Keine Abrechnung** und Ausschuss fehlen, verschenkte Drucke stehen nur bis zur Übergabe darin.
+  direkt einzutragen. Kunden mit **Keine Abrechnung** und Fehldrucke, die nicht berechnet werden, fehlen; verschenkte Drucke stehen nur bis zur Übergabe darin.
 - **Eigene Angaben** – Fotos (direkt mit der Kamera, automatisch verkleinert), Notizen, Filament-Notizen (z. B. der
   genaue Farbname), MakerWorld-/Printables-Links mit Titel, ein lokaler Ordner und eine kurze Projekt-ID pro Druck (z. B. `PL-7K3Q`).
-- **Ausschuss** – abgebrochene Drucke zählen automatisch als Ausschuss, jeder Druck lässt sich auch selbst markieren.
+- **Fehldrucke** – abgebrochene Drucke zählen automatisch als Fehldruck, jeder Druck lässt sich auch selbst markieren,
+  z. B. wenn er fertig ist, aber die Einstellungen nicht gepasst haben. Dazu eine Ursache (Einstellungen, Material, Haftung,
+  Drucker-Defekt, Kundenwunsch geändert, Sonstiges) und die Wahl, was der Kunde zahlt: nichts, anteilig (in % oder als Betrag)
+  oder voll. Ein berechneter Fehldruck steht dann wie jeder andere Druck unter **Offen**, auf dem Bon und im PDF. Notiz und
+  Fotos dokumentieren, was passiert ist, der Nachdruck lässt sich verknüpfen. Die Statistik zeigt Fehldrucke nach Ursache,
+  was berechnet wurde und was du selbst trägst.
 - **Papierkorb** mit Wiederherstellen; endgültig gelöscht wird erst nach einstellbaren Tagen.
 - **Robust** – nach einem Neustart oder Verbindungsabbruch holt printlog verpasste Drucke aus dem Verlauf von Home Assistant nach (bis 7 Tage).
 
@@ -382,7 +392,7 @@ in **hell und dunkel** (Einstellungen → Ansicht → Farbschema, oder automatis
   eine A4-PDF-Kostenaufstellung, jeweils in der Sprache der Oberfläche.
 - **Diskret-Modus** – ein Klick verwischt alle internen Werte, wenn ein Kunde mitschaut.
 - **Demo-Modus** – *Einstellungen → Ansicht → Demo öffnen* zeigt die ganze App mit einem Jahr erfundener Drucke (drei
-  Bambu-Drucker, Kunden mit Teilzahlungen und offenen Übergaben, Verschenktes, Ausschuss, laufende Drucke, Fotos). Praktisch
+  Bambu-Drucker, Kunden mit Teilzahlungen und offenen Übergaben, Verschenktes, Fehldrucke, laufende Drucke, Fotos). Praktisch
   für Screenshots und zum Ausprobieren. Die Demo hat eine eigene Datenbank; deine echten Drucke, Home Assistant und das Backup bleiben unberührt.
 
 ### Bilder
@@ -393,6 +403,7 @@ in **hell und dunkel** (Einstellungen → Ansicht → Farbschema, oder automatis
 | <a href="docs/screenshots/de/open-items.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/open-items.png"><img src="docs/screenshots/de/open-items.png" alt="Offen: noch zu bezahlen oder zu übergeben"></picture></a><br>**Offen: noch zu bezahlen oder zu übergeben** | <a href="docs/screenshots/de/print-detail.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/print-detail.png"><img src="docs/screenshots/de/print-detail.png" alt="Druckdetails mit Kosten und Verkaufspreisen"></picture></a><br>**Druckdetails mit Kosten und Verkaufspreisen** |
 | <a href="docs/screenshots/de/print-billing.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/print-billing.png"><img src="docs/screenshots/de/print-billing.png" alt="Abrechnung: Endpreis, Zahlungen, Übergaben"></picture></a><br>**Abrechnung: Endpreis, Zahlungen, Übergaben** | <a href="docs/screenshots/de/statistics.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/statistics.png"><img src="docs/screenshots/de/statistics.png" alt="Statistik"></picture></a><br>**Statistik** |
 | <a href="docs/screenshots/de/calendar.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/calendar.png"><img src="docs/screenshots/de/calendar.png" alt="Kalender"></picture></a><br>**Kalender** | <a href="docs/screenshots/de/customers.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/customers.png"><img src="docs/screenshots/de/customers.png" alt="Kunden"></picture></a><br>**Kunden** |
+| <a href="docs/screenshots/de/failed-print.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/failed-print.png"><img src="docs/screenshots/de/failed-print.png" alt="Fehldruck: Ursache, Berechnung und Nachdruck"></picture></a><br>**Fehldruck: Ursache, Berechnung und Nachdruck** | <a href="docs/screenshots/de/failed-print-stats.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/failed-print-stats.png"><img src="docs/screenshots/de/failed-print-stats.png" alt="Fehldrucke nach Ursache und was sie kosten"></picture></a><br>**Fehldrucke nach Ursache und was sie kosten** |
 
 | Handy: Drucke | Handy: Druckdetails | Handy: Offen |
 |---|---|---|
@@ -590,9 +601,12 @@ Sonderfälle:
   Galerie und Offen (mit Zähler). Die Icons rechts gruppieren „Nach Tagen“ und starten „Auswählen“ (Mehrfachauswahl, Löschen mit „Rückgängig“).
   Ein Farbbalken zeigt die Kostenanteile, Antippen öffnet die Aufschlüsselung.
 - **Druckdetails**: Tabs Übersicht, Abrechnung (nur mit Kunde, nicht bei „Keine Abrechnung“), Bearbeiten und Fotos. Der Start-Tab ist einstellbar.
-- **Endpreis, Zahlung, Übergabe** (nur mit Kunde, ohne Ausschuss): optionaler Endpreis, sonst Kosten + Kundenmarge.
+- **Endpreis, Zahlung, Übergabe** (nur mit Kunde, nicht bei Fehldrucken ohne Berechnung): optionaler Endpreis, sonst Kosten + Kundenmarge.
   Zahlungen und Übergaben sind einzelne Einträge, damit Teilzahlungen und Teilabholungen gehen. Badges in der Liste öffnen ein
   Menü (z. B. „Alles bezahlt“).
+- **Fehldruck**: Kasten oben in der Übersicht mit Ursache als Kacheln, Umschalter Nichts / Anteilig / Voll (anteilig in %
+  oder €), Notiz, Fotos und Nachdruck. „Kundenwunsch geändert“ zählt nicht gegen die Erfolgsquote. In der Liste filtert
+  „Status“ nach Fehldrucken und nach Ursache.
 - **Verschenkt**: zählt weiter in Kosten und Statistik, braucht aber keine Zahlung; unter „Kunden“ mit Anzahl und Wert pro Zeitraum.
 - **Keine Abrechnung** (Häkchen beim Kunden): gilt für alle Drucke dieses Kunden, nicht pro Druck. Anders als „Verschenkt“
   taucht nichts unter „Verschenkt“ auf; der Kunde steht unter „Kunden“ mit dem Schild „Keine Abrechnung“ statt offener Beträge.

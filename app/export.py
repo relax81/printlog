@@ -24,6 +24,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
 
 from .costing import hourly_rate, material_notes, parse_materials
 from .db import Store, code_label
+from .defects import apply_charge, charge_src, charge_text, charged, defect_label, no_charge
 from .i18n import N_, note as t_note, t
 from .pages import _short, _status_of, margins
 from .ui import STATIC_DIR, bon_tagline, fmt_date, fmt_dur, fmt_input, fmt_num, printer_names
@@ -119,10 +120,17 @@ def collect(store: Store, job: dict[str, Any], image_dir: Path, status: bool = T
         due, src = cost, t("Selbstkosten")
     gift = bool(job.get("gift"))
     scrap = bool(job.get("is_scrap"))
+    # Fehldruck: anteilig/fester Betrag/voll berechnen oder (ohne Berechnung) nichts
+    base = due
+    nocharge = no_charge(job) and has_customer
+    if charged(job) and has_customer:
+        due, src = apply_charge(job, due), charge_src(job, due)
+    elif nocharge:
+        due, src = 0.0, t("Fehldruck, wird nicht berechnet")
     # Kunde mit „Keine Abrechnung“ (Eigenbedarf): nie Zahlungs- oder Übergabestand zeigen
     nobill = has_customer and bool(job.get("customer_nobill"))
     billed = has_customer and not nobill
-    payable = status and billed and not gift and not scrap and due is not None
+    payable = status and billed and not gift and not nocharge and due is not None
     paid = job.get("paid") or 0.0
 
     # Material mit Kosten je Slot (gleiche Regeln wie costing.compute)
@@ -161,6 +169,10 @@ def collect(store: Store, job: dict[str, Any], image_dir: Path, status: bool = T
         "gift": gift,
         "nobill": nobill,
         "scrap": scrap,
+        "nocharge": nocharge,
+        "defect": defect_label(job, icon=False),
+        "charge": charge_text(job) if has_customer else "",
+        "base_due": base,
         "customer": job.get("customer_name") if has_customer else None,
         "payable": payable,
         "paid": paid,
@@ -169,7 +181,7 @@ def collect(store: Store, job: dict[str, Any], image_dir: Path, status: bool = T
         "payments": store.payments(job["id"]) if status else [],
         "handovers": store.handovers(job["id"]) if status else [],
         "delivered": min(job.get("delivered") or 0, qty),
-        "show_handover": status and billed and not scrap and job.get("state") == "done",
+        "show_handover": status and billed and not nocharge and job.get("state") == "done",
         "materials": materials,
         "grams": grams,
         "rate": rate,
@@ -473,6 +485,13 @@ def bon_png(data: dict[str, Any], variant: str) -> bytes:
         b.sub(t("Geschenk, nichts zu zahlen") + (" " + t("(Wert {v})", v=_eur(due)) if intern and due is not None else ""))
     else:
         b.row(t("SUMME"), _eur(due), size=46, bold=True, leader=False)
+        if data["scrap"] and data["customer"] and not data["nobill"]:
+            b.gap(4)
+            if data["nocharge"]:
+                b.sub(t("Fehldruck, wird nicht berechnet"))
+            elif data["charge"]:
+                b.sub(t("Fehldruck – {x}", x=data["charge"]) + (" " + t("(statt {v})", v=_eur(data["base_due"]))
+                                                               if data["base_due"] is not None and job.get("defect_charge") != "full" else ""))
         if data["payable"]:
             b.gap(6)
             b.row(t("Bezahlt"), _eur(data["paid"]), vfill=OK if data["paid"] > 0 else INK)
@@ -519,7 +538,9 @@ def _bon_intern(b: _Bon, data: dict[str, Any]) -> None:
         b.row(t("Status"), t(data["status"]) + (" " + t("bei {p} %", p=int(job["progress"])) if job.get("status") == "abgebrochen"
                                                 and job.get("progress") is not None else ""))
     if data["scrap"]:
-        b.row(t("Ausschuss"), t("ja"), vfill=ACCENT)
+        b.row(t("Fehldruck"), data["defect"] or t("ja"), vfill=ACCENT)
+        if data["customer"] and not data["nobill"]:
+            b.row(t("Berechnung"), data["charge"] or t("nicht berechnet"))
 
     if data["materials"]:
         b.gap(10)
@@ -713,7 +734,9 @@ def report_pdf(data: dict[str, Any]) -> bytes:
              (t("Dauer"), fmt_dur(job.get("start_ts"), job.get("end_ts"))), (t("Energie"), fmt_num(job.get("kwh"), 3, "kWh")),
              (t("Filament"), fmt_num(data["grams"], 1, "g")), (t("Stückzahl"), t("{q} Stk.", q=qty))]
     if data["scrap"]:
-        facts.append((t("Ausschuss"), t("ja")))
+        facts.append((t("Fehldruck"), data["defect"] or t("ja")))
+        if data["customer"] and not data["nobill"]:
+            facts.append((t("Berechnung"), data["charge"] or t("nicht berechnet")))
     if data["gift"]:
         facts.append((t("Abrechnung"), t("verschenkt")))
     elif data["nobill"]:
@@ -766,7 +789,7 @@ def report_pdf(data: dict[str, Any]) -> bytes:
                                       sum_rows=1 if job.get("final_price") is not None else 0)]
 
     # Zahlungen
-    if data["customer"] and not data["nobill"] and not data["scrap"] and data["status_shown"]:
+    if data["customer"] and not data["nobill"] and not data["nocharge"] and data["status_shown"]:
         block: list[Any] = H(t("Zahlungen"))
         if data["gift"]:
             block.append(P(t("Verschenkt, keine Zahlung nötig."), st_muted))
