@@ -1419,6 +1419,19 @@ class Store:
 
     # ---- Statistik ----------------------------------------------------------
 
+    def billing_rows(self, period: str, since: float, until: float) -> list[dict[str, Any]]:
+        """Abgerechnete Aufträge im Zeitraum (Einzeldrucke, Projekte, Anteile) mit Bucket, für Einnahmen und Gewinn."""
+        fmt = {"day": "%Y-%m-%d", "week": "%Y-W%W", "month": "%Y-%m"}[period]
+        rows = self._conn.execute(
+            f"SELECT strftime('{fmt}', jobs.start_ts, 'unixepoch', 'localtime') bucket, jobs.*, customers.name AS customer_name, "
+            "customers.margin_pct AS customer_margin, customers.work_margin AS customer_work, COALESCE(customers.no_billing, 0) AS customer_nobill, "
+            f"{Store.SCRAP_SQL} AS is_scrap, {Store.PAID_SQL} AS paid FROM jobs JOIN customers ON customers.id = jobs.customer_id "
+            f"WHERE jobs.project_id IS NULL AND {Store.UNSPLIT_SQL} AND NOT {Store.NOBILL_SQL} "
+            "AND jobs.start_ts >= ? AND jobs.start_ts < ?",
+            (since, until),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
     def buckets(self, period: str, since: float, until: float) -> list[dict[str, Any]]:
         """Summen pro Zeitraum (day/week/month) und Drucker."""
         fmt = {"day": "%Y-%m-%d", "week": "%Y-W%W", "month": "%Y-%m"}[period]

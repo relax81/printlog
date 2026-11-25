@@ -235,7 +235,8 @@ def collect(store: Store, job: dict[str, Any], image_dir: Path, status: bool = T
         "pbase": pbase,
         "status": _status_of(job),
         "photo": photo,
-        "profit": None if (cost is None or due is None or gift or nobill) else due - cost,
+        # Mehr bezahlt als der Preis (aufgerundet, Trinkgeld): Gewinn aus dem tatsächlich Gezahlten
+        "profit": None if (cost is None or due is None or gift or nobill) else max(due, paid if payable else 0) - cost,
         "work": work,
         "extras": zk.export_rows(store, job),
         "work_rows": _work_rows(store, job),

@@ -10,7 +10,7 @@ from typing import Any
 
 from .costing import parse_materials
 from .db import Store
-from .defects import DEFECTS
+from .defects import DEFECTS, no_charge
 from .i18n import N_, t, tn
 from .ui import e, fmt_date, fmt_hours, fmt_num, layout, printer_names
 
@@ -202,6 +202,96 @@ def _defect_cards(store: Store, since: float, until: float, cost_all: float) -> 
             f'<div class="card"><h3>{t("Was Fehldrucke gekostet haben")}</h3><div class="fdk">{kp}</div></div></div>')
 
 
+REVENUE_CSS = """
+.rvk{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:0 0 12px}
+.rvk>div{border:1px solid var(--line);border-radius:10px;padding:10px 12px}.rvk span{display:block;font-size:12px;color:var(--muted)}
+.rvk b{display:block;font-size:20px;font-variant-numeric:tabular-nums}.rvk small{font-size:12px;color:var(--muted)}
+.rvk .pos b{color:var(--ok)}.rvk .neg b{color:var(--bad)}
+.rvt td.pos{color:var(--ok);font-weight:600}.rvt td.neg{color:var(--bad);font-weight:600}.rvt a{color:var(--fg);font-weight:600;text-decoration:none}
+"""
+
+
+def revenue_data(store: Store, period: str, since: float, until: float) -> dict[str, Any]:
+    """Einnahmen und Gewinn der abgerechneten Aufträge im Zeitraum (nach Druckstart).
+
+    Preis = was der Kunde zahlen soll (Endpreis bzw. Kosten + Kundenmarge, Fehldruck anteilig);
+    wurde mehr bezahlt, zählt das Gezahlte. Gewinn = Preis − Selbstkosten (Druck, Zubehör, Arbeit).
+    Verschenktes zählt mit seinen Kosten extra, Fehldrucke ohne Berechnung bringen nichts ein.
+    """
+    from . import extras as _extras
+    from .pages import amount_due, overpaid, price_base
+
+    tot: dict[str, float] = defaultdict(float)
+    per_bucket: dict[tuple[str, str], float] = defaultdict(float)
+    per_cust: dict[int, dict[str, Any]] = {}
+    for j in store.billing_rows(period, since, until):
+        cost = (price_base(j) or 0) + _extras.work_total(j)
+        c = per_cust.setdefault(j["customer_id"], {"id": j["customer_id"], "name": j.get("customer_name") or "", "n": 0,
+                                                   "revenue": 0.0, "paid": 0.0, "open": 0.0, "profit": 0.0, "gift": 0.0})
+        c["n"] += 1
+        if j.get("gift"):
+            tot["gift"] += cost
+            c["gift"] += cost
+            continue
+        if no_charge(j):
+            continue
+        due = amount_due(j)
+        if due is None:
+            continue
+        paid = j.get("paid") or 0
+        price = due + overpaid(j)
+        gain = price - cost
+        for d in (tot, c):
+            d["revenue"] += price
+            d["paid"] += paid
+            d["open"] += max(due - paid, 0)
+            d["profit"] += gain
+        tot["cost"] += cost
+        tot["n"] += 1
+        per_bucket[(j["bucket"], "cost")] += min(cost, price)
+        per_bucket[(j["bucket"], "profit")] += max(gain, 0)
+        if gain < 0:
+            per_bucket[(j["bucket"], "loss")] += -gain
+    custs = sorted((c for c in per_cust.values() if c["revenue"] or c["gift"]), key=lambda c: -c["revenue"])
+    return {"tot": tot, "buckets": per_bucket, "customers": custs}
+
+
+def _revenue_card(keys: list[str], labels: list[str], rv: dict[str, Any]) -> str:
+    tot = rv["tot"]
+    if not tot["n"] and not tot["gift"]:
+        return (f'<div class="card" style="margin-top:12px"><h3>{t("Einnahmen und Gewinn")}</h3>'
+                f'<p class="muted" style="margin:0">{t("Im Zeitraum keine abgerechneten Drucke.")}</p></div>')
+    pct = f' · {fmt_num(tot["profit"] / tot["cost"] * 100, 0, "%")} {t("auf die Selbstkosten")}' if tot["cost"] > 0 else ""
+    kp = (f'<div><span>{t("Umsatz")}</span><b>{fmt_num(tot["revenue"], 2, "€")}</b>'
+          f'<small>{tn(int(tot["n"]), "{n} Auftrag", "{n} Aufträge")}</small></div>'
+          f'<div><span>{t("Bezahlt")}</span><b>{fmt_num(tot["paid"], 2, "€")}</b>'
+          f'<small>{t("{v} offen", v=fmt_num(tot["open"], 2, "€"))}</small></div>'
+          f'<div><span>{t("Selbstkosten")}</span><b>{fmt_num(tot["cost"], 2, "€")}</b><small>{t("Druck, Zubehör, Arbeit")}</small></div>'
+          f'<div class="{"pos" if tot["profit"] >= 0 else "neg"}"><span>{t("Gewinn")}</span><b>{fmt_num(tot["profit"], 2, "€")}</b>'
+          f'<small>{pct.lstrip(" ·") or "–"}</small></div>'
+          + (f'<div><span>{t("Verschenkt")}</span><b>{fmt_num(tot["gift"], 2, "€")}</b><small>{t("Kosten, nicht im Gewinn")}</small></div>'
+             if tot["gift"] else ""))
+    series = [("cost", t("Selbstkosten"), "color-mix(in srgb,var(--fg) 28%,transparent)"), ("profit", t("Gewinn"), "var(--ok)"), ("loss", t("Verlust"), "var(--bad)")]
+    if not any(v for (_, k), v in rv["buckets"].items() if k == "loss"):
+        series = series[:2]
+    rows = "".join(
+        f'<tr><td><a href="./?customer={c["id"]}">{e(c["name"])}</a></td>'
+        f'<td class="n" data-l="{e(t("Aufträge"))}">{c["n"]}</td>'
+        f'<td class="n" data-l="{e(t("Umsatz"))}">{fmt_num(c["revenue"], 2, "€")}</td>'
+        f'<td class="n" data-l="{e(t("Bezahlt"))}">{fmt_num(c["paid"], 2, "€")}</td>'
+        f'<td class="n" data-l="{e(t("Offen"))}">{fmt_num(c["open"], 2, "€") if c["open"] >= 0.005 else "–"}</td>'
+        f'<td class="n {"pos" if c["profit"] >= 0 else "neg"}" data-l="{e(t("Gewinn"))}">{fmt_num(c["profit"], 2, "€")}</td>'
+        f'<td class="n" data-l="{e(t("Verschenkt"))}">{fmt_num(c["gift"], 2, "€") if c["gift"] else "–"}</td></tr>'
+        for c in rv["customers"])
+    return (f'<style>{REVENUE_CSS}</style><h2>{t("Einnahmen und Gewinn")}</h2><div class="rvk">{kp}</div>'
+            f'<div class="grid2"><div class="card"><h3>{t("Umsatz = Selbstkosten + Gewinn")}</h3>'
+            f'{bar_chart(keys, labels, series, rv["buckets"], _fmt_eur)}</div>'
+            f'<div class="card"><h3>{t("Kunden im Zeitraum")}</h3><div class="wrap" style="border:0"><table class="stack rvt">'
+            f'<thead><tr><th>{t("Kunde")}</th><th class="n">{t("Aufträge")}</th><th class="n">{t("Umsatz")}</th><th class="n">{t("Bezahlt")}</th>'
+            f'<th class="n">{t("Offen")}</th><th class="n">{t("Gewinn")}</th><th class="n">{t("Verschenkt")}</th></tr></thead><tbody>{rows}</tbody></table></div></div></div>'
+            f'<p class="muted" style="font-size:13px;margin:8px 0 0">{t("Nach Druckstart. Preis = Endpreis oder Kosten + Kundenmarge; wurde mehr bezahlt, zählt das Gezahlte. Ohne Kunden mit „Keine Abrechnung“ und ohne Fehldrucke, die nicht berechnet werden.")}</p>')
+
+
 def page_stats(store: Store, period: str) -> str:
     if period not in PERIODS:
         period = "month"
@@ -281,6 +371,7 @@ def page_stats(store: Store, period: str) -> str:
 <th class="n">{t("Filament")}</th><th class="n">{t("Energie")}</th><th class="n">{t("Kosten")}</th></tr></thead><tbody>{printer_rows}</tbody></table></div></div>
 </div>
 {_defect_cards(store, since.timestamp(), until.timestamp(), tot["cost_total"])}
+{_revenue_card(keys, labels, revenue_data(store, period, since.timestamp(), until.timestamp()))}
 <h2>{t("Druckstunden pro Tag, letzte 12 Monate")}</h2>
 <div class="card">{heatmap(store)}</div>"""
     return layout(t("Statistik"), "stats", f'<div class="calc">{body}</div>')
