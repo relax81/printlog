@@ -30,7 +30,7 @@ from .ui import (
     printer_names,
 )
 
-FILTER_KEYS = ("q", "printer", "month", "day", "status", "material", "customer", "view", "group", "todo")
+FILTER_KEYS = ("q", "printer", "month", "day", "status", "material", "customer", "model", "view", "group", "todo")
 # Nur Darstellung, kein Datenbankfilter
 VIEW_KEYS = ("view", "group", "todo")
 
@@ -805,7 +805,10 @@ def page_jobs(store: Store, f: dict[str, str | None], connected: bool) -> str:
     pills = "".join(_pill(name, label, opts, f.get(name)) for name, label, opts in (
         ("printer", t("Drucker"), printer_opts), ("month", t("Monat"), month_opts), ("status", t("Status"), status_opts),
         ("material", t("Material"), mat_opts), ("customer", t("Kunde"), cust_opts), ("todo", t("Zahlung/Übergabe"), todo_opts)))
-    active = any(f.get(k) for k in ("printer", "month", "status", "material", "customer", "todo", "day"))
+    if f.get("model"):
+        mname = _models.names(store).get(int(f["model"]), "?")
+        pills += _pill("model", t("Modell"), opt("", t("Alle Modelle"), f["model"]) + opt(f["model"], mname, f["model"]), f["model"])
+    active = any(f.get(k) for k in ("printer", "month", "status", "material", "customer", "model", "todo", "day"))
     n_open = store.count_jobs(pending="1")
 
     def view_link(key: str, icon: str, label: str, extra: str = "") -> str:
@@ -832,7 +835,7 @@ def page_jobs(store: Store, f: dict[str, str | None], connected: bool) -> str:
 <button type="button" class="btn danger del" disabled title="{e(t("Löschen"))}">🗑 <span class="bl">{t("Löschen")}</span></button></div>
 {_project_dialog(store, customers)}{customer_picker(customers)}
 <div id="toast" hidden><span></span><button type="button">{t("Rückgängig")}</button></div>"""
-    return layout("Printlog", "jobs", f"<style>{MOS_CSS}{JOBS_CSS}{ACT_CSS}{TODO_CSS}{KPICK_CSS}{_split.SPLIT_CSS}</style>" + body,
+    return layout("Printlog", "jobs", f"<style>{MOS_CSS}{_models.CSS}{JOBS_CSS}{ACT_CSS}{TODO_CSS}{KPICK_CSS}{_split.SPLIT_CSS}</style>" + body,
                   ACT_JS + KPICK_JS + JOBS_JS + _split.SPLIT_JS)
 
 
@@ -1498,7 +1501,7 @@ def _job_row(j: dict[str, Any], names: dict[str, str], mg: list[tuple[str, float
                      f'<b>{t("{p} % der Kosten", p=fmt_num(sh * 100, 1))}</b>' if sh is not None else "<b>–</b>") + "</div>")
     return (
         f'<div class="{cls}" data-href="{href}"{attrs}>{_thumb(j)}'
-        f'<div><a class="jn" href="{href}">{e(j["task_name"] or "–")}</a>{_pid(j)}{_chips(j)}{tag_html}</div>'
+        f'<div><a class="jn" href="{href}">{e(j["task_name"] or "–")}</a>{_pid(j)}{_models.dot(j)}{_chips(j)}{tag_html}</div>'
         f'<div class="jc"><b>{e(names.get(j["printer"], j["printer_name"] or j["printer"]))}</b>'
         f'<span>{when}{" · " + dur if dur != "–" else ""}</span></div>'
         f'<div class="jc r"><b>{fmt_num(grams, 1, "g")}</b><span>{fmt_num(j["kwh"], 3, "kWh")}</span></div>'
@@ -2063,6 +2066,7 @@ def page_job(store: Store, job: dict[str, Any], saved: str | None) -> str:
         badges += (f'<button type="button" class="bdg pidb" data-copy="{e(code_label(job["code"]))}" '
                    f'title="{e(t("Projekt-ID: tippe sie in die Suche, um den Druck wiederzufinden. Klick kopiert."))}">'
                    f'# {e(code_label(job["code"]))}</button>')
+    badges += _models.chip(store, job)
     if job.get("is_scrap"):
         lbl = defect_label(job)
         badges += f'<a class="bdg st st-bad" href="#ov" data-goto="ov">⚠ {t("Fehldruck")}{" · " + e(lbl) if lbl else ""}</a>'
@@ -2220,7 +2224,7 @@ def page_job(store: Store, job: dict[str, Any], saved: str | None) -> str:
 <div class="tabs" role="tablist"><button type="button" data-tab="ov" class="{on("ov").strip()}">{t("Übersicht")}</button>
 {ab_tab}<button type="button" data-tab="ed" class="{on("ed").strip()}">{t("Bearbeiten")}</button>
 <button type="button" data-tab="ph" class="{on("ph").strip()}">{t("Fotos ({n})", n=len(photos))}</button></div>
-<section class="pane{on("ov")}" data-pane="ov">{_defect_box(store, job, photos)}{_deal_strip(job)}{pj_strip}{_split.split_box(store, job) if split else ""}{_extras.box(store, job)}<div class="ovg">
+<section class="pane{on("ov")}" data-pane="ov">{_models.hint_card(store, job, f"job?id={job['id']}")}{_defect_box(store, job, photos)}{_deal_strip(job)}{pj_strip}{_split.split_box(store, job) if split else ""}{_extras.box(store, job)}<div class="ovg">
 {_sec("druck", t("Druck"), druck_sum, f'<div class="facts">{facts}</div>{side}')}
 {_sec("mat", t("Material"), mat_sum, mat_bar + mat_rows)}
 {_sec("fotos", t("Eigene Fotos"), tn(len(photos), "{n} Foto", "{n} Fotos"), _upload_form(job["id"]) + photo_box + more)}
@@ -2246,7 +2250,7 @@ def page_job(store: Store, job: dict[str, Any], saved: str | None) -> str:
 {f'<div class="photos lg">{_photo_tiles(photos)}</div>' if photos else f'<p class="muted">{t("Noch keine eigenen Fotos.")}</p>'}</div></section>
 </div>"""
     sp = _split.dialogs(store, job) if not parent else ""
-    return layout(job["task_name"] or t("Druck"), "jobs", f"<style>{MOS_CSS}{DETAIL_CSS}{PROJ_CSS}{ACT_CSS}{KPICK_CSS}{_split.SPLIT_CSS}{_extras.BOX_CSS}</style>"
+    return layout(job["task_name"] or t("Druck"), "jobs", f"<style>{MOS_CSS}{DETAIL_CSS}{PROJ_CSS}{ACT_CSS}{KPICK_CSS}{_split.SPLIT_CSS}{_extras.BOX_CSS}{_models.CSS}</style>"
                   + body + customer_picker(customers) + sp + _extras.picker(store, job),
                   ACT_JS + DETAIL_JS + SHARE_JS + KPICK_JS + KPICK_DETAIL_JS + _split.SPLIT_JS + _extras.box_js(job))
 
@@ -2899,6 +2903,10 @@ def page_settings(store: Store, saved: str | None, logo: str | None = None,
 <span class="ig"><input class="num" id="trash_days" name="trash_days" inputmode="numeric" value="{e(cfg.get("trash_days") or "30")}"><i>{t("Tage")}</i></span>
 <a class="btn sm" href="trash">{t("Papierkorb öffnen ({n})", n=store.trash_count())}</a></span>
 <small class="fhint muted">{t("Gelöschte Drucke landen erst im Papierkorb und lassen sich dort wiederherstellen. Nach dieser Zeit werden sie samt Fotos endgültig gelöscht.")}</small></div>
+<div class="frow"><label class="flbl" for="s_hn">🔔 {t("Hinweise an Home Assistant")}</label><span class="fctl">
+<input id="s_hn" name="hint_notify" value="{e(cfg.get("hint_notify") or "")}" placeholder="notify.mobile_app_… / persistent_notification" maxlength="120">
+<a class="btn sm" href="hints">{t("Hinweise öffnen")}</a> <a class="btn sm" href="models">🧩 {t("Modelle")}</a></span>
+<small class="fhint muted">{t("Fragt printlog bei einem Druck nach dem Modell, kann es dir zusätzlich eine Nachricht schicken: Dienst eintragen, z. B. notify.mobile_app_handy, oder persistent_notification für eine Meldung in Home Assistant. Leer = nur die Glocke oben.")}</small></div>
 {_demo_row()}
 </div>"""),
         pane("backup", t("Daten &amp; Backup"), _data_pane(store, names, backup_html, safety or [], data_msg or {})),
@@ -3298,3 +3306,4 @@ DATA_CSS = """
 
 from . import split as _split  # noqa: E402  (nutzt Helfer aus diesem Modul)
 from . import extras as _extras  # noqa: E402
+from . import models as _models  # noqa: E402

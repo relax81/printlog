@@ -16,6 +16,7 @@ from .db import Store
 from .demo import create_demo_app
 from .ha import HomeAssistant
 from .logic import Processor
+from . import models
 from .recovery import Recovery
 from .web import purge_expired, setup_routes
 
@@ -96,6 +97,15 @@ async def _start_background(app: web.Application) -> None:
                     processor.sweep(await get_price())
                 except Exception:  # noqa: BLE001
                     log.exception("Sweeper-Fehler")
+                try:
+                    hints = models.recognize_pending(store, IMAGE_DIR)
+                    target = (store.settings().get("hint_notify") or "").strip()
+                    if hints and target and ha.connected:
+                        if target == "persistent_notification":
+                            target = "persistent_notification.create"
+                        await ha.call_service(target, {"title": "printlog", "message": models.notify_text(hints)})
+                except Exception:  # noqa: BLE001
+                    log.exception("Modell-Erkennung fehlgeschlagen")
             try:
                 purge_expired(store, IMAGE_DIR)
             except Exception:  # noqa: BLE001

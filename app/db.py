@@ -140,6 +140,28 @@ CREATE TABLE IF NOT EXISTS job_extras (
     used         REAL NOT NULL DEFAULT 0  -- schon vom Bestand abgebucht (montiert)
 );
 CREATE INDEX IF NOT EXISTS idx_job_extras_job ON job_extras(job_id);
+-- Modelle: ein Design, das (auch auf mehreren Platten/Druckern) wiederholt gedruckt wird
+CREATE TABLE IF NOT EXISTS models (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL,
+    design_min  REAL,                     -- Designzeit in Minuten (einmal pro Modell)
+    design_mode TEXT,                     -- first (beim ersten berechneten Druck) | spread (verteilt)
+    spread_n    INTEGER,                  -- verteilt auf so viele berechnete Drucke
+    note        TEXT,
+    created_at  REAL NOT NULL
+);
+-- Weitere Namen eines Modells (normalisiert), gelernt beim Bestätigen
+CREATE TABLE IF NOT EXISTS model_aliases (
+    model_id INTEGER NOT NULL,
+    alias    TEXT NOT NULL,
+    PRIMARY KEY (model_id, alias)
+);
+-- Abgelehnte Paare: dieser Name gehört nicht zu diesem Modell
+CREATE TABLE IF NOT EXISTS model_rejects (
+    model_id INTEGER NOT NULL,
+    alias    TEXT NOT NULL,
+    PRIMARY KEY (model_id, alias)
+);
 CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT
@@ -217,6 +239,14 @@ class Store:
         "cost_design": "REAL",        # davon Design in €
         "bill_work": "REAL",          # Projekt/Anteil: Arbeit für den Preis (ohne unberechnete Fehldrucke)
         "mounted": "INTEGER",         # montierte Stück: so viel Zubehör ist verbraucht
+        "model_id": "INTEGER",        # Modell (Design), siehe app/models.py
+        "model_score": "INTEGER",     # Erkennungsrate 0–100
+        "model_state": "TEXT",        # auto | tentative | suggest | critical | new | confirmed
+        "model_cands": "TEXT",        # JSON [[model_id, score], …] für Vorschläge
+        "model_hint": "INTEGER",      # 1 = offener Hinweis
+        "gcode_plate": "INTEGER",     # Plattennummer aus gcode_filename (plate_N)
+        "gcode_file": "TEXT",         # Datei aus gcode_file_downloaded
+        "img_hash": "TEXT",           # Bild-Hash des Covers (dHash, hex)
     }
 
     # Echter Druck (keine Projekt-Zeile): nur diese zählen in Statistik, Kosten-Kacheln, Kalender.
@@ -1139,6 +1169,7 @@ class Store:
         since: float | None = None,
         until: float | None = None,
         real: str | None = None,
+        model: str | None = None,
     ) -> tuple[str, list[Any]]:
         clauses: list[str] = []
         args: list[Any] = []
@@ -1191,6 +1222,9 @@ class Store:
         elif customer:
             clauses.append("(jobs.customer_id = ? OR EXISTS (SELECT 1 FROM jobs s WHERE s.share_of = jobs.id AND s.customer_id = ?))")
             args += [int(customer), int(customer)]
+        if model and str(model).isdigit():
+            clauses.append("(jobs.model_id = ? OR EXISTS (SELECT 1 FROM jobs k WHERE k.project_id = jobs.id AND k.model_id = ?))")
+            args += [int(model), int(model)]
         if paid == "offen":
             clauses.append(any_share(f"{Store.PAYABLE_SQL} AND {Store.PAID_SQL} < {Store.DUE_SQL} - 0.005"))
         elif paid == "teilweise":
@@ -1543,7 +1577,7 @@ class Store:
 
     # ---- Datensicherung: Einspielen und Zurücksetzen ------------------------
 
-    HISTORY_TABLES = ("jobs", "photos", "handovers", "payments", "trash", "job_extras")
+    HISTORY_TABLES = ("jobs", "photos", "handovers", "payments", "trash", "job_extras", "models", "model_aliases", "model_rejects")
     SETTINGS_TABLES = ("customers", "printer_rates", "material_prices", "settings", "accessories")
     # Bleiben beim Zurücksetzen/Einspielen erhalten: Sprache der Oberfläche und der
     # Zeitpunkt der letzten HA-Verbindung (sonst holt printlog alte Drucke aus dem Verlauf nach).

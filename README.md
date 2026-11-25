@@ -72,6 +72,16 @@ in a **light and a dark** colour scheme (Settings → View → Colour scheme, or
   (used myself, broken, lost). Projects are split in **sets** (the project's quantity), and single parts of a set can be given
   away on their own, e.g. just one head of a figure kit. Pieces can also go into a **project** (an existing one or a new one
   named right in the split window), e.g. 4 of 10 clips for the workshop wall: their share of the cost then counts in the project.
+- **Models** – a model is a design you print more than once, on whatever printer or plate. When a print finishes,
+  printlog assigns it to a model by points: same name (or a learned alias) +60, similar name +35, very similar cover
+  image +25, same print file +10, same plate +5, weight per piece within ±15 % +5. From 85 points it assigns the model
+  automatically; 60–84 it assigns it tentatively and asks; 35–59 it only suggests one; below that it creates a new model.
+  If two models fit almost equally well, it always asks. Your answers are remembered: a confirmed name becomes an alias,
+  a rejected pair is never suggested again. The **Models** page lists every model with its prints and lets you rename,
+  merge and remove aliases. On the first start the existing history is sorted into models silently, without questions.
+- **Notices** – a 🔔 bell at the top counts open questions (prints to check, accessories to restock). The **Notices** page
+  answers them in one tap (*Yes, model X* / *Other model …* / *New model*); the list shows a coloured dot on such prints
+  and the print page a banner. Optionally printlog also sends a Home Assistant notification (*Settings → View*).
 - **Trash bin** with restore; deleted prints are removed for good only after a configurable number of days.
 - **Robust** – after a restart or a lost connection, printlog replays missed prints from Home Assistant's history (up to 7 days).
 
@@ -92,6 +102,8 @@ in a **light and a dark** colour scheme (Settings → View → Colour scheme, or
 - **Labour and accessories** – a **Labour & accessories** box on the print page adds what a print costs beyond the printer:
   - *Labour* with − / + steppers: preparation per plate (slicing, plate, starting the print), post-processing per piece
     (or once per print) and design time, each with its own hourly rate (*Settings → Labour & accessories*).
+    Design time belongs to the **model**: it is billed once with the first billed print of the model (own prints, gifts and
+    "No billing" customers do not count), or spread over the first N billed prints.
   - *Accessories* from an **inventory** (key rings, chains, magnets, bags …) with pack price, price per piece, stock,
     low-stock warning and a buy link. Tap **＋ From inventory**, pick tiles, done; amounts are per piece and multiplied by
     the quantity. One-off items (e.g. a special box) are added as free text with a price. A new pack is booked as an
@@ -130,6 +142,7 @@ in a **light and a dark** colour scheme (Settings → View → Colour scheme, or
 | <a href="docs/screenshots/en/split-detail.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/split-detail.png"><img src="docs/screenshots/en/split-detail.png" alt="Split: each customer with price, payment and hand-over, rest in stock"></picture></a><br>**Split: each customer with price, payment and hand-over, rest in stock** | <a href="docs/screenshots/en/split-dialog.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/split-dialog.png"><img src="docs/screenshots/en/split-dialog.png" alt="Split window: pieces per customer, stock is calculated"></picture></a><br>**Split window: pieces per customer, stock is calculated** |
 | <a href="docs/screenshots/en/stock.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/stock.png"><img src="docs/screenshots/en/stock.png" alt="Stock: what is left on the shelf and its value"></picture></a><br>**Stock: what is left on the shelf and its value** | <a href="docs/screenshots/en/work-accessories.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/work-accessories.png"><img src="docs/screenshots/en/work-accessories.png" alt="Labour & accessories on the print page"></picture></a><br>**Labour & accessories on the print page** |
 | <a href="docs/screenshots/en/accessory-picker.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/accessory-picker.png"><img src="docs/screenshots/en/accessory-picker.png" alt="Pick accessories from the inventory"></picture></a><br>**Pick accessories from the inventory** | <a href="docs/screenshots/en/accessory-inventory.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/accessory-inventory.png"><img src="docs/screenshots/en/accessory-inventory.png" alt="Accessory inventory with stock and buy link"></picture></a><br>**Accessory inventory with stock and buy link** |
+| <a href="docs/screenshots/en/hints.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/hints.png"><img src="docs/screenshots/en/hints.png" alt="Notices: check models with one tap"></picture></a><br>**Notices: check models with one tap** | <a href="docs/screenshots/en/models.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/models.png"><img src="docs/screenshots/en/models.png" alt="Models: rename, design time, merge"></picture></a><br>**Models: rename, design time, merge** |
 
 | Phone: prints | Phone: print detail | Phone: open items | Phone: stock |
 |---|---|---|---|
@@ -301,7 +314,8 @@ code shown on the page. An automatic backup is made first.
 
 Pull the new version and rebuild: `git pull && docker compose up -d --build` (Portainer: *Pull and redeploy*).
 The database is migrated automatically on start. If the blueprint changed, re-import it (or copy the file again)
-and reload automations; existing automations keep their inputs.
+and reload automations; existing automations keep their inputs. Since the models update the blueprint also sends the
+plate number and the print file; with an older blueprint models are recognised by name and image only.
 
 ### The printlog event
 
@@ -316,6 +330,7 @@ If you want to feed printlog from something other than the blueprint, fire an ev
 | `price` | stop, final | Price per kWh (empty = printlog reads `PRICE_ENTITY`) |
 | `task_name`, `printer_name`, `printer_start_time`, `progress`, `weight_g` | start, stop | Job details |
 | `materials` | start, stop | JSON list `[{slot, name, type, color, grams}]` |
+| `gcode_plate`, `gcode_file` | start, stop | `…_gcode_filename` (plate number) and `…_gcode_file_downloaded` (print file), used to recognise models |
 | `image_entity` | start, stop | Image entity of the cover picture |
 | `status_entity`, `energy_entity`, `prefix`, `ams`, `ext` | start, stop | Entities printlog stores in its printer settings |
 
@@ -434,6 +449,18 @@ in **hell und dunkel** (Einstellungen → Ansicht → Farbschema, oder automatis
   (die Stückzahl des Projekts), und einzelne Teile eines Satzes lassen sich extra abgeben, z. B. nur ein Kopf eines Figuren-Bausatzes.
   Stück lassen sich auch einem **Projekt** zuteilen (einem bestehenden oder einem neuen, direkt im Fenster benannt), z. B. 4 von
   10 Clips für die Werkstatt-Wand: ihr Anteil an den Kosten zählt dann im Projekt.
+- **Modelle** – ein Modell ist ein Design, das du öfter druckst, egal auf welchem Drucker oder welcher Platte. Ist ein
+  Druck fertig, ordnet printlog ihn per Punkten einem Modell zu: gleicher Name (oder gelernter Alias) +60, ähnlicher Name
+  +35, sehr ähnliches Vorschaubild +25, gleiche Druckdatei +10, gleiche Platte +5, Gewicht pro Stück ±15 % +5. Ab 85 Punkten
+  ordnet es automatisch zu, bei 60–84 vorläufig mit Nachfrage, bei 35–59 macht es nur einen Vorschlag, darunter legt es ein
+  neues Modell an. Passen zwei Modelle fast gleich gut, fragt es immer. Deine Antworten merkt es sich: ein bestätigter Name
+  wird Alias, ein abgelehntes Paar wird nie wieder vorgeschlagen. Die Seite **Modelle** zeigt alle Modelle mit ihren Drucken;
+  dort lassen sie sich umbenennen, zusammenlegen und Aliase entfernen. Beim ersten Start sortiert printlog die vorhandene
+  Historie still in Modelle ein, ohne Rückfragen.
+- **Hinweise** – eine 🔔 Glocke oben zählt offene Fragen (Drucke prüfen, Zubehör nachkaufen). Auf der Seite **Hinweise**
+  beantwortest du sie mit einem Tipp (*Ja, Modell X* / *Anderes Modell …* / *Neues Modell*); die Liste zeigt bei solchen
+  Drucken einen farbigen Punkt, die Druckseite ein Banner. Optional schickt printlog zusätzlich eine Home-Assistant-Nachricht
+  (*Einstellungen → Ansicht*).
 - **Papierkorb** mit Wiederherstellen; endgültig gelöscht wird erst nach einstellbaren Tagen.
 - **Robust** – nach einem Neustart oder Verbindungsabbruch holt printlog verpasste Drucke aus dem Verlauf von Home Assistant nach (bis 7 Tage).
 
@@ -455,6 +482,8 @@ in **hell und dunkel** (Einstellungen → Ansicht → Farbschema, oder automatis
 - **Arbeit & Zubehör** – ein Kasten **Arbeit & Zubehör** in der Übersicht eines Drucks rechnet ein, was über den Drucker hinaus anfällt:
   - *Arbeitszeit* mit − / + Steppern: Vorbereitung pro Platte (Slicen, Platte, Druck starten), Nachbearbeitung pro Stück
     (oder einmalig pro Druck) und Designzeit, jeweils mit eigenem Stundensatz (*Einstellungen → Arbeit & Zubehör*).
+    Die Designzeit gehört zum **Modell**: Sie wird einmal beim ersten berechneten Druck des Modells berechnet (eigene Drucke,
+    Geschenke und Kunden mit „Keine Abrechnung“ zählen nicht) oder auf die ersten N berechneten Drucke verteilt.
   - *Zubehör* aus einem **Inventar** (Schlüsselringe, Ketten, Magnete, Beutel …) mit Packungspreis, Stückpreis, Bestand,
     Warnung bei wenig Bestand und Kauflink. **＋ Aus Inventar** antippen, Kacheln wählen, fertig; Mengen gelten pro Stück und
     werden mit der Stückzahl multipliziert. Einmalige Posten (z. B. eine besondere Schachtel) gehen als Freitext mit Preis.
@@ -493,6 +522,7 @@ in **hell und dunkel** (Einstellungen → Ansicht → Farbschema, oder automatis
 | <a href="docs/screenshots/de/split-detail.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/split-detail.png"><img src="docs/screenshots/de/split-detail.png" alt="Aufteilung: jeder Kunde mit Preis, Zahlung und Übergabe, Rest im Vorrat"></picture></a><br>**Aufteilung: jeder Kunde mit Preis, Zahlung und Übergabe, Rest im Vorrat** | <a href="docs/screenshots/de/split-dialog.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/split-dialog.png"><img src="docs/screenshots/de/split-dialog.png" alt="Fenster Aufteilen: Stück pro Kunde, der Vorrat rechnet sich aus"></picture></a><br>**Fenster „Aufteilen“: Stück pro Kunde, der Vorrat rechnet sich aus** |
 | <a href="docs/screenshots/de/stock.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/stock.png"><img src="docs/screenshots/de/stock.png" alt="Vorrat: was im Regal liegt und was es wert ist"></picture></a><br>**Vorrat: was im Regal liegt und was es wert ist** | <a href="docs/screenshots/de/work-accessories.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/work-accessories.png"><img src="docs/screenshots/de/work-accessories.png" alt="Arbeit &amp; Zubehör in der Übersicht"></picture></a><br>**Arbeit & Zubehör in der Übersicht** |
 | <a href="docs/screenshots/de/accessory-picker.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/accessory-picker.png"><img src="docs/screenshots/de/accessory-picker.png" alt="Zubehör aus dem Inventar wählen"></picture></a><br>**Zubehör aus dem Inventar wählen** | <a href="docs/screenshots/de/accessory-inventory.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/accessory-inventory.png"><img src="docs/screenshots/de/accessory-inventory.png" alt="Zubehör-Inventar mit Bestand und Kauflink"></picture></a><br>**Zubehör-Inventar mit Bestand und Kauflink** |
+| <a href="docs/screenshots/de/hints.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/hints.png"><img src="docs/screenshots/de/hints.png" alt="Hinweise: Modelle mit einem Tipp prüfen"></picture></a><br>**Hinweise: Modelle mit einem Tipp prüfen** | <a href="docs/screenshots/de/models.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/models.png"><img src="docs/screenshots/de/models.png" alt="Modelle: umbenennen, Designzeit, zusammenlegen"></picture></a><br>**Modelle: umbenennen, Designzeit, zusammenlegen** |
 
 | Handy: Drucke | Handy: Druckdetails | Handy: Offen | Handy: Vorrat |
 |---|---|---|---|
@@ -658,7 +688,9 @@ bleibt) wählen und den angezeigten Code eintippen. Vorher entsteht automatisch 
 
 Neue Version holen und neu bauen: `git pull && docker compose up -d --build` (Portainer: *Pull and redeploy*).
 Die Datenbank wird beim Start automatisch angepasst. Hat sich der Blueprint geändert, ihn neu importieren (oder die Datei
-erneut kopieren) und die Automationen neu laden; bestehende Automationen behalten ihre Eingaben.
+erneut kopieren) und die Automationen neu laden; bestehende Automationen behalten ihre Eingaben. Seit dem Update mit den
+Modellen schickt der Blueprint auch Plattennummer und Druckdatei; mit einem älteren Blueprint erkennt printlog Modelle nur
+an Name und Bild.
 
 ### Ablauf pro Druck im Detail
 
