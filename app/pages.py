@@ -170,22 +170,42 @@ def extra_kpis(job: dict[str, Any]) -> str:
     return out
 
 
+def overpaid(j: dict[str, Any]) -> float:
+    """Wie viel mehr bezahlt wurde als der Preis (z. B. aufgerundet oder Trinkgeld), sonst 0."""
+    if not billable(j) or j.get("gift") or no_charge(j):
+        return 0.0
+    due, paid = amount_due(j), j.get("paid") or 0
+    return round(paid - due, 2) if due is not None and paid > due + 0.005 else 0.0
+
+
+def revenue(j: dict[str, Any]) -> float | None:
+    """Was tatsächlich reinkommt: bei Überzahlung der gezahlte Betrag, sonst der Endpreis (ohne Endpreis: nichts)."""
+    if overpaid(j):
+        return j.get("paid") or 0
+    return j.get("final_price")
+
+
 def profit_rows(job: dict[str, Any], qty: int, endpreis: bool = True) -> str:
-    """Mit Endpreis: Gewinn über Selbstkosten und effektiver Stundenlohn."""
+    """Mit Endpreis oder mehr bezahlt als der Preis: Gewinn über Selbstkosten und effektiver Stundenlohn."""
     fp = job.get("final_price")
-    if fp is None or job.get("cost_total") is None:
+    rev = revenue(job)
+    if rev is None or job.get("cost_total") is None:
         return ""
     work = _extras.work_total(job)
     self_cost = (price_base(job) or 0) + work
-    gain = fp - self_cost
+    gain = rev - self_cost
     pct = f' <span class="tag">{fmt_num(gain / self_cost * 100, 1, "%")}</span>' if self_cost > 0 else ""
     cls = "pos" if gain >= 0 else "neg"
-    out = ((f'<div class="pr gw"><div><b>{t("Endpreis")}</b></div><div><b>{fmt_num(fp, 2, "€")}</b></div></div>' if endpreis else "")
-           + f'<div class="pr gw"><div>{t("Gewinn über Selbstkosten")}</div><div><b class="{cls}">{fmt_num(gain, 2, "€")}</b>{pct}</div></div>')
+    out = f'<div class="pr gw"><div><b>{t("Endpreis")}</b></div><div><b>{fmt_num(fp, 2, "€")}</b></div></div>' if endpreis and fp is not None else ""
+    over = overpaid(job)
+    if over:
+        out += (f'<div class="pr gw"><div><b>{t("Bezahlt")}</b> <span class="tag">{t("+{v} mehr", v=fmt_num(over, 2, "€"))}</span></div>'
+                f'<div><b>{fmt_num(rev, 2, "€")}</b></div></div>')
+    out += f'<div class="pr gw"><div>{t("Gewinn über Selbstkosten")}</div><div><b class="{cls}">{fmt_num(gain, 2, "€")}</b>{pct}</div></div>'
     prep, post, design = _extras.work_minutes(job)
     hours = (prep + post + design) / 60
     if hours > 0:
-        hourly = (fp - (price_base(job) or 0)) / hours
+        hourly = (rev - (price_base(job) or 0)) / hours
         out += (f'<div class="pr gw"><div>{t("Effektiver Stundenlohn")} <span class="tag">{t("{m} min", m=fmt_input(round(hours * 60)))}</span></div>'
                 f'<div><b class="{"pos" if hourly >= 0 else "neg"}">{fmt_num(hourly, 2, "€/h")}</b></div></div>')
     return out
@@ -1153,6 +1173,10 @@ def _prices(j: dict[str, Any], mg: list[tuple[str, float]]) -> str:
         fp = j["final_price"]
         per = t("{v}/Stk.", v=fmt_num(fp / q, 2)) if q > 1 else ""
         out += f'<span class="fp">{t("Endpreis")}</span><b class="fp">{fmt_num(fp, 2, "€")}</b><small>{per}</small>'
+    over = overpaid(j)
+    if over:
+        out += (f'<span class="fp">{t("Bezahlt")}</span><b class="fp">{fmt_num(j.get("paid"), 2, "€")}</b>'
+                f'<small class="calc" title="{e(t("+{v} mehr", v=fmt_num(over, 2, "€")))}">+{fmt_num(over, 2)}</small>')
     for name, pct, cu, wo in items:
         price = _price(j, pct, wo)
         cls = ' class="cu"' if cu else ""
@@ -1869,7 +1893,20 @@ def _deal_box(job: dict[str, Any], handovers: list[dict[str, Any]], payments: li
                     f'<small>{t("keine Zahlung nötig, zählt weiter in Kosten und Statistik")}</small></div></div>{pay_rows}{gift_form}')
     else:
         pay_body = ""
-    pay_body = pay_body or (f'<div class="deal"><div><span>{e(t("{name} zahlt", name=job.get("customer_name") or t("Kunde")))}</span><b>{fmt_num(due, 2, "€")}</b>'
+    over = overpaid(job)
+    shown_due = due
+    if over:
+        # Mehr bezahlt als der Preis: das Gezahlte ist der tatsächliche Preis, der Rest steht klein darunter.
+        shown_due = paid
+        short = t("Endpreis") if job.get("final_price") is not None else t("Fehldruck") if charged(job) else t("Vorschlag")
+        src = t("{src} {v} · {o} mehr bezahlt", src=short, v=fmt_num(due, 2, "€"), o=fmt_num(over, 2, "€"))
+        pay_state = t("bezahlt, {v} mehr als der Preis", v=fmt_num(over, 2, "€"))
+        if job.get("final_price") is None or abs(job["final_price"] - paid) >= 0.005:
+            price_form += (f'<form class="hof" method="post" action="api/jobs/{jid}?redirect=ab">'
+                           f'<input type="hidden" name="final_price" value="{fmt_input(round(paid, 2))}">'
+                           f'<button class="btn">{t("{v} als Endpreis übernehmen", v=fmt_num(paid, 2, "€"))}</button>'
+                           f'<span class="muted">{t("Dann zählt der Betrag als Preis statt als Trinkgeld.")}</span></form>')
+    pay_body = pay_body or (f'<div class="deal"><div><span>{e(t("{name} zahlt", name=job.get("customer_name") or t("Kunde")))}</span><b>{fmt_num(shown_due, 2, "€")}</b>'
             f'<small class="calc">{e(src)}</small></div><div><span>{t("Stand")}</span><b>{fmt_num(paid, 2, "€")}</b><small>{pay_state}</small></div></div>'
             f'{price_form}{pay_rows}{pay_form}{gift_form}')
     pay_body = fd_note + pay_body
@@ -1969,6 +2006,10 @@ def _deal_strip(job: dict[str, Any]) -> str:
     if charged(job):
         src = charge_src(job, base_due(job))
     name = job.get("customer_name") or t("Kunde")
+    over = overpaid(job)
+    if over:
+        due = job.get("paid") or 0
+        src = t("{o} mehr als {src}", o=fmt_num(over, 2, "€"), src=src)
     head = (f'<span>{e(name)}</span><b>{t("nichts")}</b><small>{t("verschenkt")}</small>' if job.get("gift") else
             f'<span>{e(t("{name} zahlt", name=name))}</span><b>{fmt_num(due, 2, "€")}</b><small class="calc">{src}</small>')
     return (f'<div class="strip"><div class="sa">{head}</div>'

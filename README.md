@@ -115,6 +115,8 @@ in a **light and a dark** colour scheme (Settings → View → Colour scheme, or
     margin (*also on labour*) and a setting per customer (default / yes / no; default = no).
   - The price box shows **profit over cost** and the **effective hourly rate** of the final price
     ((final price − print − accessories) ÷ hours of labour and design).
+  - Paid more than the price (rounded up, a tip)? The amount paid then counts as the actual price: shown in the list,
+    the billing tab and the price box, and profit is calculated from it. One click turns it into the final price.
   - The customer receipt can list what it contains (accessories, labour minutes) without prices; tick it when sharing.
 - **Selling prices** – two named margins, an optional margin per customer and a fixed final price per print.
 - **Customers** – partial payments and partial hand-overs, gifts, open amounts per customer. Tick **No billing** for
@@ -495,6 +497,8 @@ in **hell und dunkel** (Einstellungen → Ansicht → Farbschema, oder automatis
     (*auch auf Arbeitszeit*) und eine Einstellung pro Kunde (Standard / ja / nein; Standard = nein).
   - Der Preiskasten zeigt den **Gewinn über Selbstkosten** und den **effektiven Stundenlohn** des Endpreises
     ((Endpreis − Druck − Zubehör) ÷ Stunden Arbeit und Design).
+  - Mehr bezahlt als der Preis (aufgerundet, Trinkgeld)? Dann gilt der gezahlte Betrag als tatsächlicher Preis: in der Liste,
+    in der Abrechnung und im Preiskasten, und der Gewinn wird daraus berechnet. Ein Klick macht ihn zum Endpreis.
   - Der Kunden-Bon kann auflisten, was enthalten ist (Zubehör, Arbeitsminuten), ohne Preise; Häkchen beim Teilen.
 - **Verkaufspreise** – zwei benannte Margen, optional eine Marge pro Kunde und ein fester Endpreis pro Druck.
 - **Kunden** – Teilzahlungen und Teilübergaben, Verschenktes, offene Beträge pro Kunde. Mit dem Häkchen **Keine Abrechnung**
