@@ -275,7 +275,7 @@ def _revenue_card(keys: list[str], labels: list[str], rv: dict[str, Any]) -> str
     if not any(v for (_, k), v in rv["buckets"].items() if k == "loss"):
         series = series[:2]
     rows = "".join(
-        f'<tr><td><a href="./?customer={c["id"]}">{e(c["name"])}</a></td>'
+        f'<tr><td><a href="customer?id={c["id"]}">{e(c["name"])}</a></td>'
         f'<td class="n" data-l="{e(t("Aufträge"))}">{c["n"]}</td>'
         f'<td class="n" data-l="{e(t("Umsatz"))}">{fmt_num(c["revenue"], 2, "€")}</td>'
         f'<td class="n" data-l="{e(t("Bezahlt"))}">{fmt_num(c["paid"], 2, "€")}</td>'

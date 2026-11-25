@@ -1419,18 +1419,41 @@ class Store:
 
     # ---- Statistik ----------------------------------------------------------
 
-    def billing_rows(self, period: str, since: float, until: float) -> list[dict[str, Any]]:
-        """Abgerechnete Aufträge im Zeitraum (Einzeldrucke, Projekte, Anteile) mit Bucket, für Einnahmen und Gewinn."""
+    def billing_rows(self, period: str, since: float, until: float, customer_id: int | None = None,
+                     nobill: bool = False) -> list[dict[str, Any]]:
+        """Abgerechnete Aufträge im Zeitraum (Einzeldrucke, Projekte, Anteile) mit Bucket, für Einnahmen und Gewinn.
+
+        nobill=True nimmt auch Kunden mit „Keine Abrechnung“ mit (für die Kundenseite)."""
         fmt = {"day": "%Y-%m-%d", "week": "%Y-W%W", "month": "%Y-%m"}[period]
-        rows = self._conn.execute(
-            f"SELECT strftime('{fmt}', jobs.start_ts, 'unixepoch', 'localtime') bucket, jobs.*, customers.name AS customer_name, "
-            "customers.margin_pct AS customer_margin, customers.work_margin AS customer_work, COALESCE(customers.no_billing, 0) AS customer_nobill, "
-            f"{Store.SCRAP_SQL} AS is_scrap, {Store.PAID_SQL} AS paid FROM jobs JOIN customers ON customers.id = jobs.customer_id "
-            f"WHERE jobs.project_id IS NULL AND {Store.UNSPLIT_SQL} AND NOT {Store.NOBILL_SQL} "
-            "AND jobs.start_ts >= ? AND jobs.start_ts < ?",
-            (since, until),
-        ).fetchall()
+        q = (f"SELECT strftime('{fmt}', jobs.start_ts, 'unixepoch', 'localtime') bucket, jobs.*, customers.name AS customer_name, "
+             "customers.margin_pct AS customer_margin, customers.work_margin AS customer_work, COALESCE(customers.no_billing, 0) AS customer_nobill, "
+             f"{Store.SCRAP_SQL} AS is_scrap, {Store.DELIVERED_SQL} AS delivered, {Store.PAID_SQL} AS paid, "
+             "(SELECT MAX(p.ts) FROM payments p WHERE p.job_id = jobs.id) AS last_pay_ts "
+             "FROM jobs JOIN customers ON customers.id = jobs.customer_id "
+             f"WHERE jobs.project_id IS NULL AND {Store.UNSPLIT_SQL} "
+             "AND jobs.start_ts >= ? AND jobs.start_ts < ?")
+        args: list[Any] = [since, until]
+        if not nobill:
+            q += f" AND NOT {Store.NOBILL_SQL}"
+        if customer_id is not None:
+            q += " AND jobs.customer_id = ?"
+            args.append(customer_id)
+        rows = self._conn.execute(q + " ORDER BY jobs.start_ts DESC", args).fetchall()
         return [dict(r) for r in rows]
+
+    def customer_prints(self, customer_id: int, since: float, until: float) -> list[dict[str, Any]]:
+        """Echte Drucke eines Kunden im Zeitraum (auch in Projekten und aufgeteilte), für Stunden, Filament, Modelle."""
+        rows = self._conn.execute(
+            f"SELECT jobs.*, {Store.SCRAP_SQL} AS is_scrap, models.name AS model_name FROM jobs "
+            "LEFT JOIN models ON models.id = jobs.model_id "
+            f"WHERE {Store.REAL_SQL} AND jobs.start_ts >= ? AND jobs.start_ts < ? AND (jobs.customer_id = ? "
+            "OR EXISTS (SELECT 1 FROM jobs s WHERE s.share_of = jobs.id AND s.customer_id = ?)) ORDER BY jobs.start_ts",
+            (since, until, customer_id, customer_id)).fetchall()
+        return [dict(r) for r in rows]
+
+    def customer(self, customer_id: int) -> dict[str, Any] | None:
+        row = self._conn.execute("SELECT * FROM customers WHERE id = ?", (customer_id,)).fetchone()
+        return dict(row) if row else None
 
     def buckets(self, period: str, since: float, until: float) -> list[dict[str, Any]]:
         """Summen pro Zeitraum (day/week/month) und Drucker."""

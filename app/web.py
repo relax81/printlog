@@ -44,6 +44,7 @@ from .pages import (
     page_trash,
     results,
 )
+from .customer import page_customer
 from .stats import page_calendar, page_stats
 from .ui import HINTS, STATIC_DIR, THEME, THEMES, parse_num, printer_names
 
@@ -270,6 +271,14 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
     async def customers(request: web.Request) -> web.Response:
         q = request.query
         return _html(page_customers(store, q.get("saved"), q.get("show"), q.get("period"), q.get("von"), q.get("bis")))
+
+    @routes.get("/customer")
+    async def customer(request: web.Request) -> web.Response:
+        cid = request.query.get("id", "")
+        html = page_customer(store, int(cid), request.query.get("period")) if cid.isdigit() else None
+        if html is None:
+            raise web.HTTPSeeOther("customers")
+        return _html(html)
 
     @routes.post("/customers")
     async def save_customer(request: web.Request) -> web.Response:
