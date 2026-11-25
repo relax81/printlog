@@ -4,10 +4,11 @@
 // PDF vorher in ein Bild umwandeln: pdftoppm -r 90 -png -singlefile <ausgabeordner>/raw-kosten.pdf <ausgabeordner>/raw-cost
 // Druck-ID: ein fertiger Druck mit Kunde, Fotos und mehreren Filamenten (die Demo-Daten sind fest vorgegeben, z. B. 26).
 // Fehldruck-ID: der anteilig berechnete Fehldruck der Demo (Status-Filter „Fehldruck: Einstellungen“, z. B. 226).
-// Projekt-ID: das Beispielprojekt „Werkstatt-Wand“ der Demo (z. B. 359).
+// Projekt-ID: das Beispielprojekt „Werkstatt-Wand“ der Demo (z. B. 360).
+// Zubehör-ID: ein Schlüsselanhänger-Druck mit Ring, Kette und Arbeitszeit (z. B. 88).
 const prevMonth = () => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 7); };
 const { chromium, devices } = require('playwright');
-const [lang, out, job, scheme = 'light', fd, proj] = process.argv.slice(2);
+const [lang, out, job, scheme = 'light', fd, proj, zk] = process.argv.slice(2);
 const base = `http://127.0.0.1:${process.env.PORT || 8095}/demo/`;
 const hdr = { 'Accept-Language': lang };
 (async () => {
@@ -85,6 +86,20 @@ const hdr = { 'Accept-Language': lang };
     await p.click('.spbox .spopen'); await p.waitForTimeout(400);
     const d = await p.$eval('.spdlg', el => { const b = el.getBoundingClientRect(); return { y: b.top, h: b.height }; });
     await p.screenshot({ path: `${out}/split-dialog.png`, clip: { x: 360, y: Math.max(0, d.y - 40), width: 720, height: d.h + 80 } });
+  }
+  if (zk) {
+    // Arbeit & Zubehör: Kasten in der Übersicht, Inventar-Auswahl, Inventar in den Einstellungen
+    await p.setViewportSize({ width: 1440, height: 900 });
+    await p.goto(base + `job?id=${zk}`); await p.waitForLoadState('networkidle'); await p.waitForTimeout(600);
+    const r = await p.$eval('.zk', el => { const b = el.getBoundingClientRect(); return { y: b.top + scrollY, h: b.height }; });
+    await p.screenshot({ path: `${out}/work-accessories.png`, clip: { x: 0, y: r.y - 12, width: 1440, height: r.h + 24 }, fullPage: true });
+    await p.click('.zk [data-zk-pick]'); await p.waitForTimeout(400);
+    const d = await p.$eval('#zkpick .d', el => { const b = el.getBoundingClientRect(); return { x: b.left, y: b.top, w: b.width, h: b.height }; });
+    await p.screenshot({ path: `${out}/accessory-picker.png`, clip: { x: d.x - 30, y: Math.max(0, d.y - 30), width: d.w + 60, height: d.h + 60 } });
+    await p.setViewportSize({ width: 1440, height: 1300 });
+    await p.goto(base + 'settings#zubehoer'); await p.waitForLoadState('networkidle'); await p.waitForTimeout(600);
+    const s = await p.$eval('table.acc', el => { const b = el.getBoundingClientRect(); return { y: b.top + scrollY, h: b.height }; });
+    await p.screenshot({ path: `${out}/accessory-inventory.png`, clip: { x: 0, y: 0, width: 1000, height: s.y + s.h + 16 }, fullPage: true });
   }
   // phone
   const ph = await b.newContext({ ...devices['iPhone 13'], locale: lang, colorScheme: scheme, extraHTTPHeaders: hdr });

@@ -98,19 +98,37 @@ def _chips(job: dict[str, Any]) -> str:
 def _per_piece(job: dict[str, Any]) -> str:
     q = job.get("quantity")
     if q and q > 1 and job.get("cost_total") is not None:
-        return t("{v}/Stk.", v=fmt_num(job["cost_total"] / q, 2, "€"))
+        return t("{v}/Stk.", v=fmt_num((job["cost_total"] + _extras.work_total(job)) / q, 2, "€"))
     return ""
 
 
-def margins(store: Store) -> list[tuple[str, float]]:
+class Margin(tuple):
+    """(Name, Prozent) mit ``work`` = Marge auch auf Arbeitszeit."""
+
+    work: bool = False
+
+    def __new__(cls, name: str, pct: float, work: bool = False) -> "Margin":
+        m = super().__new__(cls, (name, pct))
+        m.work = bool(work)
+        return m
+
+
+def margins(store: Store) -> list[Margin]:
     """Allgemeine Margen aus den Einstellungen, z. B. [("Privat", 30.0), ("Gewerbe", 60.0)]."""
     cfg = store.settings()
     out = []
     for i in (1, 2):
         pct = parse_num(cfg.get(f"margin{i}_pct"))
         if pct is not None:
-            out.append((cfg.get(f"margin{i}_name") or t("Marge {i}", i=i), pct))
+            out.append(Margin(cfg.get(f"margin{i}_name") or t("Marge {i}", i=i), pct, cfg.get(f"margin{i}_work") == "1"))
     return out
+
+
+def customer_margin(job: dict[str, Any]) -> Margin | None:
+    """Kundenmarge als Margin (mit „Marge auch auf Arbeitszeit“ des Kunden)."""
+    if job.get("customer_margin") is None:
+        return None
+    return Margin(f'{t("Kunde")} {job.get("customer_name") or ""}'.strip(), job["customer_margin"], bool(job.get("customer_work")))
 
 
 def price_base(job: dict[str, Any]) -> float | None:
@@ -120,15 +138,61 @@ def price_base(job: dict[str, Any]) -> float | None:
     return job.get("cost_total")
 
 
-def _price(job: dict[str, Any], pct: float) -> float | None:
-    base = price_base(job)
-    if base is None:
-        return None
-    return base * (1 + pct / 100)
+def _price(job: dict[str, Any], pct: float, work_on: bool = False) -> float | None:
+    """Preis mit Marge: Kosten (inkl. Zubehör) × Marge, Arbeit zum Stundensatz dazu (oder mit Marge)."""
+    return _extras.sell_price(price_base(job), _extras.work_total(job), pct, work_on)
 
 
-def _price_cell(job: dict[str, Any], pct: float) -> str:
-    price = _price(job, pct)
+def mprice(job: dict[str, Any], m: tuple) -> float | None:
+    return _price(job, m[1], getattr(m, "work", False))
+
+
+def work_tag(m: tuple, work: float) -> str:
+    """Hinweis an einer Marge, die auch auf die Arbeitszeit gerechnet wird."""
+    return f' · {t("inkl. Arbeit")}' if work and getattr(m, "work", False) else ""
+
+
+def extra_kpis(job: dict[str, Any]) -> str:
+    """Kacheln „Zubehör“ und „Arbeit“ im Kopf, nur wenn etwas eingetragen ist."""
+    out = ""
+    zub = job.get("cost_extras") or 0
+    work = _extras.work_total(job)
+    if zub:
+        out += f'<div class="kp"><span>{t("🔗 Zubehör")}</span><b>{fmt_num(zub, 2, "€")}</b><small>{t("im Druck enthalten")}</small></div>'
+    if work:
+        prep, post, design = _extras.work_minutes(job)
+        sub = t("{m} min", m=fmt_input(round(prep + post)))
+        if design:
+            sub += " + " + t("{m} min Design", m=fmt_input(round(design)))
+        if job.get("kind") == "project" and work != (job.get("cost_work") or 0):
+            sub = t("inkl. Arbeit in den Drucken")
+        out += f'<div class="kp"><span>{t("⏱ Arbeit")}</span><b>{fmt_num(work, 2, "€")}</b><small>{e(sub)}</small></div>'
+    return out
+
+
+def profit_rows(job: dict[str, Any], qty: int, endpreis: bool = True) -> str:
+    """Mit Endpreis: Gewinn über Selbstkosten und effektiver Stundenlohn."""
+    fp = job.get("final_price")
+    if fp is None or job.get("cost_total") is None:
+        return ""
+    work = _extras.work_total(job)
+    self_cost = (price_base(job) or 0) + work
+    gain = fp - self_cost
+    pct = f' <span class="tag">{fmt_num(gain / self_cost * 100, 1, "%")}</span>' if self_cost > 0 else ""
+    cls = "pos" if gain >= 0 else "neg"
+    out = ((f'<div class="pr gw"><div><b>{t("Endpreis")}</b></div><div><b>{fmt_num(fp, 2, "€")}</b></div></div>' if endpreis else "")
+           + f'<div class="pr gw"><div>{t("Gewinn über Selbstkosten")}</div><div><b class="{cls}">{fmt_num(gain, 2, "€")}</b>{pct}</div></div>')
+    prep, post, design = _extras.work_minutes(job)
+    hours = (prep + post + design) / 60
+    if hours > 0:
+        hourly = (fp - (price_base(job) or 0)) / hours
+        out += (f'<div class="pr gw"><div>{t("Effektiver Stundenlohn")} <span class="tag">{t("{m} min", m=fmt_input(round(hours * 60)))}</span></div>'
+                f'<div><b class="{"pos" if hourly >= 0 else "neg"}">{fmt_num(hourly, 2, "€/h")}</b></div></div>')
+    return out
+
+
+def _price_cell(job: dict[str, Any], pct: float, work_on: bool = False) -> str:
+    price = _price(job, pct, work_on)
     q = job.get("quantity")
     per = f'<div class="note">{t("{v}/Stk.", v=fmt_num(price / q, 2, "€"))}</div>' if price is not None and q and q > 1 else ""
     return f'<td class="n">{fmt_num(price, 2, "€")}{per}</td>'
@@ -136,7 +200,7 @@ def _price_cell(job: dict[str, Any], pct: float) -> str:
 
 def _customer_price(job: dict[str, Any]) -> str:
     pct = job.get("customer_margin")
-    price = _price(job, pct) if pct is not None else None
+    price = _price(job, pct, bool(job.get("customer_work"))) if pct is not None else None
     if price is None:
         return ""
     return (f'<div class="note" title="{e(t("Marge von {name}", name=job.get("customer_name") or ""))}">'
@@ -290,7 +354,7 @@ a.tag{color:var(--accent)}
 .cb .pp{display:block;font-size:12px;color:var(--muted)}
 .bar{display:flex;gap:2px;height:7px;margin-top:6px;border-radius:4px;overflow:hidden}
 .bar i{display:block;border-radius:2px;min-width:3px}
-.c-str{background:var(--s4)}.c-fil{background:var(--s3)}.c-dru{background:var(--s7)}
+.c-str{background:var(--s4)}.c-fil{background:var(--s3)}.c-dru{background:var(--s7)}.c-zub{background:var(--s5)}.c-arb{background:var(--s2)}
 .pop{display:none;position:fixed;left:0;top:0;z-index:35;min-width:250px;max-width:calc(100vw - 16px);text-align:left;cursor:default;
  background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 14px;box-shadow:0 8px 28px rgba(0,0,0,.35);font-size:14px}
 .cb.open .pop{display:block}
@@ -1045,11 +1109,18 @@ def _bar_parts(j: dict[str, Any]) -> list[tuple[str, str, float, str]]:
         (t("Filament"), "c-fil", j.get("cost_filament"), fmt_num(grams, 1, "g")),
         (t("Drucker"), "c-dru", j.get("cost_printer"), t("Abschreibung + Wartung")),
     ]
+    if j.get("cost_extras"):
+        parts.append((t("Zubehör"), "c-zub", j["cost_extras"], t("Ringe, Magnete, Posten …")))
+    work = _extras.work_total(j)
+    if work:
+        parts.append((t("Arbeit"), "c-arb", work, t("Arbeit und Design zum Stundensatz")))
     return parts
 
 
 def _cost_box(j: dict[str, Any], note: str = "") -> str:
     total = j.get("cost_total")
+    if total is not None:
+        total += _extras.work_total(j)
     if total is None:
         return '<div class="jc r"><b>–</b></div>'
     parts = _bar_parts(j)
@@ -1070,17 +1141,17 @@ def _prices(j: dict[str, Any], mg: list[tuple[str, float]]) -> str:
     if j.get("split") and j.get("kind") != "share":
         return _split.split_prices(j)
     q = j.get("quantity") or 1
-    items: list[tuple[str, float, bool]] = []
+    items: list[tuple[str, float, bool, bool]] = []
     if j.get("customer_margin") is not None:
-        items.append((f'👤 {j.get("customer_name") or t("Kunde")}', j["customer_margin"], True))
-    items += [(n, p, False) for n, p in mg]
+        items.append((f'👤 {j.get("customer_name") or t("Kunde")}', j["customer_margin"], True, bool(j.get("customer_work"))))
+    items += [(m[0], m[1], False, getattr(m, "work", False)) for m in mg]
     out = ""
     if j.get("final_price") is not None:
         fp = j["final_price"]
         per = t("{v}/Stk.", v=fmt_num(fp / q, 2)) if q > 1 else ""
         out += f'<span class="fp">{t("Endpreis")}</span><b class="fp">{fmt_num(fp, 2, "€")}</b><small>{per}</small>'
-    for name, pct, cu in items:
-        price = _price(j, pct)
+    for name, pct, cu, wo in items:
+        price = _price(j, pct, wo)
         cls = ' class="cu"' if cu else ""
         per = t("{v}/Stk.", v=fmt_num(price / q, 2)) if price is not None and q > 1 else ""
         # Ohne Endpreis ist der Kundenpreis das, was der Kunde zahlt: bleibt im Diskret-Modus sichtbar.
@@ -1128,7 +1199,7 @@ def base_due(j: dict[str, Any]) -> float | None:
     """Normaler Preis: Endpreis, sonst Kosten + Kundenmarge."""
     if j.get("final_price") is not None:
         return j["final_price"]
-    return _price(j, j.get("customer_margin") or 0)
+    return _price(j, j.get("customer_margin") or 0, bool(j.get("customer_work")))
 
 
 def amount_due(j: dict[str, Any]) -> float | None:
@@ -1748,7 +1819,7 @@ def _deal_box(job: dict[str, Any], handovers: list[dict[str, Any]], payments: li
     paid = job.get("paid") or 0
     rest = max(0.0, (due or 0) - paid)
     today = datetime.now().strftime("%Y-%m-%d")
-    suggest = _price(job, job.get("customer_margin") or 0)
+    suggest = _price(job, job.get("customer_margin") or 0, bool(job.get("customer_work")))
     src = (t("Endpreis") if job.get("final_price") is not None
            else t("Vorschlag: Kosten + {p} % Kundenmarge", p=fmt_input(job.get("customer_margin") or 0)))
     fd_note = ""
@@ -1915,7 +1986,8 @@ def _share_button(job: dict[str, Any]) -> str:
         ("📄 PDF", t("volle Aufschlüsselung zum Ablegen"), f"export/{jid}/kosten.pdf",
          file_name(job, "kosten", "pdf"), "application/pdf", 1),
     ]
-    return (f'<button type="button" class="btn sm" id="share" data-exports="{e(json.dumps(items))}" '
+    pos = ' data-pos="1"' if job.get("cost_extras") or _extras.work_total(job) else ""
+    return (f'<button type="button" class="btn sm" id="share"{pos} data-exports="{e(json.dumps(items))}" '
             f'title="{e(t("Als Bild oder PDF teilen bzw. speichern"))}">{t("📤 Teilen")}</button>')
 
 
@@ -1926,7 +1998,7 @@ SHARE_JS = """
  function save(blob,name){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;
    document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},5000)}
  async function share(file){await navigator.share({files:[file],title:file.name})}
- async function run(x,it,st){const [label,desc,u,name,type]=it;const url=u+(st?'':'?status=0');x.disabled=true;x.querySelector('small').textContent=_t("wird erstellt …");
+ async function run(x,it,st,ps){const [label,desc,u,name,type]=it;const qs=[st?'':'status=0',ps?'pos=1':''].filter(Boolean).join('&');const url=u+(qs?'?'+qs:'');x.disabled=true;x.querySelector('small').textContent=_t("wird erstellt …");
    try{const r=await fetch(url);if(!r.ok)throw new Error(r.status);const blob=await r.blob();
      const file=new File([blob],name,{type});
      if(touch&&navigator.canShare&&navigator.canShare({files:[file]})){
@@ -1944,10 +2016,14 @@ SHARE_JS = """
    let keep='1';try{keep=localStorage.getItem('pl_share_status')||'1'}catch(_){}cb.checked=keep==='1';
    cb.onchange=()=>{try{localStorage.setItem('pl_share_status',cb.checked?'1':'0')}catch(_){}};
    cl.onclick=e3=>e3.stopPropagation();cl.append(cb,document.createTextNode(' '+_t("Bezahlt/Übergeben mit drauf")));
+   let pl=null,pb=null;if(b.dataset.pos){pl=document.createElement('label');pl.className='chk';pb=document.createElement('input');pb.type='checkbox';
+     let kp='0';try{kp=localStorage.getItem('pl_share_pos')||'0'}catch(_){}pb.checked=kp==='1';
+     pb.onchange=()=>{try{localStorage.setItem('pl_share_pos',pb.checked?'1':'0')}catch(_){}};
+     pl.onclick=e3=>e3.stopPropagation();pl.append(pb,document.createTextNode(' '+_t("Zubehör und Arbeit auf dem Kunden-Bon")))}
    items.forEach(it=>{if(it[5]&&priv)return;const x=document.createElement('button');x.type='button';
      const l=document.createElement('span');l.textContent=it[0];const s=document.createElement('small');s.textContent=it[1];
-     x.append(l,s);x.onclick=e2=>{e2.stopPropagation();run(x,it,cb.checked)};m.appendChild(x)});
-   m.appendChild(cl);
+     x.append(l,s);x.onclick=e2=>{e2.stopPropagation();run(x,it,cb.checked,pb&&pb.checked)};m.appendChild(x)});
+   m.appendChild(cl);if(pl)m.appendChild(pl);
    if(priv){const n=document.createElement('small');n.className='hint';n.textContent=_t("Diskret-Modus: interne Varianten ausgeblendet");m.appendChild(n)}
    document.body.appendChild(m);const rc=b.getBoundingClientRect();
    m.style.top=(scrollY+rc.bottom+6)+'px';
@@ -2005,24 +2081,32 @@ def page_job(store: Store, job: dict[str, Any], saved: str | None) -> str:
         badges += f'<span class="bdg">👤 {e(job["customer_name"])}</span>'
     if qty > 1:
         badges += f'<span class="bdg">{_pcs(qty)}</span>'
+    work = _extras.work_total(job)
+    if total is not None or work:
+        total = (total or 0) + work
     per = (t("wird nach dem Druck berechnet") if total is None
            else t("{v} pro Stück", v=fmt_num(total / qty, 2, "€")) if qty > 1 else t("für den ganzen Druck"))
+    xk = extra_kpis(job)
     kpis = (f'<div class="kp main"><span>{t("Gesamtkosten")}</span><b>{fmt_num(total, 2, "€")}</b><small>{per}</small></div>'
             f'<div class="kp"><span>{t("⚡ Strom")}</span><b>{fmt_num(job["cost"], 2, "€")}</b><small>{fmt_num(job["kwh"], 3, "kWh")}</small></div>'
             f'<div class="kp"><span>{t("🧵 Filament")}</span><b>{fmt_num(job.get("cost_filament"), 2, "€")}</b><small>{fmt_num(grams, 1, "g")}</small></div>'
-            f'<div class="kp"><span>{t("🖨 Drucker")}</span><b>{fmt_num(job.get("cost_printer"), 2, "€")}</b><small>{t("Abschr. + Wartung")}</small></div>')
+            f'<div class="kp"><span>{t("🖨 Drucker")}</span><b>{fmt_num(job.get("cost_printer"), 2, "€")}</b><small>{t("Abschr. + Wartung")}</small></div>') + xk
     mg = list(margins(store))
-    if job.get("customer_margin") is not None:
-        mg.insert(0, (f'{t("Kunde")} {job.get("customer_name") or ""}'.strip(), job["customer_margin"]))
+    if customer_margin(job):
+        mg.insert(0, customer_margin(job))
     price_rows = ""
-    for n, p in mg:
-        price = _price(job, p)
+    for m in mg:
+        n, p = m
+        price = mprice(job, m)
         each = (f' <span class="tag">{t("{v}/Stk.", v=fmt_num(price / qty, 2, "€"))}</span>'
                 if price is not None and qty > 1 else "")
-        price_rows += (f'<div class="pr"><div>{e(n)} <span class="tag">+{e(fmt_input(p))} %</span></div>'
+        price_rows += (f'<div class="pr"><div>{e(n)} <span class="tag">+{e(fmt_input(p))} %{work_tag(m, work)}</span></div>'
                        f'<div><b>{fmt_num(price, 2, "€")}</b>{each}</div></div>')
+    price_rows += profit_rows(job, qty)
     if not price_rows:
         price_rows = f'<p class="muted" style="margin:6px 0 0">{t("Keine Margen eingestellt (Einstellungen).")}</p>'
+    elif work:
+        price_rows += f'<p class="muted wnote">{t("Marge auf Druck + Zubehör, Arbeit zum Stundensatz (außer „inkl. Arbeit“)")}</p>'
     pj_banner = pj_strip = ""
     if parent:
         sibs = store.children([parent["id"]]).get(parent["id"], [])
@@ -2131,12 +2215,12 @@ def page_job(store: Store, job: dict[str, Any], saved: str | None) -> str:
     body = f"""<div class="jd">{banner}<div class="jtop"><a class="back" href="./">{t("← alle Drucke")}</a>
 <div class="jact">{_share_button(job)}<form class="jdel" method="post" action="api/jobs/{job["id"]}/delete"><button class="btn sm danger" title="{e(t("Diesen Druck löschen"))}">{t("🗑 Löschen")}</button></form></div></div>
 {pj_banner}<section class="hero"><div>{big}</div>
-<div><h2 class="jtitle">{e(job["task_name"] or "–")}</h2><div class="badges">{badges}</div><div class="kps calc">{kpis}</div></div>
+<div><h2 class="jtitle">{e(job["task_name"] or "–")}</h2><div class="badges">{badges}</div><div class="kps calc{" six" if xk else ""}">{kpis}</div></div>
 {_sec("prices", t("Anteil am Projekt") if parent else t("Verkaufspreise"), "" if parent else price_sum, price_rows, "prices calc")}</section>
 <div class="tabs" role="tablist"><button type="button" data-tab="ov" class="{on("ov").strip()}">{t("Übersicht")}</button>
 {ab_tab}<button type="button" data-tab="ed" class="{on("ed").strip()}">{t("Bearbeiten")}</button>
 <button type="button" data-tab="ph" class="{on("ph").strip()}">{t("Fotos ({n})", n=len(photos))}</button></div>
-<section class="pane{on("ov")}" data-pane="ov">{_defect_box(store, job, photos)}{_deal_strip(job)}{pj_strip}{_split.split_box(store, job) if split else ""}<div class="ovg">
+<section class="pane{on("ov")}" data-pane="ov">{_defect_box(store, job, photos)}{_deal_strip(job)}{pj_strip}{_split.split_box(store, job) if split else ""}{_extras.box(store, job)}<div class="ovg">
 {_sec("druck", t("Druck"), druck_sum, f'<div class="facts">{facts}</div>{side}')}
 {_sec("mat", t("Material"), mat_sum, mat_bar + mat_rows)}
 {_sec("fotos", t("Eigene Fotos"), tn(len(photos), "{n} Foto", "{n} Fotos"), _upload_form(job["id"]) + photo_box + more)}
@@ -2162,9 +2246,9 @@ def page_job(store: Store, job: dict[str, Any], saved: str | None) -> str:
 {f'<div class="photos lg">{_photo_tiles(photos)}</div>' if photos else f'<p class="muted">{t("Noch keine eigenen Fotos.")}</p>'}</div></section>
 </div>"""
     sp = _split.dialogs(store, job) if not parent else ""
-    return layout(job["task_name"] or t("Druck"), "jobs", f"<style>{MOS_CSS}{DETAIL_CSS}{PROJ_CSS}{ACT_CSS}{KPICK_CSS}{_split.SPLIT_CSS}</style>"
-                  + body + customer_picker(customers) + sp,
-                  ACT_JS + DETAIL_JS + SHARE_JS + KPICK_JS + KPICK_DETAIL_JS + _split.SPLIT_JS)
+    return layout(job["task_name"] or t("Druck"), "jobs", f"<style>{MOS_CSS}{DETAIL_CSS}{PROJ_CSS}{ACT_CSS}{KPICK_CSS}{_split.SPLIT_CSS}{_extras.BOX_CSS}</style>"
+                  + body + customer_picker(customers) + sp + _extras.picker(store, job),
+                  ACT_JS + DETAIL_JS + SHARE_JS + KPICK_JS + KPICK_DETAIL_JS + _split.SPLIT_JS + _extras.box_js(job))
 
 
 # ---- Projekt (mehrere Drucke als ein Auftrag) -------------------------------------
@@ -2346,23 +2430,25 @@ def page_project(store: Store, p: dict[str, Any], saved: str | None) -> str:
         badges += f'<span class="bdg">{_pcs(qty)}</span>'
     sub = (t("inkl. {n} Fehldruck", n=n_fd) if n_fd == 1 else t("inkl. {n} Fehldrucke", n=n_fd)) if n_fd else \
         (t("{v} pro Stück", v=fmt_num(total / qty, 2, "€")) if qty > 1 and total is not None else tn(len(kids), "{n} Druck", "{n} Drucke"))
-    kpis = (f'<div class="kp main"><span>{t("Gesamtkosten")}</span><b>{fmt_num(total, 2, "€")}</b><small>{e(sub)}</small></div>'
+    kpis = (f'<div class="kp main"><span>{t("Gesamtkosten")}</span><b>{fmt_num(None if total is None else total + _extras.work_total(p), 2, "€")}</b><small>{e(sub)}</small></div>'
             f'<div class="kp"><span>{t("⚡ Strom")}</span><b>{fmt_num(p.get("cost"), 2, "€")}</b><small>{fmt_num(p.get("kwh"), 3, "kWh")}</small></div>'
             f'<div class="kp"><span>{t("🧵 Filament")}</span><b>{fmt_num(p.get("cost_filament"), 2, "€")}</b><small>{fmt_num(p.get("filament_g"), 1, "g")}</small></div>'
             f'<div class="kp"><span>{t("🖨 Drucker")}</span><b>{fmt_num(p.get("cost_printer"), 2, "€")}</b>'
-            f'<small>{tn(len({k["printer"] for k in kids}), "{n} Drucker", "{n} Drucker")} · {fmt_hours(hours)}</small></div>')
+            f'<small>{tn(len({k["printer"] for k in kids}), "{n} Drucker", "{n} Drucker")} · {fmt_hours(hours)}</small></div>') + extra_kpis(p)
     mg = list(margins(store))
-    if p.get("customer_margin") is not None:
-        mg.insert(0, (f'{t("Kunde")} {p.get("customer_name") or ""}'.strip(), p["customer_margin"]))
+    if customer_margin(p):
+        mg.insert(0, customer_margin(p))
     price_rows = ""
     if p.get("final_price") is not None:
         each = f' <span class="tag">{t("{v}/Stk.", v=fmt_num(p["final_price"] / qty, 2, "€"))}</span>' if qty > 1 else ""
         price_rows += f'<div class="pr"><div><b>{t("Endpreis")}</b></div><div><b>{fmt_num(p["final_price"], 2, "€")}</b>{each}</div></div>'
-    for n, pct in mg:
-        price = _price(p, pct)
+    for m in mg:
+        n, pct = m
+        price = mprice(p, m)
         each = f' <span class="tag">{t("{v}/Stk.", v=fmt_num(price / qty, 2, "€"))}</span>' if price is not None and qty > 1 else ""
-        price_rows += (f'<div class="pr"><div>{e(n)} <span class="tag">+{e(fmt_input(pct))} %</span></div>'
+        price_rows += (f'<div class="pr"><div>{e(n)} <span class="tag">+{e(fmt_input(pct))} %{work_tag(m, _extras.work_total(p))}</span></div>'
                        f'<div><b>{fmt_num(price, 2, "€")}</b>{each}</div></div>')
+    price_rows += profit_rows(p, qty, endpreis=False)
     base = price_base(p)
     if base is not None and total is not None and abs(base - total) >= 0.005:
         price_rows += f'<p class="muted" style="margin:8px 0 0;font-size:13px">{t("Basis {v} (ohne unberechnete Fehldrucke)", v=fmt_num(base, 2, "€"))}</p>'
@@ -2393,12 +2479,12 @@ def page_project(store: Store, p: dict[str, Any], saved: str | None) -> str:
     body = f"""<div class="jd">{banner}<div class="jtop"><a class="back" href="./">{t("← alle Drucke")}</a>
 <div class="jact">{_share_button(p)}<form class="jdel" method="post" action="api/projects/{p["id"]}/dissolve"><button class="btn sm danger" title="{e(t("Projekt auflösen: die Drucke bleiben erhalten und werden wieder einzeln geführt"))}">{t("Auflösen")}</button></form></div></div>
 <section class="hero"><div>{mosaic(kids)}</div>
-<div><h2 class="jtitle">{e(p["task_name"] or "–")}</h2><div class="badges">{badges}</div><div class="kps calc">{kpis}</div></div>
+<div><h2 class="jtitle">{e(p["task_name"] or "–")}</h2><div class="badges">{badges}</div><div class="kps calc{" six" if extra_kpis(p) else ""}">{kpis}</div></div>
 {_sec("prices", t("Verkaufspreise"), price_sum, price_rows, "prices calc")}</section>
 <div class="tabs" role="tablist"><button type="button" data-tab="ov" class="on">{t("Übersicht")}</button>
 {ab_tab}<button type="button" data-tab="ed" class="">{t("Bearbeiten")}</button>
 <button type="button" data-tab="ph" class="">{t("Fotos ({n})", n=len(photos) + len(kid_photos))}</button></div>
-<section class="pane on" data-pane="ov">{_deal_strip(p)}{_split.split_box(store, p, kids) if split else ""}{_parts_box(store, p, kids, names)}{_timeline(kids, names)}{note}</section>
+<section class="pane on" data-pane="ov">{_deal_strip(p)}{_split.split_box(store, p, kids) if split else ""}{_extras.box(store, p)}{_parts_box(store, p, kids, names)}{_timeline(kids, names)}{note}</section>
 {ab_pane}<section class="pane" data-pane="ed"><div class="box">
 <form class="fields" method="post" action="api/jobs/{p["id"]}?redirect=1">
 <div class="nrow full"><label>{t("Name")}<input name="task_name" value="{e(p["task_name"] or "")}"></label>
@@ -2416,9 +2502,9 @@ def page_project(store: Store, p: dict[str, Any], saved: str | None) -> str:
 <p>{t("Die Drucke bleiben erhalten und werden wieder einzeln geführt. Zahlungen gehen an den ersten Druck.")}</p></form></section>
 <section class="pane" data-pane="ph"><div class="box">{_upload_form(p["id"])}{all_photos}{kid_box}</div></section>
 </div>"""
-    return layout(p["task_name"] or t("Projekt"), "jobs", f"<style>{MOS_CSS}{DETAIL_CSS}{PROJ_CSS}{ACT_CSS}{KPICK_CSS}{_split.SPLIT_CSS}</style>" + body
-                  + customer_picker(customers) + _split.dialogs(store, p, kids),
-                  ACT_JS + DETAIL_JS + SHARE_JS + KPICK_JS + KPICK_DETAIL_JS + _split.SPLIT_JS)
+    return layout(p["task_name"] or t("Projekt"), "jobs", f"<style>{MOS_CSS}{DETAIL_CSS}{PROJ_CSS}{ACT_CSS}{KPICK_CSS}{_split.SPLIT_CSS}{_extras.BOX_CSS}</style>" + body
+                  + customer_picker(customers) + _split.dialogs(store, p, kids) + _extras.picker(store, p),
+                  ACT_JS + DETAIL_JS + SHARE_JS + KPICK_JS + KPICK_DETAIL_JS + _split.SPLIT_JS + _extras.box_js(p))
 
 
 # ---- Kunden -------------------------------------------------------------------
@@ -2575,6 +2661,7 @@ def _customer_form(c: dict[str, Any] | None) -> str:
     c = c or {}
     hid = f'<input type="hidden" name="id" value="{c["id"]}">' if c.get("id") else ""
     opt_ph = f' placeholder="{e(t("optional"))}"'
+    wm = "" if c.get("work_margin") is None else str(c["work_margin"])
     btns = (f'<button class="btn danger-o" form="cdel{c["id"]}">{t("Kunde löschen")}</button>'
             f'<button type="button" class="btn" data-cancel>{t("Abbrechen")}</button><button class="btn primary">{t("Speichern")}</button>'
             if c.get("id") else f'<button class="btn primary">{t("Anlegen")}</button>')
@@ -2584,6 +2671,8 @@ def _customer_form(c: dict[str, Any] | None) -> str:
             f'<label class="lf">{t("Notiz")}<input name="note" value="{e(c.get("note") or "")}"{opt_ph}></label>'
             f'<label class="lf m calc" title="{e(t("Eigene Marge in %, hat Vorrang"))}">{t("Marge %")}'
             f'<input name="margin_pct" inputmode="decimal" value="{fmt_input(c.get("margin_pct"))}"{opt_ph}></label>'
+            f'<label class="lf m calc" title="{e(t("Marge auch auf Arbeitszeit und Design"))}">{t("Marge auf Arbeit")}'
+            f'<select name="work_margin">{opt("", t("Standard (nein)"), wm)}{opt("1", t("ja"), wm)}{opt("0", t("nein"), wm)}</select></label>'
             f'<div class="cbar">{_nobill_box(c.get("no_billing"))}<span class="sp"></span>{btns}</div></form>')
 
 
@@ -2709,7 +2798,9 @@ def page_settings(store: Store, saved: str | None, logo: str | None = None,
         f'<div class="frow"><span class="flbl">{t("Marge {i}", i=i)}</span><span class="fctl">'
         f'<input name="margin{i}_name" value="{e(cfg.get(f"margin{i}_name") or "")}" placeholder="{ph}" aria-label="{e(t("Name"))}" class="mname">'
         f'<span class="ig"><input class="num" name="margin{i}_pct" value="{e(cfg.get(f"margin{i}_pct") or "")}" inputmode="decimal" '
-        f'placeholder="0" aria-label="{e(t("Aufschlag %"))}"><i>%</i></span></span></div>'
+        f'placeholder="0" aria-label="{e(t("Aufschlag %"))}"><i>%</i></span>'
+        f'<label class="mwork" title="{e(t("Aufschlag auch auf Arbeit und Design (sonst kommen sie zum Stundensatz dazu)"))}">'
+        f'<input type="checkbox" name="margin{i}_work" value="1"{" checked" if cfg.get(f"margin{i}_work") == "1" else ""}> {t("auch auf Arbeitszeit")}</label></span></div>'
         for i, ph in ((1, t("z. B. Privat")), (2, t("z. B. Gewerbe")))
     )
     from datetime import datetime
@@ -2786,9 +2877,11 @@ def page_settings(store: Store, saved: str | None, logo: str | None = None,
 <h2>{t("Filamentpreise nach Sorte (optional)")}</h2>
 <p class="muted">{t("Überschreibt den Typpreis für eine bestimmte Sorte, z. B. „Bambu PLA Matte“. Leer lassen = Typpreis.")}</p>
 {f'<div class="fgrid wide">{name_rows}</div>' if name_rows else f'<p class="muted">{t("Erscheint, sobald Drucke mit Materialangaben erfasst sind.")}</p>'}"""),
+        pane("zubehoer", t("Arbeit &amp; Zubehör"), _extras.settings_section(store)),
         pane("margen", t("Margen"), f"""<h2 style="margin-top:0">{t("Margen")}</h2>
 <p class="muted">{t("Bis zu zwei allgemeine Aufschläge auf die Gesamtkosten. Jede Marge bekommt in der Tabelle eine eigene Spalte mit Verkaufspreis (und Preis pro Stück). Eine Marge pro Kunde stellst du unter „Kunden“ ein.")}</p>
 <div class="fbox">{margin_rows}</div>
+<p class="muted">{t("„Auch auf Arbeitszeit“: Ist dein Stundensatz schon dein Preis, bleibt es aus (Arbeit kommt nach der Marge dazu). Rechnest du den Stundensatz als Kosten (z. B. bei Gewerbekunden), schalte es ein. Pro Kunde unter „Kunden“ einstellbar.")}</p>
 <h2>{t("Vorrat")}</h2>
 <div class="fbox"><div class="frow"><label class="flbl" for="s_stock">{t("Preis beim Abgeben aus dem Vorrat")}</label>
 <select id="s_stock" name="stock_price">{"".join(opt(k, t(v), cfg.get("stock_price") or "cost") for k, v in _split.STOCK_PRICE.items())}</select>
@@ -2824,7 +2917,7 @@ def page_settings(store: Store, saved: str | None, logo: str | None = None,
                    for i, (k, lbl, _) in enumerate(panes))
     panes_html = "".join(f'<section class="spane{" on" if i == 0 else ""}" data-pane="{k}">{h}</section>'
                          for i, (k, _, h) in enumerate(panes))
-    body = f"""<style>{SETTINGS_CSS}{DATA_CSS}</style>{banner}<form method="post" enctype="multipart/form-data" class="settings">
+    body = f"""<style>{SETTINGS_CSS}{DATA_CSS}{_extras.SETTINGS_CSS}</style>{banner}<form method="post" enctype="multipart/form-data" class="settings">
 <input type="hidden" name="tab" value="kosten">
 <div class="stabs" role="tablist">{tabs}</div>
 {panes_html}
@@ -2865,6 +2958,7 @@ SETTINGS_CSS = """
 .frow .flbl{font-weight:600}
 .frow .fhint{grid-column:2;font-size:12px;line-height:1.4}
 .frow select{width:100%;max-width:340px}
+.mwork{display:inline-flex;align-items:center;gap:6px;font-size:13.5px;font-weight:600;color:var(--muted);margin-left:12px;white-space:nowrap}
 .fctl{display:flex;gap:8px;align-items:center;flex-wrap:wrap;min-width:0}
 .fctl .mname{flex:1 1 160px;min-width:0;max-width:260px}
 .fbox.inline{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px 16px;padding:12px 14px}
@@ -3002,7 +3096,8 @@ def csv_rows(store: Store, f: dict[str, str | None]) -> list[list[Any]]:
     mg = margins(store)
     at = header.index(t("Gesamt €")) + 1
     header[at:at] = [f"{n} +{fmt_input(p)} % €" for n, p in mg]
-    header += [t("Endpreis €"), t("Zu zahlen €"), t("Bezahlt €"), t("Übergeben Stück"), t("Gehört zu Projekt"), t("Aufteilung")]
+    header += [t("Endpreis €"), t("Zu zahlen €"), t("Bezahlt €"), t("Übergeben Stück"), t("Gehört zu Projekt"), t("Aufteilung"),
+               t("Zubehör €"), t("Zubehör"), t("Arbeit min"), t("Design min"), t("Arbeit + Design €"), t("Montiert Stück")]
     out: list[list[Any]] = [header]
     q = db_filters(f)
     codes = {p["id"]: code_label(p.get("code")) for p in store.projects(limit=100000)}
@@ -3027,10 +3122,12 @@ def csv_rows(store: Store, f: dict[str, str | None]) -> list[list[Any]]:
             j["id"], code_label(j.get("code")), j["task_name"], names.get(j["printer"], j["printer"]), j.get("customer_name"),
             j.get("quantity"), fmt_ts(j["start_ts"]), fmt_ts(j["end_ts"]),
             round(dur, 2) if dur else None, t(_status_of(j)), j["progress"], grams, mats, j["kwh"],
-            j["cost"], j.get("cost_filament"), j.get("cost_printer"), j.get("cost_total"), *[round(_price(j, p), 2) if _price(j, p) is not None else None for _, p in mg],
+            j["cost"], j.get("cost_filament"), j.get("cost_printer"), j.get("cost_total"), *[round(mprice(j, m), 2) if mprice(j, m) is not None else None for m in mg],
             t("ja") if j.get("is_scrap") else t("nein"), defect_label(j, icon=False) if j.get("is_scrap") else None,
             (charge_text(j) or t("nicht berechnet")) if j.get("is_scrap") else None, j.get("project_title"), j.get("project_url"), j.get("local_path"), j.get("job_note"),
             j.get("final_price"), due, paid, delivered, codes.get(j.get("project_id") or 0), split,
+            j.get("cost_extras"), _extras.csv_extras(store, j) or None,
+            round(sum(_extras.work_minutes(j)[:2]), 1) or None, j.get("design_min"), j.get("cost_work"), j.get("mounted"),
         ])
     return out
 
@@ -3200,3 +3297,4 @@ DATA_CSS = """
 
 
 from . import split as _split  # noqa: E402  (nutzt Helfer aus diesem Modul)
+from . import extras as _extras  # noqa: E402

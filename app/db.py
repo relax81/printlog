@@ -114,6 +114,32 @@ CREATE TABLE IF NOT EXISTS trash (
     deleted_ts  REAL NOT NULL,
     data        TEXT NOT NULL
 );
+-- Zubehör-Inventar (Ringe, Ketten, Magnete …): Preis pro Stück und Bestand
+CREATE TABLE IF NOT EXISTS accessories (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL,
+    icon        TEXT,                     -- Emoji
+    grp         TEXT,                     -- Gruppe, z. B. "Magnete"
+    pack_qty    REAL,                     -- Stück pro Packung
+    pack_price  REAL,                     -- Packungspreis in €
+    unit_price  REAL,                     -- € pro Stück (gemittelt über die Zugänge)
+    stock       REAL NOT NULL DEFAULT 0,  -- Bestand (verbrauchtes Zubehör ist schon abgezogen)
+    warn_at     REAL,                     -- Hinweis „bald nachkaufen“ ab diesem Bestand
+    url         TEXT,                     -- Kauflink
+    created_at  REAL NOT NULL
+);
+-- Zubehör und einmalige Posten an einem Druck/Projekt
+CREATE TABLE IF NOT EXISTS job_extras (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id       INTEGER NOT NULL,
+    accessory_id INTEGER,                 -- NULL = einmaliger Posten (Freitext)
+    name         TEXT,                    -- Name (Freitext oder Kopie aus dem Inventar)
+    qty          REAL NOT NULL DEFAULT 1, -- Menge pro Stück bzw. einmalig
+    per_piece    INTEGER NOT NULL DEFAULT 1, -- 1 = Menge × Stückzahl
+    unit_price   REAL,                    -- € pro Stück, beim Zuordnen festgehalten
+    used         REAL NOT NULL DEFAULT 0  -- schon vom Bestand abgebucht (montiert)
+);
+CREATE INDEX IF NOT EXISTS idx_job_extras_job ON job_extras(job_id);
 CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT
@@ -182,6 +208,15 @@ class Store:
         "share_of": "INTEGER",        # Anteil (kind='share'): ID des aufgeteilten Drucks bzw. Projekts
         "share_part": "INTEGER",      # Anteil mit Einzelteilen eines Projekts: ID des Drucks im Projekt
         "share_kind": "TEXT",         # Anteil: split (beim Aufteilen) | stock (aus dem Vorrat) | out (ausgebucht)
+        "prep_min": "REAL",           # Arbeitszeit Vorbereitung in Minuten (pro Platte/Druckjob)
+        "post_min": "REAL",           # Nachbearbeitung in Minuten (pro Stück oder einmalig, siehe post_once)
+        "post_once": "INTEGER",       # 1 = Nachbearbeitung einmalig, sonst pro Stück
+        "design_min": "REAL",         # Designzeit in Minuten (eigener Stundensatz)
+        "cost_extras": "REAL",        # Zubehör und einmalige Posten in € (stecken in cost_total)
+        "cost_work": "REAL",          # Arbeit + Design in € (nicht in cost_total, kommt nach der Marge dazu)
+        "cost_design": "REAL",        # davon Design in €
+        "bill_work": "REAL",          # Projekt/Anteil: Arbeit für den Preis (ohne unberechnete Fehldrucke)
+        "mounted": "INTEGER",         # montierte Stück: so viel Zubehör ist verbraucht
     }
 
     # Echter Druck (keine Projekt-Zeile): nur diese zählen in Statistik, Kosten-Kacheln, Kalender.
@@ -203,8 +238,11 @@ class Store:
                        f"AND NOT {NOBILL_SQL} AND jobs.project_id IS NULL AND {UNSPLIT_SQL})")
 
     # Normaler Preis: Endpreis, sonst Kosten + Kundenmarge.
-    BASE_DUE_SQL = ("COALESCE(jobs.final_price, COALESCE(jobs.bill_base, jobs.cost_total) * (1 + COALESCE("
-                    "(SELECT c.margin_pct FROM customers c WHERE c.id = jobs.customer_id), 0) / 100.0))")
+    # Arbeit (cost_work) bekommt die Marge nur, wenn der Kunde „Marge auch auf Arbeitszeit“ hat.
+    WORK_SQL = "COALESCE(jobs.bill_work, jobs.cost_work, 0)"
+    WORK_ON_SQL = "COALESCE((SELECT cw.work_margin FROM customers cw WHERE cw.id = jobs.customer_id), 0)"
+    BASE_DUE_SQL = (f"COALESCE(jobs.final_price, (COALESCE(jobs.bill_base, jobs.cost_total) + {WORK_SQL} * {WORK_ON_SQL}) * (1 + COALESCE("
+                    f"(SELECT c.margin_pct FROM customers c WHERE c.id = jobs.customer_id), 0) / 100.0) + {WORK_SQL} * (1 - {WORK_ON_SQL}))")
     # Zu zahlen: normaler Preis, bei einem berechneten Fehldruck anteilig bzw. fester Betrag. Gezahlt: Summe der Zahlungen.
     DUE_SQL = (f"(CASE WHEN {SCRAP_SQL} = 1 AND jobs.defect_charge = 'pct' THEN {BASE_DUE_SQL} * COALESCE(jobs.defect_value, 0) / 100.0 "
                f"WHEN {SCRAP_SQL} = 1 AND jobs.defect_charge = 'amount' THEN COALESCE(jobs.defect_value, 0) ELSE {BASE_DUE_SQL} END)")
@@ -241,6 +279,9 @@ class Store:
         if "no_billing" not in have:
             # 1 = keine Abrechnung (z. B. Eigenbedarf): keine Zahlungen/Übergaben, Kosten zählen weiter
             self._conn.execute("ALTER TABLE customers ADD COLUMN no_billing INTEGER")
+        if "work_margin" not in have:
+            # Marge auch auf Arbeitszeit: 1 an, 0 aus, NULL = Standard (aus)
+            self._conn.execute("ALTER TABLE customers ADD COLUMN work_margin INTEGER")
         self._conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_jobs_code ON jobs(code)")
         self._conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_project ON jobs(project_id)")
         self._conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_share ON jobs(share_of)")
@@ -411,7 +452,7 @@ class Store:
         files = [p["file"] for p in self.photos(job_id)] + ([image] if image else [])
         with self._lock, self._conn:
             for jid in [job_id] + [sh["id"] for sh in data.get("_shares") or []]:
-                for table in ("handovers", "payments", "photos"):
+                for table in ("handovers", "payments", "photos", "job_extras"):
                     self._conn.execute(f"DELETE FROM {table} WHERE job_id = ?", (jid,))
             self._conn.execute("DELETE FROM trash WHERE id = ?", (job_id,))
         return files
@@ -446,7 +487,7 @@ class Store:
             return out
         marks = ", ".join("?" for _ in project_ids)
         rows = self._conn.execute(
-            f"SELECT jobs.*, customers.name AS customer_name, customers.margin_pct AS customer_margin, COALESCE(customers.no_billing, 0) AS customer_nobill, "
+            f"SELECT jobs.*, customers.name AS customer_name, customers.margin_pct AS customer_margin, customers.work_margin AS customer_work, COALESCE(customers.no_billing, 0) AS customer_nobill, "
             f"{Store.SCRAP_SQL} AS is_scrap, {Store.DELIVERED_SQL} AS delivered, {Store.PAID_SQL} AS paid FROM jobs "
             f"LEFT JOIN customers ON customers.id = jobs.customer_id WHERE jobs.project_id IN ({marks}) "
             "ORDER BY jobs.start_ts, jobs.id", project_ids).fetchall()
@@ -583,7 +624,7 @@ class Store:
     def refresh_project(self, project_id: int) -> None:
         """Summen eines Projekts aus seinen Drucken neu berechnen (Kosten, Zeitraum, Bild, Preisbasis)."""
         proj = self._conn.execute(
-            "SELECT jobs.*, customers.margin_pct AS customer_margin FROM jobs LEFT JOIN customers ON customers.id = jobs.customer_id "
+            "SELECT jobs.*, customers.margin_pct AS customer_margin, customers.work_margin AS customer_work FROM jobs LEFT JOIN customers ON customers.id = jobs.customer_id "
             "WHERE jobs.id = ? AND jobs.kind = 'project'", (project_id,)).fetchone()
         if not proj:
             return
@@ -597,13 +638,19 @@ class Store:
             return round(sum(vals), 4) if vals else None
 
         margin = 1 + (proj["customer_margin"] or 0) / 100
-        base = 0.0
+        # Eigenes Zubehör und eigene Arbeit des Projekts (z. B. Montage des ganzen Satzes) kommen dazu.
+        own_extras = proj["cost_extras"] or 0.0
+        own_work = proj["cost_work"] or 0.0
+        base, work = own_extras, own_work
         for k in kids:
             c = k["cost_total"] or 0.0
+            w = k.get("cost_work") or 0.0
             if not k["is_scrap"] or k.get("defect_charge") == "full":
                 base += c
+                work += w
             elif k.get("defect_charge") == "pct":
                 base += c * (k.get("defect_value") or 0) / 100
+                work += w * (k.get("defect_value") or 0) / 100
             elif k.get("defect_charge") == "amount":
                 base += (k.get("defect_value") or 0) / margin
         running = any(k["state"] != "done" for k in kids)
@@ -615,10 +662,13 @@ class Store:
             "image": next((k["image"] for k in kids if k["image"] and not k["is_scrap"]), None)
                      or next((k["image"] for k in kids if k["image"]), None),
             "kwh": total("kwh"), "cost": total("cost"), "cost_filament": total("cost_filament"),
-            "cost_printer": total("cost_printer"), "cost_total": total("cost_total"),
+            "cost_printer": total("cost_printer"),
+            "cost_total": None if total("cost_total") is None and not own_extras else round((total("cost_total") or 0) + own_extras, 4),
             "filament_g": round(sum((k["filament_g"] if k["filament_g"] is not None else k["weight_g"] or 0) for k in kids), 2),
-            "bill_base": round(base, 4) if total("cost_total") is not None else None,
+            "bill_base": round(base, 4) if total("cost_total") is not None or own_extras else None,
+            "bill_work": round(work, 4) if work else None,
         }
+        # cost_work des Projekts bleibt die eigene Arbeit; bill_work = eigene + berechnete Arbeit der Drucke.
         sets = ", ".join(f"{k} = ?" for k in fields)
         with self._lock, self._conn:
             self._conn.execute(f"UPDATE jobs SET {sets} WHERE id = ?", [*fields.values(), project_id])
@@ -648,7 +698,7 @@ class Store:
             return out
         marks = ", ".join("?" for _ in parent_ids)
         rows = self._conn.execute(
-            f"SELECT jobs.*, customers.name AS customer_name, customers.margin_pct AS customer_margin, COALESCE(customers.no_billing, 0) AS customer_nobill, "
+            f"SELECT jobs.*, customers.name AS customer_name, customers.margin_pct AS customer_margin, customers.work_margin AS customer_work, COALESCE(customers.no_billing, 0) AS customer_nobill, "
             f"{Store.SCRAP_SQL} AS is_scrap, {Store.DELIVERED_SQL} AS delivered, {Store.PAID_SQL} AS paid, "
             "(SELECT p.task_name FROM jobs p WHERE p.id = jobs.project_id) AS project_name, "
             "(SELECT p.code FROM jobs p WHERE p.id = jobs.project_id) AS project_code FROM jobs "
@@ -688,9 +738,12 @@ class Store:
                 unit, grams = self._unit(src, sets=src is parent and parent.get("kind") == "project")
                 q = r["quantity"] or 1
                 cost = None if unit is None else round(unit * q, 4)
+                sets = src is parent and parent.get("kind") == "project"
+                w_src = src.get("bill_work") if sets and src.get("bill_work") is not None else src.get("cost_work")
+                work = round((w_src or 0) / (src.get("quantity") or 1) * q, 4) if w_src else None
                 self._conn.execute(
-                    "UPDATE jobs SET task_name = ?, image = ?, cost_total = ?, bill_base = ?, filament_g = ? WHERE id = ?",
-                    (name, image, cost, cost, None if grams is None else round(grams * q, 2), r["id"]))
+                    "UPDATE jobs SET task_name = ?, image = ?, cost_total = ?, bill_base = ?, filament_g = ?, cost_work = ?, bill_work = ? WHERE id = ?",
+                    (name, image, cost, cost, None if grams is None else round(grams * q, 2), work, work, r["id"]))
                 if r["share_kind"] == "project":
                     # Stück für ein Projekt: wie ein eigener Druck mit anteiligen Werten (Projekt summiert sie)
                     self._conn.execute(
@@ -962,7 +1015,7 @@ class Store:
 
     def get(self, job_id: int) -> dict[str, Any] | None:
         row = self._conn.execute(
-            f"SELECT jobs.*, customers.name AS customer_name, customers.margin_pct AS customer_margin, COALESCE(customers.no_billing, 0) AS customer_nobill, "
+            f"SELECT jobs.*, customers.name AS customer_name, customers.margin_pct AS customer_margin, customers.work_margin AS customer_work, COALESCE(customers.no_billing, 0) AS customer_nobill, "
             f"{Store.SCRAP_SQL} AS is_scrap, {Store.DELIVERED_SQL} AS delivered, {Store.PAID_SQL} AS paid FROM jobs LEFT JOIN customers ON customers.id = jobs.customer_id "
             "WHERE jobs.id = ?", (job_id,)).fetchone()
         return dict(row) if row else None
@@ -1025,7 +1078,7 @@ class Store:
     def list_jobs(self, limit: int = 500, offset: int = 0, **filters: Any) -> list[dict[str, Any]]:
         where, args = self._filters(**filters)
         rows = self._conn.execute(
-            f"SELECT jobs.*, customers.name AS customer_name, customers.margin_pct AS customer_margin, COALESCE(customers.no_billing, 0) AS customer_nobill, "
+            f"SELECT jobs.*, customers.name AS customer_name, customers.margin_pct AS customer_margin, customers.work_margin AS customer_work, COALESCE(customers.no_billing, 0) AS customer_nobill, "
             f"{Store.SCRAP_SQL} AS is_scrap, {Store.DELIVERED_SQL} AS delivered, {Store.PAID_SQL} AS paid FROM jobs "
             f"LEFT JOIN customers ON customers.id = jobs.customer_id {where} "
             "ORDER BY start_ts DESC, jobs.id DESC LIMIT ? OFFSET ?",
@@ -1209,18 +1262,19 @@ class Store:
         return {r["customer_id"]: dict(r) for r in rows}
 
     def save_customer(self, customer_id: int | None, name: str, contact: str | None,
-                      note: str | None, margin_pct: float | None = None, no_billing: bool = False) -> int:
+                      note: str | None, margin_pct: float | None = None, no_billing: bool = False,
+                      work_margin: int | None = None) -> int:
         nb = 1 if no_billing else None
         with self._lock, self._conn:
             if customer_id:
                 self._conn.execute(
-                    "UPDATE customers SET name = ?, contact = ?, note = ?, margin_pct = ?, no_billing = ? WHERE id = ?",
-                    (name, contact, note, margin_pct, nb, customer_id),
+                    "UPDATE customers SET name = ?, contact = ?, note = ?, margin_pct = ?, no_billing = ?, work_margin = ? WHERE id = ?",
+                    (name, contact, note, margin_pct, nb, work_margin, customer_id),
                 )
                 return customer_id
             cur = self._conn.execute(
-                "INSERT INTO customers (name, contact, note, margin_pct, no_billing, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-                (name, contact, note, margin_pct, nb, time.time()),
+                "INSERT INTO customers (name, contact, note, margin_pct, no_billing, work_margin, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (name, contact, note, margin_pct, nb, work_margin, time.time()),
             )
             return int(cur.lastrowid)
 
@@ -1489,8 +1543,8 @@ class Store:
 
     # ---- Datensicherung: Einspielen und Zurücksetzen ------------------------
 
-    HISTORY_TABLES = ("jobs", "photos", "handovers", "payments", "trash")
-    SETTINGS_TABLES = ("customers", "printer_rates", "material_prices", "settings")
+    HISTORY_TABLES = ("jobs", "photos", "handovers", "payments", "trash", "job_extras")
+    SETTINGS_TABLES = ("customers", "printer_rates", "material_prices", "settings", "accessories")
     # Bleiben beim Zurücksetzen/Einspielen erhalten: Sprache der Oberfläche und der
     # Zeitpunkt der letzten HA-Verbindung (sonst holt printlog alte Drucke aus dem Verlauf nach).
     KEEP_SETTINGS = ("language", "ha_seen_ts")

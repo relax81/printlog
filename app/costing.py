@@ -124,6 +124,10 @@ def compute(job: dict[str, Any], store: Store) -> dict[str, Any]:
         filament_g = round(job["weight_g"] * factor, 2)
 
     parts = [c for c in (job.get("cost"), cost_printer, cost_filament) if c is not None]
+    # Zubehör und einmalige Posten (extras.refresh legt cost_extras fest) zählen zu den Kosten.
+    extras = job.get("cost_extras")
+    if extras:
+        parts.append(extras)
     return {
         "cost_printer": cost_printer,
         "cost_filament": cost_filament,
@@ -133,6 +137,9 @@ def compute(job: dict[str, Any], store: Store) -> dict[str, Any]:
 
 
 def recompute_all(store: Store) -> int:
+    from .extras import refresh_all
+
+    refresh_all(store)
     jobs = store.done_jobs()
     for job in jobs:
         store.update(job["id"], **compute(job, store))

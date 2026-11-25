@@ -18,6 +18,7 @@ from urllib.parse import quote, urlencode
 from aiohttp import web
 
 from . import archive
+from . import extras as zk
 from .costing import compute, parse_materials, recompute_all
 from .db import Store
 from .defects import DEFECTS
@@ -239,7 +240,8 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
         if not job:
             raise web.HTTPNotFound(text=t("Druck nicht gefunden"))
         kind = request.match_info["kind"]
-        data = collect(store, job, image_dir, status=request.query.get("status") != "0")
+        data = collect(store, job, image_dir, status=request.query.get("status") != "0",
+                       positions=request.query.get("pos") == "1")
         if kind in ("bon-kunde.png", "bon-intern.png"):
             variant = kind[4:-4]
             body = await in_thread(bon_png, data, variant)
@@ -272,6 +274,7 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
             str(form.get("note") or "").strip() or None,
             parse_num(form.get("margin_pct")),
             str(form.get("no_billing") or "") == "1",
+            {"1": 1, "0": 0}.get(str(form.get("work_margin") or "")),
         )
         raise web.HTTPSeeOther("customers?saved=1")
 
@@ -305,6 +308,9 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
             store.set_setting(f"margin{i}_name", str(form.get(f"margin{i}_name") or "").strip() or None)
             pct = parse_num(form.get(f"margin{i}_pct"))
             store.set_setting(f"margin{i}_pct", None if pct is None else f"{pct:g}")
+            if f"margin{i}_name" in form:
+                store.set_setting(f"margin{i}_work", "1" if form.get(f"margin{i}_work") else None)
+        zk.save_settings(store, form)
         days = str(form.get("trash_days") or "").strip()
         if days.isdigit() and 1 <= int(days) <= 3650:
             store.set_setting("trash_days", days)
@@ -606,6 +612,10 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
             store.set_reprint(job_id, int(rv) if rv.isdigit() else None)
         if fields:
             store.update(job_id, **fields)
+            if "quantity" in fields:
+                # Zubehör pro Stück und Nachbearbeitung hängen an der Stückzahl
+                zk.sync_stock(store, job_id)
+                zk.refresh(store, job_id)
         if request.query.get("redirect"):
             tab = "#ab" if request.query.get("redirect") == "ab" else ""
             raise web.HTTPSeeOther(f"../../job?id={job_id}&saved=1{tab}")
@@ -629,6 +639,7 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
             ts = _day_ts(str(form.get("date") or ""))
             if qty > 0:
                 store.add_handover(job_id, qty, ts, str(form.get("note") or "").strip() or None)
+                zk.on_delivered(store, job_id)
         if request.query.get("redirect"):
             raise web.HTTPSeeOther(f"../../../job?id={job_id}#ab")
         job = store.get(job_id) or job
@@ -654,6 +665,63 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
         if request.query.get("redirect"):
             raise web.HTTPSeeOther(f"../../../job?id={job_id}#ab")
         return web.json_response({"ok": True})
+
+    @routes.post("/api/jobs/{job_id:\\d+}/work")
+    async def api_work(request: web.Request) -> web.Response:
+        """Arbeitszeit: field = prep_min | post_min | design_min | post_once, value oder delta (Minuten)."""
+        job_id = _job_id(request)
+        job = store.get(job_id)
+        if not job:
+            raise web.HTTPNotFound()
+        form = await request.post()
+        fld = str(form.get("field") or "")
+        if fld == "post_once":
+            store.update(job_id, post_once=1 if str(form.get("value")) == "1" else None)
+        elif fld in ("prep_min", "post_min", "design_min"):
+            delta = parse_num(form.get("delta"))
+            val = (job.get(fld) or 0) + delta if delta is not None else parse_num(form.get("value"))
+            store.update(job_id, **{fld: None if not val or val <= 0 else round(val, 2)})
+        zk.refresh(store, job_id)
+        raise web.HTTPSeeOther(f"../../../job?id={job_id}#zk")
+
+    @routes.post("/api/jobs/{job_id:\\d+}/extras")
+    async def api_extras(request: web.Request) -> web.Response:
+        """Zubehör: add = JSON [[Inventar-ID, Menge pro Stück], …] | name + amount (einmaliger Posten)
+        | extra + qty (Menge ändern, 0 = entfernen) | copy = Druck-ID (Arbeit und Zubehör übernehmen)."""
+        job_id = _job_id(request)
+        if not store.get(job_id):
+            raise web.HTTPNotFound()
+        form = await request.post()
+        if str(form.get("add") or "").startswith("["):
+            try:
+                items = json.loads(str(form["add"]))
+            except ValueError:
+                items = []
+            for it in items[:50]:
+                if isinstance(it, list) and len(it) == 2 and str(it[0]).isdigit():
+                    qty = parse_num(it[1]) or 0
+                    if qty > 0:
+                        zk.add_extra(store, job_id, int(it[0]), qty, True)
+        elif str(form.get("name") or "").strip():
+            amount = parse_num(form.get("amount"))
+            if amount is not None and amount >= 0:
+                zk.add_extra(store, job_id, None, 1, False, str(form["name"]), round(amount, 2))
+        elif str(form.get("extra") or "").isdigit():
+            qty = parse_num(form.get("qty")) or 0
+            zk.set_extra_qty(store, int(str(form["extra"])), qty)
+        elif str(form.get("copy") or "").isdigit():
+            zk.copy_from(store, job_id, int(str(form["copy"])))
+        raise web.HTTPSeeOther(f"../../../job?id={job_id}#zk")
+
+    @routes.post("/api/jobs/{job_id:\\d+}/mounted")
+    async def api_mounted(request: web.Request) -> web.Response:
+        job_id = _job_id(request)
+        if not store.get(job_id):
+            raise web.HTTPNotFound()
+        form = await request.post()
+        raw = str(form.get("mounted") or "0")
+        zk.set_mounted(store, job_id, int(raw) if raw.isdigit() else 0)
+        raise web.HTTPSeeOther(f"../../../job?id={job_id}#zk")
 
     @routes.post("/api/payments/{pid:\\d+}/delete")
     async def api_payment_delete(request: web.Request) -> web.Response:
