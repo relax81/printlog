@@ -335,7 +335,7 @@ def page_calendar(store: Store, month: str | None) -> str:
 
     since = datetime.combine(grid_start, datetime.min.time()).timestamp()
     until = datetime.combine(grid_end + timedelta(days=1), datetime.min.time()).timestamp()
-    jobs = store.list_jobs(limit=5000, since=since, until=until)
+    jobs = store.list_jobs(limit=5000, since=since, until=until, real="1")
     photos = store.first_photos([j["id"] for j in jobs])
     by_day: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for j in jobs:

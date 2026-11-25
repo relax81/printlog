@@ -139,4 +139,5 @@ def recompute_all(store: Store) -> int:
     jobs = store.done_jobs()
     for job in jobs:
         store.update(job["id"], **compute(job, store))
+    store.refresh_projects()
     return len(jobs)

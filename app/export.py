@@ -26,7 +26,7 @@ from .costing import hourly_rate, material_notes, parse_materials
 from .db import Store, code_label
 from .defects import apply_charge, charge_src, charge_text, charged, defect_label, no_charge
 from .i18n import N_, note as t_note, t
-from .pages import _short, _status_of, margins
+from .pages import _short, _status_of, fmt_hours, margins, price_base, print_hours, printers_of
 from .ui import STATIC_DIR, bon_tagline, fmt_date, fmt_dur, fmt_input, fmt_num, printer_names
 
 VARIANTS = ("kunde", "intern")
@@ -98,7 +98,10 @@ def collect(store: Store, job: dict[str, Any], image_dir: Path, status: bool = T
     """
     qty = job.get("quantity") or 1
     cost = job.get("cost_total")
+    pbase = price_base(job)  # beim Projekt ohne unberechnete Fehldrucke
     has_customer = bool(job.get("customer_id"))
+    project = job.get("kind") == "project"
+    kids = store.children([job["id"]]).get(job["id"], []) if project else []
     cm = job.get("customer_margin")
     general = margins(store)
 
@@ -107,17 +110,17 @@ def collect(store: Store, job: dict[str, Any], image_dir: Path, status: bool = T
         prices.append({"name": f'{t("Kunde")} {job.get("customer_name") or ""}'.strip(), "pct": cm, "customer": True})
     prices += [{"name": n, "pct": p, "customer": False} for n, p in general]
     for p in prices:
-        p["price"] = None if cost is None else cost * (1 + p["pct"] / 100)
+        p["price"] = None if pbase is None else pbase * (1 + p["pct"] / 100)
 
     # Was der Kunde zahlt: Endpreis, sonst Kundenpreis. Ohne Kunde die erste allgemeine Marge.
     if job.get("final_price") is not None:
         due, src = job["final_price"], t("Endpreis")
-    elif cm is not None and cost is not None:
-        due, src = cost * (1 + cm / 100), t("Kosten + {p} % Kundenmarge", p=fmt_input(cm))
-    elif not has_customer and general and cost is not None:
-        due, src = cost * (1 + general[0][1] / 100), t("Kosten + {p} % ({name})", p=fmt_input(general[0][1]), name=general[0][0])
+    elif cm is not None and pbase is not None:
+        due, src = pbase * (1 + cm / 100), t("Kosten + {p} % Kundenmarge", p=fmt_input(cm))
+    elif not has_customer and general and pbase is not None:
+        due, src = pbase * (1 + general[0][1] / 100), t("Kosten + {p} % ({name})", p=fmt_input(general[0][1]), name=general[0][0])
     else:
-        due, src = cost, t("Selbstkosten")
+        due, src = pbase, t("Selbstkosten")
     gift = bool(job.get("gift"))
     scrap = bool(job.get("is_scrap"))
     # Fehldruck: anteilig/fester Betrag/voll berechnen oder (ohne Berechnung) nichts
@@ -138,22 +141,44 @@ def collect(store: Store, job: dict[str, Any], image_dir: Path, status: bool = T
     if job.get("status") == "abgebrochen" and job.get("progress") is not None:
         factor = max(0.0, min(1.0, job["progress"] / 100.0))
     mprices = store.material_prices()
-    materials = []
-    notes = material_notes(job)
-    for i, m in enumerate(parse_materials(job.get("materials"))):
-        m["note"] = notes.get(i)
-        eur_kg = (mprices.get(m["name"] or "") or mprices.get(m["type"] or "") or {}).get("eur_per_kg")
-        g = (m["grams"] or 0) * factor
-        materials.append({**m, "grams_used": g, "eur_kg": eur_kg, "cost": None if eur_kg is None else g / 1000 * eur_kg})
+    materials: list[dict[str, Any]] = []
+    for src_job in kids or [job]:
+        f = factor
+        if project:
+            f = max(0.0, min(1.0, (src_job.get("progress") or 0) / 100.0)) \
+                if src_job.get("status") == "abgebrochen" and src_job.get("progress") is not None else 1.0
+        notes = material_notes(src_job)
+        for i, m in enumerate(parse_materials(src_job.get("materials"))):
+            m["note"] = notes.get(i)
+            eur_kg = (mprices.get(m["name"] or "") or mprices.get(m["type"] or "") or {}).get("eur_per_kg")
+            g = (m["grams"] or 0) * f
+            same = next((x for x in materials if project and (x["name"], x.get("color"), x["note"]) == (m["name"], m.get("color"), m["note"])), None)
+            if same:  # Projekt: gleiche Filamente der Drucke zusammenzählen
+                same["grams_used"] += g
+                same["cost"] = None if eur_kg is None else same["grams_used"] / 1000 * eur_kg
+                continue
+            materials.append({**m, "grams_used": g, "eur_kg": eur_kg, "cost": None if eur_kg is None else g / 1000 * eur_kg})
+    if project:
+        for m in materials:
+            m["slot"] = None
 
-    rate = hourly_rate(store.printer_rates().get(job["printer"]))
+    rate = hourly_rate(store.printer_rates().get(job["printer"])) if not project else None
     photos = store.photos(job["id"])
-    photo = None
-    for name in [p["file"] for p in photos] + ([job["image"]] if job.get("image") else []):
+    photo: Any = None
+    for name in [p["file"] for p in photos] + ([job["image"]] if job.get("image") and not project else []):
         path = image_dir / name
         if path.exists() and path.suffix.lower() not in (".heic", ".heif"):
             photo = path
             break
+    if photo is None and kids:
+        photo = _mosaic(image_dir, kids)
+    names = printer_names(store)
+    parts = [{"name": k.get("task_name") or t("Druck"), "ref": code_label(k.get("code")) or t("Nr. {id}", id=k["id"]),
+              "printer": names.get(k["printer"], k.get("printer_name") or k["printer"]), "start": k.get("start_ts"),
+              "dur": fmt_dur(k.get("start_ts"), k.get("end_ts")), "qty": k.get("quantity") or 1, "cost": k.get("cost_total"),
+              "scrap": bool(k.get("is_scrap")), "nocharge": no_charge(k),
+              "charge": charge_text(k) if k.get("is_scrap") and not no_charge(k) else "",
+              "grams": k["filament_g"] if k.get("filament_g") is not None else k.get("weight_g")} for k in kids]
 
     grams = job["filament_g"] if job.get("filament_g") is not None else job.get("weight_g")
     return {
@@ -185,11 +210,45 @@ def collect(store: Store, job: dict[str, Any], image_dir: Path, status: bool = T
         "materials": materials,
         "grams": grams,
         "rate": rate,
-        "printer": printer_names(store).get(job["printer"], job["printer"]),
+        "printer": printers_of(kids, names) if project else names.get(job["printer"], job["printer"]),
+        "project": project,
+        "parts": parts,
+        "hours": print_hours(kids) if project else None,
+        "pbase": pbase,
         "status": _status_of(job),
         "photo": photo,
         "profit": None if (cost is None or due is None or gift or nobill) else due - cost,
     }
+
+
+def _mosaic(image_dir: Path, kids: list[dict[str, Any]]) -> io.BytesIO | None:
+    """Bild eines Projekts ohne eigenes Foto: bis zu vier Vorschaubilder seiner Drucke im Raster."""
+    files = []
+    for k in sorted(kids, key=lambda k: bool(k.get("is_scrap"))):
+        for name in [k.get("image")]:
+            if name and (image_dir / name).exists() and name not in files:
+                files.append(name)
+    files = files[:4]
+    if not files:
+        return None
+    n = 1 if len(files) == 1 else 2
+    cell, gap = 400, 16
+    size = n * cell + (n - 1) * gap
+    out = Image.new("RGB", (size, size if len(files) > 2 or n == 1 else cell), (233, 226, 212))
+    for i, name in enumerate(files):
+        try:
+            with Image.open(image_dir / name) as src:
+                im = ImageOps.exif_transpose(src).convert("RGBA")
+        except OSError:
+            continue
+        im.thumbnail((cell, cell), Image.LANCZOS)
+        tile = Image.new("RGBA", (cell, cell), (244, 240, 232, 255))
+        tile.alpha_composite(im, ((cell - im.width) // 2, (cell - im.height) // 2))
+        out.paste(tile.convert("RGB"), ((i % n) * (cell + gap), (i // n) * (cell + gap)))
+    buf = io.BytesIO()
+    out.save(buf, "PNG")
+    buf.seek(0)
+    return buf
 
 
 # ---- Bon (PNG) ----------------------------------------------------------------
@@ -455,6 +514,9 @@ def bon_png(data: dict[str, Any], variant: str) -> bytes:
     b.dashed(18)
     b.photo(data["photo"])
     b.center(job.get("task_name") or t("Druck"), _font("sans-b", 44), spacing=10, max_lines=3)
+    if data["project"]:
+        b.gap(2)
+        b.center(t("Projekt aus {n} Drucken", n=len(data["parts"])), f_small, MUTED, max_lines=1)
     if job.get("project_title") and job["project_title"] != job.get("task_name"):
         b.gap(2)
         b.center(job["project_title"], f_small, MUTED, max_lines=2)
@@ -467,6 +529,15 @@ def bon_png(data: dict[str, Any], variant: str) -> bytes:
     if qty > 1 and due is not None and not data["gift"]:
         b.row(t("Preis pro Stück"), _eur(due / qty))
 
+    if data["project"] and not intern:
+        b.gap(10)
+        b.section(t("Enthält"))
+        for part in data["parts"]:
+            if part["nocharge"]:
+                continue
+            b.row(part["name"], t("{q} Stk.", q=part["qty"]), size=26)
+            if part["scrap"] and part["charge"]:
+                b.sub(t("Fehldruck – {x}", x=part["charge"]))
     if intern:
         _bon_intern(b, data)
     elif any(m["note"] for m in data["materials"]):
@@ -530,11 +601,25 @@ def _bon_intern(b: _Bon, data: dict[str, Any]) -> None:
     job = data["job"]
     qty = data["qty"]
     b.gap(10)
-    b.section(t("Druck"))
-    b.row(t("Drucker"), data["printer"])
-    b.row(t("Start"), _date(job.get("start_ts"), "ts"))
-    b.row(t("Dauer"), fmt_dur(job.get("start_ts"), job.get("end_ts")))
-    if data["status"] != "fertig":
+    if data["project"]:
+        b.section(t("Projekt"))
+        b.row(t("Drucker"), data["printer"])
+        b.row(t("Start"), _date(job.get("start_ts"), "ts"))
+        b.row(t("Druckzeit"), fmt_hours(data["hours"] or 0))
+        b.gap(10)
+        b.section(t("Drucke"))
+        for part in data["parts"]:
+            b.row(part["name"], _eur(part["cost"]), size=26, fill=MUTED if part["nocharge"] else INK)
+            extra = ""
+            if part["scrap"]:
+                extra = " · " + (t("Fehldruck, nicht berechnet") if part["nocharge"] else t("Fehldruck – {x}", x=part["charge"]))
+            b.sub(f'{part["printer"]} · {part["dur"]} · {t("{q} Stk.", q=part["qty"])}{extra}', 20)
+    else:
+        b.section(t("Druck"))
+        b.row(t("Drucker"), data["printer"])
+        b.row(t("Start"), _date(job.get("start_ts"), "ts"))
+        b.row(t("Dauer"), fmt_dur(job.get("start_ts"), job.get("end_ts")))
+    if data["status"] != "fertig" and not data["project"]:
         b.row(t("Status"), t(data["status"]) + (" " + t("bei {p} %", p=int(job["progress"])) if job.get("status") == "abgebrochen"
                                                 and job.get("progress") is not None else ""))
     if data["scrap"]:
@@ -563,6 +648,9 @@ def _bon_intern(b: _Bon, data: dict[str, Any]) -> None:
     b.row(t("Selbstkosten"), _eur(data["cost"]), bold=True)
     if qty > 1 and data["cost"] is not None:
         b.sub(t("{v} pro Stück", v=_eur(data["cost"] / qty)))
+    if data["pbase"] is not None and data["cost"] is not None and abs(data["pbase"] - data["cost"]) >= 0.005:
+        b.row(t("Basis für Preise"), _eur(data["pbase"]))
+        b.sub(t("ohne unberechnete Fehldrucke"))
 
     if data["prices"] or job.get("final_price") is not None:
         b.gap(10)
@@ -677,7 +765,8 @@ def report_pdf(data: dict[str, Any]) -> bytes:
         head_left.append(P("printl€g", st_title))
     head_left += [Spacer(1, 3 * mm), P(t("Kostenaufstellung · intern"), st_muted), Spacer(1, 6 * mm),
                   P(job.get("task_name") or t("Druck"), st_title)]
-    meta = [t("Druck {ref}", ref=data["ref"]), _date(job.get("end_ts") or job.get("start_ts"))]
+    meta = [t("Projekt {ref}", ref=data["ref"]) if data["project"] else t("Druck {ref}", ref=data["ref"]),
+            _date(job.get("end_ts") or job.get("start_ts"))]
     if data["customer"]:
         meta.insert(0, t("Kunde: {name}", name=data["customer"]))
     head_left.append(P(" · ".join(meta), st_muted))
@@ -690,7 +779,10 @@ def report_pdf(data: dict[str, Any]) -> bytes:
     if data["photo"]:
         try:
             with Image.open(data["photo"]) as src:
-                im = ImageOps.exif_transpose(src).convert("RGB")
+                im = ImageOps.exif_transpose(src).convert("RGBA")
+            bg = Image.new("RGBA", im.size, (255, 255, 255, 255))
+            bg.alpha_composite(im)
+            im = bg.convert("RGB")
             im.thumbnail((900, 900))
             buf = io.BytesIO()
             im.save(buf, "JPEG", quality=85)
@@ -712,7 +804,7 @@ def report_pdf(data: dict[str, Any]) -> bytes:
                                         textColor=accent if strong else ink)),
                 P(sub, st_muted)]
     due = data["due_calc"]
-    tiles = [tile(t("Selbstkosten"), _eur(data["cost"]), t("{v} pro Stück", v=_eur(data["cost"] / qty)) if qty > 1 and data["cost"] is not None else t("für den ganzen Druck")),
+    tiles = [tile(t("Selbstkosten"), _eur(data["cost"]), t("{v} pro Stück", v=_eur(data["cost"] / qty)) if qty > 1 and data["cost"] is not None else t("für das ganze Projekt") if data["project"] else t("für den ganzen Druck")),
              tile(t("Geschenkt") if data["gift"] else t("Wert (keine Abrechnung)") if data["nobill"] else t("Zu zahlen"), _eur(0 if data["gift"] else due),
                   (t("Wert {v}", v=_eur(due)) if data["gift"] else data["due_src"]), True)]
     if data["profit"] is not None:
@@ -741,11 +833,33 @@ def report_pdf(data: dict[str, Any]) -> bytes:
         facts.append((t("Abrechnung"), t("verschenkt")))
     elif data["nobill"]:
         facts.append((t("Abrechnung"), t("keine (Eigenbedarf)")))
+    if data["project"]:
+        facts = [(t("Drucker"), data["printer"]), (t("Status"), t(data["status"])),
+                 (t("Start"), _date(job.get("start_ts"), "ts_long")), (t("Ende"), _date(job.get("end_ts"), "ts_long")),
+                 (t("Druckzeit"), fmt_hours(data["hours"] or 0)), (t("Energie"), fmt_num(job.get("kwh"), 3, "kWh")),
+                 (t("Filament"), fmt_num(data["grams"], 1, "g")), (t("Stückzahl"), t("{q} Stk.", q=qty))]
+        if data["gift"]:
+            facts.append((t("Abrechnung"), t("verschenkt")))
+        elif data["nobill"]:
+            facts.append((t("Abrechnung"), t("keine (Eigenbedarf)")))
     rows = []
     for i in range(0, len(facts), 2):
         pair = facts[i:i + 2] + [("", "")] * (2 - len(facts[i:i + 2]))
         rows.append([P(pair[0][0], st_muted), P(pair[0][1]), P(pair[1][0], st_muted), P(pair[1][1])])
-    story += H(t("Druck")) + [table(rows, [24 * mm, W_ / 2 - 24 * mm, 24 * mm, W_ / 2 - 24 * mm], head=False)]
+    story += H(t("Projekt") if data["project"] else t("Druck")) + [table(rows, [24 * mm, W_ / 2 - 24 * mm, 24 * mm, W_ / 2 - 24 * mm], head=False)]
+
+    if data["project"]:
+        rows = [hrow(t("Druck"), t("Drucker"), t("Start"), t("Dauer"), t("Stück"), t("Kosten"))]
+        for part in data["parts"]:
+            name = escape(part["name"]) + f'<br/><font color="#7a7266" size="8.5">{escape(part["ref"])}'
+            if part["scrap"]:
+                name += " · " + escape(t("Fehldruck, nicht berechnet") if part["nocharge"] else t("Fehldruck – {x}", x=part["charge"]))
+            name += "</font>"
+            rows.append([Paragraph(name, st_body), P(part["printer"]), P(_date(part["start"], "ts") if part["start"] else "–"),
+                         P(part["dur"], st_r), P(part["qty"], st_r), P(_eur(part["cost"]), st_r)])
+        rows.append([P(t("Summe"), ParagraphStyle("ps", parent=st_body, fontName=bold)), P(""), P(""),
+                     P(fmt_hours(data["hours"] or 0), st_rb), P(""), P(_eur(data["cost"]), st_rb)])
+        story += H(t("Drucke im Projekt")) + [table(rows, [W_ - 118 * mm, 24 * mm, 30 * mm, 18 * mm, 16 * mm, 30 * mm], sum_rows=1)]
 
     # Material
     if data["materials"]:
@@ -768,12 +882,15 @@ def report_pdf(data: dict[str, Any]) -> bytes:
     rows = [hrow(t("Posten"), t("Grundlage"), t("Betrag")),
             [P(t("Strom")), P(fmt_num(job.get("kwh"), 3, "kWh") if job.get("kwh") is not None else t("kein Zählerstand"), st_muted), P(_eur(job.get("cost")), st_r)],
             [P(t("Filament")), P(fmt_num(data["grams"], 1, "g") + (" " + t("(anteilig bis zum Abbruch)") if job.get("status") == "abgebrochen" else ""), st_muted), P(_eur(job.get("cost_filament")), st_r)],
-            [P(t("Drucker")), P(t("Abschreibung + Wartung") + (f' · {fmt_dur(job["start_ts"], job["end_ts"])} × {fmt_num(data["rate"], 2, "€")}/h' if data["rate"] and dur_h else ""), st_muted),
+            [P(t("Drucker")), P(t("Abschreibung + Wartung") + (f' · {fmt_dur(job["start_ts"], job["end_ts"])} × {fmt_num(data["rate"], 2, "€")}/h' if data["rate"] and dur_h else
+                                                              f' · {fmt_hours(data["hours"] or 0)}' if data["project"] else ""), st_muted),
              P(_eur(job.get("cost_printer")), st_r)],
             [P(t("Selbstkosten"), ParagraphStyle("sb", parent=st_body, fontName=bold)),
              P(t("{v} pro Stück bei {q} Stück", v=_eur(data["cost"] / qty), q=qty) if qty > 1 and data["cost"] is not None else "", st_muted),
              P(_eur(data["cost"]), st_rb)]]
-    story += H(t("Kosten")) + [table(rows, [34 * mm, W_ - 64 * mm, 30 * mm], sum_rows=1)]
+    if data["pbase"] is not None and data["cost"] is not None and abs(data["pbase"] - data["cost"]) >= 0.005:
+        rows.append([P(t("Basis für Preise")), P(t("ohne unberechnete Fehldrucke"), st_muted), P(_eur(data["pbase"]), st_r)])
+    story += H(t("Kosten")) + [table(rows, [34 * mm, W_ - 64 * mm, 30 * mm], sum_rows=2 if len(rows) > 5 else 1)]
 
     # Preise
     if data["prices"] or job.get("final_price") is not None:
@@ -829,7 +946,8 @@ def report_pdf(data: dict[str, Any]) -> bytes:
                                        [24 * mm, W_ - 24 * mm], head=False)]
 
     created = fmt_date(datetime.now(), "ts_long")
-    foot_left = t("printlog · Druck {ref} · erstellt am {when}", ref=data["ref"], when=created)
+    foot_left = (t("printlog · Projekt {ref} · erstellt am {when}", ref=data["ref"], when=created) if data["project"]
+                 else t("printlog · Druck {ref} · erstellt am {when}", ref=data["ref"], when=created))
     page_label = t("Seite")
 
     def footer(canvas: Any, doc: Any) -> None:

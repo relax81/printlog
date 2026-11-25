@@ -239,6 +239,28 @@ def _defects(store: Store, jobs: list[dict[str, Any]], L: Any, en: bool) -> None
             store.set_reprint(j["id"], later[0]["id"])
 
 
+def _project(store: Store, jobs: list[dict[str, Any]], cust_ids: list[int], skip: set[int], now: float, L: Any,
+             image_dir: Path) -> None:
+    """Ein Beispielprojekt: Werkstatt-Teile für Tom, parallel auf allen drei Druckern gedruckt."""
+    done = [j for j in jobs if j["status"] == "fertig" and not j["scrap"] and j["id"] not in skip
+            and 2 * 86400 < now - j["start"] < 30 * 86400]
+    best: list[dict[str, Any]] = []
+    for a in done:  # spätester Zeitraum von 14 h, in dem alle Drucker etwas gedruckt haben
+        win = [j for j in done if a["start"] <= j["start"] < a["start"] + 14 * 3600]
+        if len({j["printer"]["key"] for j in win}) == len(PRINTERS):
+            best = win[:5]
+    if len(best) < 3:
+        return
+    parts = [("Gridfinity Grundplatte 4x4", 2), ("Gridfinity Box 2x3", 4), ("Lochwand-Werkzeughalter", 6),
+             ("Gridfinity Box 2x3", 4), ("Wandhaken", 4)]
+    for j, (name, qty) in zip(best, parts):
+        o = OBJECTS[_IDX[name]]
+        j["obj"], j["qty"] = o, qty
+        store.update(j["id"], task_name=L(o[:2]), quantity=qty, gift=None, project_url=None, project_title=None, local_path=None)
+        cover(image_dir / f"job_{j['id']}.png", o[2], [_render_color(m["color"]) for m in j["materials"]], qty, j["id"])
+    store.create_project([j["id"] for j in best], name=L(("Werkstatt-Wand", "Workshop wall")), customer_id=cust_ids[1])
+
+
 def seed(store: Store, image_dir: Path, lang: str, now: float | None = None) -> int:
     """Löscht die Demo-Datenbank und legt neue Beispieldaten an. Gibt die Zahl der Drucke zurück."""
     en = lang == "en"
@@ -479,6 +501,8 @@ def seed(store: Store, image_dir: Path, lang: str, now: float | None = None) -> 
         store.trash_job(j["id"])
         with store._lock, store._conn:  # noqa: SLF001 - Löschzeitpunkt für die Demo vordatieren
             store._conn.execute("UPDATE trash SET deleted_ts = ? WHERE id = ?", (now - (2 + 4 * k) * 86400, j["id"]))  # noqa: SLF001
+
+    _project(store, jobs, cust_ids, {j["id"] for j in trash}, now, L, image_dir)
 
     store.set_setting("demo_lang", lang)
     store.set_setting("demo_ts", f"{now:.0f}")
