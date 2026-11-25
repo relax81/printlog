@@ -620,7 +620,7 @@ def page_models(store: Store, q: str | None = None) -> str:
     js = ("document.querySelectorAll('.mmode select').forEach(s=>s.onchange=()=>{s.parentElement.querySelector('.spn').hidden=s.value!=='spread'});"
           "if(location.hash){const el=document.querySelector(location.hash);if(el)el.classList.add('mdhl')}")
     body = f'<h2 style="margin-top:4px">🧩 {e(t("Modelle"))}</h2><p class="muted">{intro} <a href="hints">🔔 {e(t("Hinweise"))}</a></p>{search}<div class="ml">{items}</div>'
-    return layout(t("Modelle"), "", f'<style>{CSS}</style>{body}', js)
+    return layout(t("Modelle"), "models", f'<style>{CSS}</style>{body}', js)
 
 
 def notify_text(hints: list[str]) -> str:

@@ -77,7 +77,7 @@ in a **light and a dark** colour scheme (Settings → View → Colour scheme, or
   image +25, same print file +10, same plate +5, weight per piece within ±15 % +5. From 85 points it assigns the model
   automatically; 60–84 it assigns it tentatively and asks; 35–59 it only suggests one; below that it creates a new model.
   If two models fit almost equally well, it always asks. Your answers are remembered: a confirmed name becomes an alias,
-  a rejected pair is never suggested again. The **Models** page lists every model with its prints and lets you rename,
+  a rejected pair is never suggested again. The **Models** page (top menu) lists every model with its prints and lets you rename,
   merge and remove aliases. On the first start the existing history is sorted into models silently, without questions.
 - **Notices** – a 🔔 bell at the top counts open questions (prints to check, accessories to restock). The **Notices** page
   answers them in one tap (*Yes, model X* / *Other model …* / *New model*); the list shows a coloured dot on such prints
@@ -474,7 +474,7 @@ in **hell und dunkel** (Einstellungen → Ansicht → Farbschema, oder automatis
   +35, sehr ähnliches Vorschaubild +25, gleiche Druckdatei +10, gleiche Platte +5, Gewicht pro Stück ±15 % +5. Ab 85 Punkten
   ordnet es automatisch zu, bei 60–84 vorläufig mit Nachfrage, bei 35–59 macht es nur einen Vorschlag, darunter legt es ein
   neues Modell an. Passen zwei Modelle fast gleich gut, fragt es immer. Deine Antworten merkt es sich: ein bestätigter Name
-  wird Alias, ein abgelehntes Paar wird nie wieder vorgeschlagen. Die Seite **Modelle** zeigt alle Modelle mit ihren Drucken;
+  wird Alias, ein abgelehntes Paar wird nie wieder vorgeschlagen. Die Seite **Modelle** (Menü oben) zeigt alle Modelle mit ihren Drucken;
   dort lassen sie sich umbenennen, zusammenlegen und Aliase entfernen. Beim ersten Start sortiert printlog die vorhandene
   Historie still in Modelle ein, ohne Rückfragen.
 - **Hinweise** – eine 🔔 Glocke oben zählt offene Fragen (Drucke prüfen, Zubehör nachkaufen). Auf der Seite **Hinweise**
