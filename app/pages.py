@@ -2645,7 +2645,6 @@ def page_settings(store: Store, saved: str | None, logo: str | None = None,
     names = printer_names(store)
     rates = store.printer_rates()
     prices = store.material_prices()
-    logged = store.printed_hours_last_year()
 
     def field(key: str, name: str, r: dict[str, Any], placeholder: str, label: str) -> str:
         return (f'<td class="n" data-l="{e(label)}"><input class="num" name="{name}__{e(key)}" value="{fmt_input(r.get(name))}" '
@@ -2655,14 +2654,11 @@ def page_settings(store: Store, saved: str | None, logo: str | None = None,
     for key, name in names.items():
         r = rates.get(key, {})
         rate = hourly_rate(r)
-        hint = (t("bisher {v} h", v=fmt_num(logged[key], 0 if logged[key] >= 10 else 1)) if logged.get(key)
-                else t("z. B. {v}", v=800))
         printer_rows.append(
             f"<tr><td>{e(name)}</td>"
             + field(key, "purchase_eur", r, t("z. B. {v}", v=1299), t("Anschaffung €"))
             + field(key, "life_hours", r, t("z. B. {v}", v=5000), t("Lebensdauer h"))
-            + field(key, "maint_per_year", r, t("z. B. {v}", v=60), t("Wartung €/Jahr"))
-            + field(key, "hours_per_year", r, hint, t("Druckstunden/Jahr"))
+            + field(key, "maint_per_1000h", r, t("z. B. {v}", v=75), t("Wartung €/1000 h"))
             + field(key, "extra_per_hour", r, t("z. B. {v}", v=fmt_input(0.05)), t("Verschleiß €/h"))
             + f'<td class="n" data-l="{e(t("= pro Stunde"))}">{fmt_num(rate, 3, "€/h")}</td></tr>'
         )
@@ -2754,9 +2750,9 @@ def page_settings(store: Store, saved: str | None, logo: str | None = None,
     price_entity = e(os.environ.get("PRICE_ENTITY", "input_number.strompreis"))
     panes = [
         pane("kosten", t("Kosten"), f"""<h2 style="margin-top:0">{t("Drucker: Abschreibung, Wartung und Verschleiß")}</h2>
-<p class="muted">{t("Kosten pro Druckstunde = Anschaffung ÷ Lebensdauer in Druckstunden + Wartung pro Jahr ÷ Druckstunden pro Jahr + Verschleiß pro Stunde. Leere Felder zählen nicht. „bisher“ zeigt die erfassten Druckstunden der letzten 12 Monate.")}</p>
+<p class="muted">{t("Kosten pro Druckstunde = Anschaffung ÷ Lebensdauer in Druckstunden + Wartung pro 1000 Druckstunden ÷ 1000 + Verschleiß pro Stunde. Wartung meint Teile und Pflege, die nach Laufzeit anfallen (Düse, Riemen, Fett, Filter). Leere Felder zählen nicht.")}</p>
 <div class="wrap"><table class="stack rates"><thead><tr><th>{t("Drucker")}</th><th class="n">{t("Anschaffung €")}</th><th class="n">{t("Lebensdauer h")}</th>
-<th class="n">{t("Wartung €/Jahr")}</th><th class="n">{t("Druckstunden/Jahr")}</th><th class="n">{t("Verschleiß €/h")}</th><th class="n">{t("= pro Stunde")}</th></tr></thead>
+<th class="n">{t("Wartung €/1000 h")}</th><th class="n">{t("Verschleiß €/h")}</th><th class="n">{t("= pro Stunde")}</th></tr></thead>
 <tbody>{"".join(printer_rows)}</tbody></table></div>
 <p class="muted">{t("Der Strompreis kommt aus Home Assistant ({entity}) bzw. aus der HA-Automation und wird pro Druck zum Druckende festgehalten.", entity=price_entity)}</p>"""),
         pane("drucker", t("Drucker"), printers_html),

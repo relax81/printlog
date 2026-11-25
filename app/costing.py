@@ -1,7 +1,7 @@
 """Berechnet Drucker-, Filament- und Gesamtkosten eines Drucks.
 
 * Drucker: Druckdauer × (Anschaffungspreis / Lebensdauer + Verschleiß pro Stunde
-  + Wartungskosten pro Jahr / Druckstunden pro Jahr)
+  + Wartungskosten pro 1000 Druckstunden / 1000)
 * Filament: Gramm pro Slot × €/kg. Preis nach Filamentname, sonst nach Typ.
   Bei Abbruch nur der Anteil bis zum Abbruch (Fortschritt in %).
 * Strom: kommt schon fertig aus der Messung (Spalte ``cost``).
@@ -92,8 +92,8 @@ def hourly_rate(rate: dict[str, Any] | None) -> float | None:
     if rate.get("extra_per_hour"):
         total += rate["extra_per_hour"]
         found = True
-    if rate.get("maint_per_year") and rate.get("hours_per_year"):
-        total += rate["maint_per_year"] / rate["hours_per_year"]
+    if rate.get("maint_per_1000h"):
+        total += rate["maint_per_1000h"] / 1000
         found = True
     return total if found else None
 

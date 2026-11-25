@@ -43,11 +43,11 @@ SEED = 4711              # gleiche Zahlen bei jedem Erzeugen, nur die Daten wand
 # Leistung in W je Material (Durchschnitt über den Druck), Abschreibung/Wartung, ab wann im Einsatz
 PRINTERS = [
     {"key": "a1mini", "name": "A1 mini", "watts": {"PLA": 72, "PETG": 92, "TPU": 70}, "max_g": 80, "per_day": 0.45,
-     "since": DAYS, "rate": {"purchase_eur": 219, "life_hours": 3000, "maint_per_year": 30, "hours_per_year": 450}},
+     "since": DAYS, "rate": {"purchase_eur": 219, "life_hours": 3000, "maint_per_1000h": 65}},
     {"key": "p1s", "name": "P1S", "watts": {"PLA": 118, "PETG": 158, "ASA": 176, "TPU": 110}, "max_g": 260, "per_day": 0.62,
-     "since": 300, "rate": {"purchase_eur": 599, "life_hours": 4000, "maint_per_year": 50, "hours_per_year": 700}},
+     "since": 300, "rate": {"purchase_eur": 599, "life_hours": 4000, "maint_per_1000h": 70}},
     {"key": "h2s", "name": "H2S", "watts": {"PLA": 146, "PETG": 196, "ASA": 218, "TPU": 140}, "max_g": 420, "per_day": 0.7,
-     "since": 72, "rate": {"purchase_eur": 1399, "life_hours": 5000, "maint_per_year": 90, "hours_per_year": 900}},
+     "since": 72, "rate": {"purchase_eur": 1399, "life_hours": 5000, "maint_per_1000h": 100}},
 ]
 
 # Sorte → Farben (Hex wie aus Home Assistant, Farbname für Notizen)

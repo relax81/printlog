@@ -67,7 +67,7 @@ CREATE TABLE IF NOT EXISTS printer_rates (
     printer        TEXT PRIMARY KEY,
     purchase_eur   REAL,                  -- Anschaffungspreis
     life_hours     REAL,                  -- erwartete Lebensdauer in Druckstunden
-    extra_per_hour REAL                   -- Wartung/Verschleiß pro Stunde
+    extra_per_hour REAL                   -- Verschleiß pro Stunde
 );
 CREATE TABLE IF NOT EXISTS photos (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -205,6 +205,13 @@ class Store:
         for col in ("maint_per_year", "hours_per_year"):
             if col not in have:
                 self._conn.execute(f"ALTER TABLE printer_rates ADD COLUMN {col} REAL")
+        if "maint_per_1000h" not in have:
+            # Wartung jetzt pro 1000 Druckstunden. Alte Werte (€/Jahr ÷ Druckstunden/Jahr) so umrechnen,
+            # dass der Stundensatz gleich bleibt. Die alten Spalten bleiben unverändert stehen.
+            self._conn.execute("ALTER TABLE printer_rates ADD COLUMN maint_per_1000h REAL")
+            self._conn.execute(
+                "UPDATE printer_rates SET maint_per_1000h = ROUND(maint_per_year * 1000.0 / hours_per_year, 2) "
+                "WHERE maint_per_year > 0 AND hours_per_year > 0")
         have = {r["name"] for r in self._conn.execute("PRAGMA table_info(customers)")}
         if "margin_pct" not in have:
             self._conn.execute("ALTER TABLE customers ADD COLUMN margin_pct REAL")
@@ -1362,11 +1369,11 @@ class Store:
     def printer_rates_set(self) -> bool:
         row = self._conn.execute(
             "SELECT 1 FROM printer_rates WHERE (purchase_eur IS NOT NULL AND life_hours IS NOT NULL) "
-            "OR extra_per_hour IS NOT NULL OR (maint_per_year IS NOT NULL AND hours_per_year IS NOT NULL) LIMIT 1"
+            "OR extra_per_hour IS NOT NULL OR maint_per_1000h IS NOT NULL LIMIT 1"
         ).fetchone()
         return row is not None
 
-    RATE_FIELDS = ("purchase_eur", "life_hours", "extra_per_hour", "maint_per_year", "hours_per_year")
+    RATE_FIELDS = ("purchase_eur", "life_hours", "extra_per_hour", "maint_per_1000h")
 
     def set_printer_rate(self, printer: str, **values: float | None) -> None:
         fields = {k: values.get(k) for k in self.RATE_FIELDS}
@@ -1379,13 +1386,6 @@ class Store:
                 f"ON CONFLICT(printer) DO UPDATE SET {updates}",
                 (printer, *fields.values()),
             )
-
-    def printed_hours_last_year(self) -> dict[str, float]:
-        rows = self._conn.execute(
-            "SELECT printer, SUM(end_ts - start_ts) / 3600.0 h FROM jobs "
-            "WHERE kind IS NULL AND end_ts > start_ts AND start_ts > strftime('%s','now','-365 days') GROUP BY printer"
-        ).fetchall()
-        return {r["printer"]: r["h"] for r in rows}
 
     def settings(self) -> dict[str, str]:
         return {r["key"]: r["value"] for r in self._conn.execute("SELECT * FROM settings")}
