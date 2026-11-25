@@ -917,4 +917,16 @@ EN: dict[str, str] = {
     'nicht aufgeteilt': 'not split',
     'Teil gehört nicht zum Projekt': 'Part does not belong to the project',
     'Nicht genug im Vorrat': 'Not enough in stock',
+    # Stück an Projekt
+    '＋ Projekt hinzufügen': '＋ Add project',
+    'Name des neuen Projekts': 'Name of the new project',
+    '＋ Neues Projekt …': '＋ New project …',
+    'Kosten ins Projekt': 'cost into project',
+    'neues Projekt': 'new project',
+    'Jeder Kunde hat seinen eigenen Preis, eigene Zahlungen und Übergaben. Stück für ein Projekt zählen dort mit (anteilige Kosten), abgerechnet wird über das Projekt. Was übrig bleibt, liegt im Vorrat.': 'Each customer has their own price, payments and handovers. Pieces for a project count there (share of the cost) and are billed through the project. Whatever is left is in stock.',
+    'Diese Stück gehören zum Projekt „{name}“. Preis, Zahlung und Übergabe laufen über das Projekt.': 'These pieces belong to the project “{name}”. Price, payment and handover go through the project.',
+    'über das Projekt': 'via the project',
+    'Im Projekt „{name}“': 'In the project “{name}”',
+    'Ein Projekt lässt sich nicht in ein anderes Projekt aufteilen': 'A project cannot be split into another project',
+    'Projekt nicht gefunden': 'Project not found',
 }

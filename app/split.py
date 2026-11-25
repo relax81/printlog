@@ -110,7 +110,7 @@ def _groups(j: dict[str, Any]) -> list[tuple[str, int | None, float]]:
     """Anteile mit Kunde zusammengefasst: (Name, Kunden-ID, Stück) in der Reihenfolge der Aufteilung."""
     out: dict[int, list[Any]] = {}
     for s in j.get("_shares") or []:
-        if s.get("customer_id") and not s.get("share_part"):
+        if s.get("customer_id") and not s.get("share_part") and s.get("share_kind") != "project":
             g = out.setdefault(s["customer_id"], [s.get("customer_name") or "?", s["customer_id"], 0])
             g[2] += s.get("quantity") or 0
     return [tuple(g) for g in out.values()]  # type: ignore[misc]
@@ -120,6 +120,9 @@ def split_chips(j: dict[str, Any], compact: bool = False) -> str:
     """Kunden-Chips eines aufgeteilten Drucks für Liste und Karten: „● Tom 2 · ● Anna 4 · 📦 Vorrat 4“."""
     chips = "".join(f'<span class="shc" title="{e(t("Aufteilung ansehen"))}"><i style="background:{color(n)}"></i>'
                     f'{e(n)} <b>{fmt_input(q)}</b></span>' for n, _, q in _groups(j))
+    chips += "".join(f'<span class="shc" title="{e(t("Im Projekt „{name}“", name=s.get("project_name") or ""))}">📦 '
+                     f'{e(s.get("project_name") or t("Projekt"))} <b>{fmt_input(s.get("quantity"))}</b></span>'
+                     for s in j.get("_shares") or [] if s.get("share_kind") == "project")
     parts = sum(1 for s in j.get("_shares") or [] if s.get("customer_id") and s.get("share_part"))
     if parts:
         chips += f'<span class="shc">{tn(parts, "+{n} Einzelteil", "+{n} Einzelteile")}</span>'
@@ -149,8 +152,9 @@ def split_bar(j: dict[str, Any], cls: str = "spbar") -> str:
             q = q / per / max(len((j.get("_stock") or {}).get("per") or {}), 1)
         if q <= 0:
             continue
-        style = f"background:{color(s.get('customer_name'))}" if s.get("customer_id") else ""
-        segs.append(f'<i class="{"" if s.get("customer_id") else "out"}" style="flex:{q:.4f};{style}"></i>')
+        who = s.get("project_name") if s.get("share_kind") == "project" else s.get("customer_name") if s.get("customer_id") else None
+        style = f"background:{color(who)}" if who else ""
+        segs.append(f'<i class="{"" if who else "out"}" style="flex:{q:.4f};{style}"></i>')
     st = j.get("_stock") or {}
     rest = max(st.get("units", 0), 0)
     if rest:
@@ -164,7 +168,7 @@ def split_prices(j: dict[str, Any]) -> str:
     """Spalte „Verkaufspreise“ der Liste: eine Zeile je Kunde, dazu der Vorrat zum Kostenwert."""
     out = ""
     for s in j.get("_shares") or []:
-        if not s.get("customer_id") or s.get("customer_nobill"):
+        if not s.get("customer_id") or s.get("customer_nobill") or s.get("share_kind") == "project":
             continue
         due = 0.0 if s.get("gift") else amount_due(s)
         q = s.get("quantity") or 1
@@ -278,7 +282,10 @@ def split_config(store: Store, j: dict[str, Any]) -> dict[str, Any]:
     rows, fixed = [], 0.0
     busy = store.busy_ids([s["id"] for s in shares])
     for s in shares:
-        if s.get("customer_id") and not s.get("share_part") and s.get("share_kind") != "out":
+        if s.get("share_kind") == "project":
+            rows.append({"sid": s["id"], "pid": s.get("project_id"), "name": s.get("project_name") or t("Projekt"),
+                         "qty": s.get("quantity") or 1, "min": 1, "locked": False})
+        elif s.get("customer_id") and not s.get("share_part") and s.get("share_kind") != "out":
             due = 0.0 if s.get("gift") else amount_due(s)
             rows.append({"sid": s["id"], "cid": s["customer_id"], "name": s.get("customer_name") or "?",
                          "qty": s.get("quantity") or 1, "min": max(1, s.get("delivered") or 0), "locked": s["id"] in busy,
@@ -289,7 +296,10 @@ def split_config(store: Store, j: dict[str, Any]) -> dict[str, Any]:
     if not j.get("split") and j.get("customer_id"):
         rows.append({"sid": None, "cid": j["customer_id"], "name": j.get("customer_name") or "?",
                      "qty": j.get("quantity") or 1, "min": 1, "locked": False})
-    return {"id": j["id"], "title": j.get("task_name") or "", "total": st["total"], "fixed": fixed,
+    projects = [] if j.get("kind") == "project" else [
+        {"id": p["id"], "name": p.get("task_name") or "–", "code": code_label(p.get("code")), "customer": p.get("customer_name") or ""}
+        for p in store.projects(200)]
+    return {"id": j["id"], "title": j.get("task_name") or "", "total": st["total"], "fixed": fixed, "projects": projects,
             "unit": unit_cost(j), "project": j.get("kind") == "project", "rows": rows,
             "split": bool(j.get("split")), "margins": _margins(store)}
 
@@ -325,7 +335,14 @@ def split_box(store: Store, j: dict[str, Any], kids: list[dict[str, Any]] | None
         q = s.get("quantity") or 0
         what = unit_word(j, q) if not s.get("share_part") else f'{fmt_input(q)}× {e(names.get(s["share_part"], "?"))}'
         when = (f'<small>{t("aus dem Vorrat")} · {fmt_date(s["start_ts"], "date_s")}</small>' if s.get("share_kind") == "stock" else "")
-        if s.get("customer_id"):
+        if s.get("share_kind") == "project":
+            pn = s.get("project_name") or t("Projekt")
+            who = (f'<span class="av" style="background:{color(pn)}">📦</span><span class="nm"><b>{e(pn)}</b>'
+                   f'<small>{t("im Projekt")} · {e(code_label(s.get("project_code")))}</small></span>')
+            price = f'<b>–</b><small>{t("über das Projekt")}</small>'
+            state = ""
+            link = f'<a class="btn sm" href="job?id={s["project_id"]}">{t("Zum Projekt →")}</a>'
+        elif s.get("customer_id"):
             who = (f'<span class="av" style="background:{color(s.get("customer_name"))}">{e(initials(s.get("customer_name")))}</span>'
                    f'<span class="nm"><b>{e(s.get("customer_name") or "?")}</b>{when}</span>')
             due = 0.0 if s.get("gift") else amount_due(s)
@@ -354,7 +371,8 @@ def split_box(store: Store, j: dict[str, Any], kids: list[dict[str, Any]] | None
                 f'<div class="st">{give}</div><div class="l"></div></div>')
     hd = (f'<div class="spr h"><div>{t("An")}</div><div class="q">{t("Sätze") if j.get("kind") == "project" else t("Stück")}</div>'
           f'<div class="c calc">{t("Kosten")}</div><div class="p">{t("Preis")}</div><div class="st">{t("Zahlung · Übergabe")}</div><div></div></div>')
-    note = t("Jeder Kunde hat seinen eigenen Preis, eigene Zahlungen und Übergaben. Was keinem Kunden gehört, liegt im Vorrat.")
+    note = t("Jeder Kunde hat seinen eigenen Preis, eigene Zahlungen und Übergaben. Stück für ein Projekt zählen dort mit "
+             "(anteilige Kosten), abgerechnet wird über das Projekt. Was übrig bleibt, liegt im Vorrat.")
     return (f'<div class="box spbox">{head}{split_bar(j, "spbar big")}{warn}<div class="sptab">{hd}{"".join(rows)}</div>'
             f'<p class="muted spnote">{note}</p></div>')
 
@@ -403,8 +421,14 @@ def page_share(store: Store, s: dict[str, Any], saved: str | None) -> str:
     kpis = (f'<div class="kp main"><span>{t("Kosten anteilig")}</span><b>{fmt_num(total, 2, "€")}</b>'
             f'<small>{t("{v} pro Stück", v=fmt_num(total / q, 2, "€")) if total is not None and q else ""}</small></div>'
             f'<div class="kp"><span>{t("🧵 Filament")}</span><b>{fmt_num(s.get("filament_g"), 1, "g")}</b><small>{t("anteilig")}</small></div>')
-    deal = _deal_box(s, store.handovers(s["id"]), store.payments(s["id"])) if billable(s) else (
-        f'<div class="box"><p class="muted" style="margin:0">{t("Ohne Abrechnung (kein Kunde oder „Keine Abrechnung“).")}</p></div>')
+    if s.get("project_id"):
+        pj = store.get(s["project_id"]) or {}
+        deal = (f'<div class="box"><p style="margin:0">{t("Diese Stück gehören zum Projekt „{name}“. Preis, Zahlung und Übergabe laufen über das Projekt.", name=e(pj.get("task_name") or ""))} '
+                f'<a href="job?id={s["project_id"]}">{t("Zum Projekt →")}</a></p></div>')
+    elif billable(s):
+        deal = _deal_box(s, store.handovers(s["id"]), store.payments(s["id"]))
+    else:
+        deal = f'<div class="box"><p class="muted" style="margin:0">{t("Ohne Abrechnung (kein Kunde oder „Keine Abrechnung“).")}</p></div>'
     banner = f'<div class="banner">{t("Gespeichert.")}</div>' if saved else ""
     body = f"""<div class="jd">{banner}<div class="jtop"><a class="back" href="{f'job?id={parent["id"]}#split' if parent else './'}">{t("← zurück")}</a>
 <div class="jact">{_share_button(s)}</div></div>
@@ -505,9 +529,9 @@ SPLIT_CSS = """
 .spflag{display:inline-block;margin-left:6px;font-size:12px;font-weight:700;color:var(--accent);border:1px solid color-mix(in srgb,var(--accent) 50%,var(--line));border-radius:999px;padding:0 8px}
 .spico{font-size:26px;width:54px;text-align:center}
 .vg .or{grid-template-columns:48px minmax(0,1fr) 150px 120px 110px 150px}.vc b{display:block;font-size:16px}.vc span{font-size:12.5px;color:var(--muted)}
-.dlgbg.sp{position:fixed;inset:0;background:#0009;z-index:60;display:flex;align-items:center;justify-content:center;padding:16px}
+.dlgbg.sp{position:fixed;inset:0;height:100%;height:100dvh;box-sizing:border-box;background:#0009;z-index:60;display:flex;align-items:center;justify-content:center;padding:16px}
 .dlgbg.sp[hidden]{display:none}
-.spdlg{background:var(--card);border:1px solid var(--line);border-radius:18px;box-shadow:0 30px 80px #000a;padding:18px 20px;width:min(560px,100%);max-height:calc(100vh - 32px);overflow:auto;font-size:15px}
+.spdlg{background:var(--card);border:1px solid var(--line);border-radius:18px;box-shadow:0 30px 80px #000a;padding:18px 20px;width:min(560px,100%);max-height:calc(100vh - 32px);max-height:calc(100dvh - 32px);overflow:auto;overscroll-behavior:contain;box-sizing:border-box;font-size:15px}
 .spdlg h3{margin:0 0 2px;font-size:19px;text-transform:none;letter-spacing:0;color:var(--fg)}.spdlg .sub{color:var(--muted);font-size:13.5px;margin:0 0 12px}
 .spdlg .row{display:flex;align-items:center;gap:10px;padding:9px 2px;border-bottom:1px solid var(--line)}
 .spdlg .row .nm{flex:1;min-width:0;font-weight:700}.spdlg .row .nm small{display:block;color:var(--muted);font-weight:500;font-size:12.5px}
@@ -515,7 +539,8 @@ SPLIT_CSS = """
 .spdlg .spp{width:112px;text-align:right;font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums}.spdlg .spp small{display:block;color:var(--muted);font-weight:500;font-size:12px}
 .spdlg .x{border:0;background:none;color:var(--muted);font-size:18px;cursor:pointer;padding:4px 6px;min-height:0;width:28px}.spdlg .x:disabled{opacity:.3;cursor:default}
 .spdlg .add{display:block;width:100%;text-align:left;border:0;background:none;color:var(--accent);font-weight:700;padding:12px 2px;border-bottom:1px solid var(--line);cursor:pointer}
-.spdlg .row.v .nm b{color:var(--fg)}.spdlg .row.v.bad .spp,.spdlg .row.v.bad .vq{color:var(--bad)}
+.spdlg .row.v .nm b{color:var(--fg)}.spdlg .pform{display:flex;gap:8px;flex-wrap:wrap;padding:10px 2px;border-bottom:1px solid var(--line)}
+.spdlg .pform select,.spdlg .pform input{flex:1 1 220px;min-width:0}.spdlg .row.v.bad .spp,.spdlg .row.v.bad .vq{color:var(--bad)}
 .spdlg .vq{min-width:56px;text-align:center;font-weight:800}
 .spdlg .stp{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:10px;overflow:hidden;flex:none}
 .spdlg .stp button{border:0;background:none;color:var(--accent);font-weight:800;font-size:18px;width:34px;height:34px;min-height:0;padding:0;cursor:pointer}
@@ -539,7 +564,7 @@ SPLIT_CSS = """
  .vg .or{grid-template-columns:40px minmax(0,1fr) auto;gap:6px 10px}.vg .vc:nth-of-type(2),.vg .vc:nth-of-type(3){display:none}.vg .oact{grid-column:1/-1}
  .spdlg .row{flex-wrap:wrap;row-gap:8px}.spdlg .row .nm{flex:1 1 calc(100% - 44px)}.spdlg .row .stp{margin-left:40px}.spdlg .row .spp{margin-left:auto}
  .spdlg .row.v .vq{margin-left:40px;text-align:left}
- .dlgbg.sp{align-items:flex-end;padding:0}.spdlg{border-radius:20px 20px 0 0;width:100%;max-height:92vh;padding-bottom:calc(18px + env(safe-area-inset-bottom))}
+ .dlgbg.sp{align-items:flex-end;padding:0}.spdlg{border-radius:20px 20px 0 0;width:100%;max-height:92vh;max-height:92dvh;padding-bottom:calc(18px + env(safe-area-inset-bottom))}
 }
 """
 
@@ -571,6 +596,17 @@ SPLIT_JS = r"""
    sD.append(el('h3',null,_t("„{name}“ aufteilen").replace('{name}',S.title)));
    sD.append(el('p','sub',(project?_t("{n} Sätze"):_t("{n} Stück")).replace('{n}',S.total)+(S.unit!=null?' · '+eur(S.unit)+' '+(project?_t("Kosten pro Satz"):_t("Kosten pro Stück")):'')));
    const list=el('div');sD.append(list);const add=el('button','add','👤 '+_t("＋ Kunde hinzufügen"));add.type='button';sD.append(add);
+   const padd=el('button','add','📦 '+_t("＋ Projekt hinzufügen"));padd.type='button';padd.hidden=!S.projects;sD.append(padd);
+   const pf=el('div','pform');pf.hidden=true;const psel=el('select');const pnew=el('input');pnew.placeholder=_t("Name des neuen Projekts");pnew.maxLength=120;pnew.hidden=true;
+   const pok=el('button','btn sm primary',_t("Hinzufügen"));pok.type='button';pf.append(psel,pnew,pok);sD.append(pf);
+   (S.projects||[]).forEach(p=>{const o=el('option',null,[p.code,p.name,p.customer].filter(Boolean).join(' · '));o.value=p.id;psel.append(o)});
+   {const o=el('option',null,_t("＋ Neues Projekt …"));o.value='new';psel.append(o)}
+   psel.onchange=()=>{pnew.hidden=psel.value!=='new';if(!pnew.hidden)pnew.focus()};
+   padd.onclick=()=>{pf.hidden=!pf.hidden;psel.onchange()};
+   pok.onclick=()=>{if(psel.value==='new'){const n=pnew.value.trim();if(!n){pnew.focus();return}rows.push({sid:null,pid:null,newProject:n,name:n,qty:1,min:1})}
+     else{const p=(S.projects||[]).find(x=>String(x.id)===psel.value);if(!p)return;const have=rows.find(r=>String(r.pid)===psel.value);
+       if(have)have.qty++;else rows.push({sid:null,pid:p.id,name:p.name,qty:1,min:1})}
+     pf.hidden=true;pnew.value='';draw()};
    const vrow=el('div','row v');const vav=el('span','av v','📦');const vnm=el('span','nm');vnm.append(el('b',null,_t("Vorrat (Rest)")),el('small',null,_t("wird automatisch berechnet")));
    const vq=el('span','vq'),vpr=el('span','spp');vrow.append(vav,vnm,vq,vpr,el('span','x'));sD.append(vrow);
    if(S.fixed>0)sD.append(el('p','hint',_t("Schon fest vergeben (Einzelteile, Ausbuchungen): {n}").replace('{n}',S.fixed)));
@@ -578,25 +614,28 @@ SPLIT_JS = r"""
    const ft=el('div','ft');const off=el('button','lnk',_t("Aufteilung aufheben"));off.type='button';off.hidden=!S.split;
    const cancel=el('button','btn',_t("Abbrechen")),save=el('button','btn primary',S.split?_t("Speichern"):_t("Aufteilen"));cancel.type=save.type='button';
    ft.append(off,el('span','sp'),cancel,save);sD.append(ft);
+   const isP=r=>r.pid!=null||!!r.newProject;
    function price(r){if(S.unit==null)return null;const m=r.cid!=null?(S.margins[String(r.cid)]||0):0;return S.unit*r.qty*(1+m/100)}
    function rest(){return S.total-S.fixed-rows.reduce((a,r)=>a+r.qty,0)}
    function upd(){const v=rest();vq.textContent=v;vpr.textContent='';if(S.unit!=null){vpr.append(document.createTextNode(eur(Math.max(v,0)*S.unit)),el('small',null,_t("Kosten")))}
      vrow.classList.toggle('bad',v<0);save.disabled=v<0;err.textContent=v<0?_t("Mehr vergeben als vorhanden."):'';
-     rows.forEach(r=>{if(r.prEl){r.prEl.textContent='';const fx=r.sid&&r.fixed;
+     rows.forEach(r=>{if(r.prEl&&isP(r)){r.prEl.textContent='';r.prEl.append(document.createTextNode(S.unit!=null?eur(S.unit*r.qty):'–'),el('small',null,_t("Kosten ins Projekt")))}
+       else if(r.prEl){r.prEl.textContent='';const fx=r.sid&&r.fixed;
          r.prEl.append(document.createTextNode(eur(fx?r.price:price(r))),el('small',null,r.sid?r.src:_t("Vorschlag")))}
        if(r.st)r.st.set(r.qty+Math.max(v,0))})}
    function draw(){list.textContent='';rows.forEach((r,i)=>{const row=el('div','row');const nm=el('span','nm');nm.append(el('b',null,r.name));
-       const m=r.cid!=null?S.margins[String(r.cid)]:null;nm.append(el('small',null,r.cid==null?_t("neuer Kunde"):(r.from?r.from+' · ':'')+(m?'+'+m+' % '+_t("Kundenmarge"):_t("ohne Marge"))));
+       const m=r.cid!=null?S.margins[String(r.cid)]:null;
+       nm.append(el('small',null,isP(r)?(r.newProject?_t("neues Projekt"):_t("Projekt")):r.cid==null?_t("neuer Kunde"):(r.from?r.from+' · ':'')+(m?'+'+m+' % '+_t("Kundenmarge"):_t("ohne Marge"))));
        r.st=stepper(r.qty,r.min||1,null,v=>{r.qty=v;upd()});r.prEl=el('span','spp');
        const x=el('button','x','✕');x.type='button';x.disabled=!!r.locked;x.title=r.locked?_t("Hat schon Zahlungen oder Übergaben"):_t("Entfernen");
-       x.onclick=()=>{rows.splice(i,1);draw()};row.append(avatar(r.name),nm,r.st,r.prEl,x);list.append(row)});upd()}
+       x.onclick=()=>{rows.splice(i,1);draw()};const av=avatar(r.name);if(isP(r))av.textContent='📦';row.append(av,nm,r.st,r.prEl,x);list.append(row)});upd()}
    add.onclick=()=>KP.open(add,{ids:[],title:S.title,prefix:_t("Anteil für")+' ',onpick:fd=>{const id=fd.get('customer_id'),nn=fd.get('new_name');
        if(nn){rows.push({sid:null,cid:null,name:nn,newName:nn,qty:1,min:1});draw();return}
        if(!id)return;const c=(KP.custs||[]).find(x=>String(x.id)===String(id));
-       const have=rows.find(r=>String(r.cid)===String(id)&&!r.sid);if(have){have.qty++;draw();return}
+       const have=rows.find(r=>String(r.cid)===String(id)&&!r.sid&&!isP(r));if(have){have.qty++;draw();return}
        rows.push({sid:null,cid:+id,name:c?c.name:'?',qty:1,min:1});draw()}});
    cancel.onclick=()=>sBg.hidden=true;
-   save.onclick=()=>{const fd=new FormData();fd.append('rows',JSON.stringify(rows.map(r=>({sid:r.sid,customer_id:r.cid,new_name:r.newName||null,qty:r.qty}))));
+   save.onclick=()=>{const fd=new FormData();fd.append('rows',JSON.stringify(rows.map(r=>isP(r)?{sid:r.sid,project_id:r.pid,new_project:r.newProject||null,qty:r.qty}:{sid:r.sid,customer_id:r.cid,new_name:r.newName||null,qty:r.qty})));
      save.disabled=true;post('api/jobs/'+S.id+'/split',fd,err).finally(()=>save.disabled=false)};
    off.onclick=()=>{if(!confirm(_t("Aufteilung aufheben? Der erste Kunde bekommt den Druck wieder ganz, die anderen Anteile werden entfernt.")))return;
      const fd=new FormData();fd.append('off','1');post('api/jobs/'+S.id+'/split',fd,err)};

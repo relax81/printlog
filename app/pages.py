@@ -215,10 +215,10 @@ JOBS_CSS = """
 body.selmode{padding-bottom:90px}
 #selbar{width:min(960px,calc(100vw - 24px))}#selbar button{white-space:nowrap}
 #selbar .pjbtn{background:var(--accent);color:var(--bg);border-color:var(--accent);font-weight:700}#selbar .pjbtn:disabled{opacity:.4}
-.dlgbg{position:fixed;inset:0;background:#000a;z-index:60;display:flex;align-items:center;justify-content:center;padding:16px}
+.dlgbg{position:fixed;inset:0;height:100%;height:100dvh;background:#000a;z-index:60;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box}
 .dlgbg[hidden]{display:none}
 .dlg{background:var(--card);border:1px solid var(--line);border-radius:18px;box-shadow:0 30px 80px #000c;width:min(720px,100%);padding:20px 22px;
- max-height:calc(100vh - 32px);overflow:auto;box-sizing:border-box}
+ max-height:calc(100vh - 32px);max-height:calc(100dvh - 32px);overflow:auto;overscroll-behavior:contain;box-sizing:border-box}
 .dlg h3{margin:0 0 4px;font-size:20px}.dlg .sub{color:var(--muted);font-size:14px;margin:0 0 14px}
 .dlg .seg2{display:flex;border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-bottom:14px}
 .dlg .seg2 button{flex:1;border:0;border-radius:0;background:none;padding:10px 6px;font-weight:700;color:var(--muted);font-size:15px;cursor:pointer}
@@ -291,9 +291,9 @@ a.tag{color:var(--accent)}
 .bar{display:flex;gap:2px;height:7px;margin-top:6px;border-radius:4px;overflow:hidden}
 .bar i{display:block;border-radius:2px;min-width:3px}
 .c-str{background:var(--s4)}.c-fil{background:var(--s3)}.c-dru{background:var(--s7)}
-.pop{display:none;position:absolute;right:-8px;top:calc(100% + 6px);z-index:15;min-width:250px;text-align:left;cursor:default;
+.pop{display:none;position:fixed;left:0;top:0;z-index:35;min-width:250px;max-width:calc(100vw - 16px);text-align:left;cursor:default;
  background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 14px;box-shadow:0 8px 28px rgba(0,0,0,.35);font-size:14px}
-.cb.open .pop{display:block}.cb.up .pop{top:auto;bottom:calc(100% + 6px)}
+.cb.open .pop{display:block}
 @media (hover:hover){.cb:hover .pop{display:block}}
 .pop>div{display:grid;grid-template-columns:12px 1fr auto;gap:8px;align-items:center;padding:4px 0}
 .pop>div i{width:10px;height:10px;border-radius:3px}
@@ -412,13 +412,22 @@ function bind(){
   let op=[];try{op=JSON.parse(sessionStorage.getItem('pl_open')||'[]')}catch(_){}
   document.querySelectorAll('.xp').forEach(b=>{const pid=b.dataset.pid;if(op.includes(pid))setOpen(pid,true,false);
     b.onclick=ev=>{ev.stopPropagation();ev.preventDefault();setOpen(pid,!b.closest('.jr').classList.contains('open'),true)}});
-  document.querySelectorAll('.cb').forEach(b=>b.onclick=ev=>{ev.stopPropagation();
+  document.querySelectorAll('.cb').forEach(b=>{b.onclick=ev=>{ev.stopPropagation();
     const o=b.classList.contains('open');document.querySelectorAll('.cb.open').forEach(x=>x.classList.remove('open'));
-    if(!o){b.classList.add('open');b.classList.remove('up');
-      if(b.querySelector('.pop').getBoundingClientRect().bottom>innerHeight-8)b.classList.add('up')}});
-  document.querySelectorAll('.cb').forEach(b=>b.onmouseenter=()=>{b.classList.remove('up');
-    const r=b.getBoundingClientRect();if(r.bottom+260>innerHeight&&r.top>280)b.classList.add('up')});
+    if(!o){b.classList.add('open');placePop(b)}};
+    b.onmouseenter=()=>placePop(b)});
 }
+// Kosten-Aufschlüsselung schwebt (position:fixed) über der Tabelle, damit der Tabellen-Rahmen
+// (overflow-x:auto) sie nicht abschneidet und keinen Scrollbalken bekommt. Öffnet nach unten,
+// nach oben wenn unten kein Platz ist, und bleibt rechtsbündig am Balken im sichtbaren Bereich.
+function placePop(b){const p=b.querySelector('.pop');if(!p)return;
+  p.style.visibility='hidden';p.style.display='block';
+  const r=b.getBoundingClientRect(),w=p.offsetWidth,h=p.offsetHeight,m=8,g=6;
+  let x=Math.min(Math.max(m,r.right+8-w),innerWidth-w-m),y=r.bottom+g;
+  if(y+h>innerHeight-m)y=r.top-g-h>=m?r.top-g-h:Math.max(m,innerHeight-m-h);
+  p.style.left=Math.max(m,x)+'px';p.style.top=y+'px';p.style.display='';p.style.visibility=''}
+addEventListener('scroll',()=>document.querySelectorAll('.cb.open,.cb:hover').forEach(placePop),{capture:true,passive:true});
+addEventListener('resize',()=>document.querySelectorAll('.cb.open').forEach(placePop));
 document.addEventListener('click',ev=>{if(!ev.target.closest('.cb'))document.querySelectorAll('.cb.open').forEach(x=>x.classList.remove('open'))});
 // Projekt auf-/zuklappen (gemerkt für diese Sitzung)
 function setOpen(pid,on,save){const row=document.querySelector('.jr.proj[data-href="job?id='+pid+'"]');if(!row)return;
