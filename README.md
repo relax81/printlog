@@ -51,6 +51,12 @@ in a **light and a dark** colour scheme (Settings → View → Colour scheme, or
   other) and decide what the customer pays: nothing, a share (in % or as an amount) or the full price. A charged failed
   print then shows under **Open**, on the receipt and in the PDF like any other print. Notes and photos document what
   happened, and the reprint can be linked. Statistics show failed prints by cause, what was charged and what you carry yourself.
+- **Projects** – things made of many parts are often printed on several printers at once. Select the prints
+  (*Select → 📦 Make project*), give the project a name, a customer and the number of finished items, and the list shows it as
+  one row with the summed costs and a ▾ to fold out the single prints. The project gets its own ID, its own page with all prints,
+  a timeline per printer and photos, and it is billed as a whole: price, payments, hand-overs, receipt and PDF run through the
+  project. Failed prints in it that are not charged do not count towards the price. The single prints keep their details and
+  can be removed from the project again; *Ungroup* turns everything back into single prints. Statistics keep counting prints.
 - **Trash bin** with restore; deleted prints are removed for good only after a configurable number of days.
 - **Robust** – after a restart or a lost connection, printlog replays missed prints from Home Assistant's history (up to 7 days).
 
@@ -89,6 +95,7 @@ in a **light and a dark** colour scheme (Settings → View → Colour scheme, or
 | <a href="docs/screenshots/en/print-billing.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/print-billing.png"><img src="docs/screenshots/en/print-billing.png" alt="Billing: final price, payments, hand-overs"></picture></a><br>**Billing: final price, payments, hand-overs** | <a href="docs/screenshots/en/statistics.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/statistics.png"><img src="docs/screenshots/en/statistics.png" alt="Statistics"></picture></a><br>**Statistics** |
 | <a href="docs/screenshots/en/calendar.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/calendar.png"><img src="docs/screenshots/en/calendar.png" alt="Calendar"></picture></a><br>**Calendar** | <a href="docs/screenshots/en/customers.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/customers.png"><img src="docs/screenshots/en/customers.png" alt="Customers"></picture></a><br>**Customers** |
 | <a href="docs/screenshots/en/failed-print.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/failed-print.png"><img src="docs/screenshots/en/failed-print.png" alt="Failed print: cause, charge and reprint"></picture></a><br>**Failed print: cause, charge and reprint** | <a href="docs/screenshots/en/failed-print-stats.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/failed-print-stats.png"><img src="docs/screenshots/en/failed-print-stats.png" alt="Failed prints by cause and what they cost"></picture></a><br>**Failed prints by cause and what they cost** |
+| <a href="docs/screenshots/en/project-list.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/project-list.png"><img src="docs/screenshots/en/project-list.png" alt="Project: one row, prints folded out"></picture></a><br>**Project: one row, prints folded out** | <a href="docs/screenshots/en/project-detail.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/project-detail.png"><img src="docs/screenshots/en/project-detail.png" alt="Project page with prints and timeline"></picture></a><br>**Project page with prints and timeline** |
 
 | Phone: prints | Phone: print detail | Phone: open items |
 |---|---|---|
@@ -312,6 +319,9 @@ filament weight per slot is usually not available there. Support for other brand
 - `POST /api/jobs/{id}/photos` – upload a photo (multipart field `photo`)
 - `POST /api/jobs/{id}/delete`, `POST /api/jobs/delete` (`ids=1,2,3`) – move to trash
 - `GET /export/{id}/bon-kunde.png`, `bon-intern.png`, `kosten.pdf` – share exports (customer receipt, internal receipt, PDF)
+- `POST /api/projects` (`ids=1,2,3`, `name`, `customer_id`, `quantity`; or `mode=add&into={id}`) – group prints into a project
+- `POST /api/projects/{id}/add` (`ids`), `POST /api/projects/{id}/dissolve`, `POST /api/jobs/{id}/unproject` – add, ungroup, remove one print
+  (in `/api/jobs` a project is a row with `kind: "project"`; its prints carry `project_id`)
 
 There is no authentication in printlog itself. Keep it on your local network or put it behind a reverse proxy with access control.
 
@@ -365,6 +375,13 @@ in **hell und dunkel** (Einstellungen → Ansicht → Farbschema, oder automatis
   oder voll. Ein berechneter Fehldruck steht dann wie jeder andere Druck unter **Offen**, auf dem Bon und im PDF. Notiz und
   Fotos dokumentieren, was passiert ist, der Nachdruck lässt sich verknüpfen. Die Statistik zeigt Fehldrucke nach Ursache,
   was berechnet wurde und was du selbst trägst.
+- **Projekte** – Dinge aus vielen Teilen laufen oft auf mehreren Druckern gleichzeitig. Drucke auswählen
+  (*Auswählen → 📦 Projekt bilden*), Name, Kunde und Zahl der fertigen Objekte angeben, und die Liste zeigt das Projekt als eine
+  Zeile mit den summierten Kosten und einem ▾, das die einzelnen Drucke aufklappt. Das Projekt bekommt eine eigene ID, eine
+  eigene Seite mit allen Drucken, einer Zeitleiste pro Drucker und Fotos und wird als Ganzes abgerechnet: Preis, Zahlungen,
+  Übergaben, Bon und PDF laufen über das Projekt. Fehldrucke darin, die nicht berechnet werden, zählen nicht zum Preis. Die
+  einzelnen Drucke behalten ihre Details und lassen sich wieder aus dem Projekt lösen; *Auflösen* macht alles wieder zu
+  Einzeldrucken. Die Statistik zählt weiter die Drucke.
 - **Papierkorb** mit Wiederherstellen; endgültig gelöscht wird erst nach einstellbaren Tagen.
 - **Robust** – nach einem Neustart oder Verbindungsabbruch holt printlog verpasste Drucke aus dem Verlauf von Home Assistant nach (bis 7 Tage).
 
@@ -404,6 +421,7 @@ in **hell und dunkel** (Einstellungen → Ansicht → Farbschema, oder automatis
 | <a href="docs/screenshots/de/print-billing.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/print-billing.png"><img src="docs/screenshots/de/print-billing.png" alt="Abrechnung: Endpreis, Zahlungen, Übergaben"></picture></a><br>**Abrechnung: Endpreis, Zahlungen, Übergaben** | <a href="docs/screenshots/de/statistics.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/statistics.png"><img src="docs/screenshots/de/statistics.png" alt="Statistik"></picture></a><br>**Statistik** |
 | <a href="docs/screenshots/de/calendar.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/calendar.png"><img src="docs/screenshots/de/calendar.png" alt="Kalender"></picture></a><br>**Kalender** | <a href="docs/screenshots/de/customers.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/customers.png"><img src="docs/screenshots/de/customers.png" alt="Kunden"></picture></a><br>**Kunden** |
 | <a href="docs/screenshots/de/failed-print.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/failed-print.png"><img src="docs/screenshots/de/failed-print.png" alt="Fehldruck: Ursache, Berechnung und Nachdruck"></picture></a><br>**Fehldruck: Ursache, Berechnung und Nachdruck** | <a href="docs/screenshots/de/failed-print-stats.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/failed-print-stats.png"><img src="docs/screenshots/de/failed-print-stats.png" alt="Fehldrucke nach Ursache und was sie kosten"></picture></a><br>**Fehldrucke nach Ursache und was sie kosten** |
+| <a href="docs/screenshots/de/project-list.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/project-list.png"><img src="docs/screenshots/de/project-list.png" alt="Projekt: eine Zeile, Drucke aufgeklappt"></picture></a><br>**Projekt: eine Zeile, Drucke aufgeklappt** | <a href="docs/screenshots/de/project-detail.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/project-detail.png"><img src="docs/screenshots/de/project-detail.png" alt="Projektseite mit Drucken und Zeitleiste"></picture></a><br>**Projektseite mit Drucken und Zeitleiste** |
 
 | Handy: Drucke | Handy: Druckdetails | Handy: Offen |
 |---|---|---|
@@ -607,6 +625,12 @@ Sonderfälle:
 - **Fehldruck**: Kasten oben in der Übersicht mit Ursache als Kacheln, Umschalter Nichts / Anteilig / Voll (anteilig in %
   oder €), Notiz, Fotos und Nachdruck. „Kundenwunsch geändert“ zählt nicht gegen die Erfolgsquote. In der Liste filtert
   „Status“ nach Fehldrucken und nach Ursache.
+- **Projekt**: in der Mehrfachauswahl „📦 Projekt bilden“ (neues Projekt oder zu einem bestehenden hinzufügen; ausgewählte
+  Projekte werden zusammengelegt). Ein Projekt hat genau einen Kunden, der für alle seine Drucke gilt. Kosten sind die Summe
+  der Drucke; der Preisvorschlag lässt unberechnete Fehldrucke weg, anteilig berechnete zählen anteilig. Zahlungen der Drucke
+  wandern beim Zusammenfassen ins Projekt, beim Auflösen an den ersten Druck. Ein Nachdruck zu einem Fehldruck im Projekt
+  kommt automatisch mit hinein. Die Druckseite zeigt den Anteil am Projekt, Kunde und Abrechnung ändert man am Projekt.
+  Statistik, Kalender und Kundenzählung zählen nur die Drucke, nie das Projekt; die CSV hat eine Spalte „Gehört zu Projekt“.
 - **Verschenkt**: zählt weiter in Kosten und Statistik, braucht aber keine Zahlung; unter „Kunden“ mit Anzahl und Wert pro Zeitraum.
 - **Keine Abrechnung** (Häkchen beim Kunden): gilt für alle Drucke dieses Kunden, nicht pro Druck. Anders als „Verschenkt“
   taucht nichts unter „Verschenkt“ auf; der Kunde steht unter „Kunden“ mit dem Schild „Keine Abrechnung“ statt offener Beträge.

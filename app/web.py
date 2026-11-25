@@ -729,6 +729,44 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
         ids = [i for i in _ids(await request.post()) if store.trash_job(i)]
         return web.json_response({"ok": True, "ids": ids})
 
+    @routes.post("/api/projects")
+    async def api_project_create(request: web.Request) -> web.Response:
+        """Ausgewählte Drucke zu einem Projekt zusammenfassen (mode=new) oder einem Projekt hinzufügen (mode=add)."""
+        form = await request.post()
+        ids = _ids(form)
+        into = None
+        if str(form.get("mode") or "") == "add":
+            iv = str(form.get("into") or "")
+            if not iv.isdigit():
+                raise web.HTTPBadRequest()
+            into = int(iv)
+        cid = str(form.get("customer_id") or "")
+        q = str(form.get("quantity") or "").strip()
+        pid = store.create_project(ids, name=str(form.get("name") or "").strip() or None,
+                                   customer_id=int(cid) if cid.isdigit() else None,
+                                   quantity=int(q) if q.isdigit() and int(q) > 0 else None, into=into)
+        if pid is None:
+            raise web.HTTPBadRequest()
+        return web.json_response({"ok": True, "id": pid})
+
+    @routes.post("/api/projects/{job_id:\\d+}/add")
+    async def api_project_add(request: web.Request) -> web.Response:
+        pid = _job_id(request)
+        store.create_project(_ids(await request.post()), into=pid)
+        raise web.HTTPSeeOther(f"../../../job?id={pid}&saved=1")
+
+    @routes.post("/api/projects/{job_id:\\d+}/dissolve")
+    async def api_project_dissolve(request: web.Request) -> web.Response:
+        store.dissolve_project(_job_id(request))
+        raise web.HTTPSeeOther("../../../")
+
+    @routes.post("/api/jobs/{job_id:\\d+}/unproject")
+    async def api_unproject(request: web.Request) -> web.Response:
+        job_id = _job_id(request)
+        pid = store.remove_from_project(job_id)
+        back = request.query.get("back")
+        raise web.HTTPSeeOther(f"../../../job?id={pid if back == 'project' and pid and store.get(pid) else job_id}&saved=1")
+
     @routes.get("/trash")
     async def trash_page(request: web.Request) -> web.Response:
         purge_expired(store, image_dir)

@@ -16,9 +16,10 @@ for n in desk:
     im = Image.open(f'{src}/{n}.png').convert('RGB')
     if n in ('statistics','calendar','customers','print-billing','print-detail'): im = trim_bottom(im)
     save(im, n)
-for n in ['failed-print', 'failed-print-stats']:
+for n in ['failed-print', 'failed-print-stats', 'project-list', 'project-detail']:
     if os.path.exists(f'{src}/{n}.png'):
-        save(Image.open(f'{src}/{n}.png').convert('RGB'), n)
+        im = Image.open(f'{src}/{n}.png').convert('RGB')
+        save(trim_bottom(im) if n == 'project-detail' else im, n)
 for n in ['phone-list','phone-detail','phone-open']:
     im = Image.open(f'{src}/{n}.png').convert('RGB'); im = im.resize((585, int(im.height*585/im.width)), Image.LANCZOS); save(im, n)
 for a,b in [('raw-bon-kunde','receipt-customer'),('raw-bon-intern','receipt-internal'),('raw-cost','cost-sheet')]:

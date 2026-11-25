@@ -113,10 +113,18 @@ def margins(store: Store) -> list[tuple[str, float]]:
     return out
 
 
+def price_base(job: dict[str, Any]) -> float | None:
+    """Kosten, auf die die Marge kommt: beim Projekt ohne unberechnete Fehldrucke."""
+    if job.get("kind") == "project" and job.get("bill_base") is not None:
+        return job["bill_base"]
+    return job.get("cost_total")
+
+
 def _price(job: dict[str, Any], pct: float) -> float | None:
-    if job.get("cost_total") is None:
+    base = price_base(job)
+    if base is None:
         return None
-    return job["cost_total"] * (1 + pct / 100)
+    return base * (1 + pct / 100)
 
 
 def _price_cell(job: dict[str, Any], pct: float) -> str:
@@ -166,14 +174,38 @@ def _thumb(job: dict[str, Any], photo: str | None = None, cls: str = "t") -> str
 
 # ---- Drucke -------------------------------------------------------------------
 
+# Projekt: Bild-Mosaik aus den Drucken (Liste, Offen, Detailseite)
+MOS_CSS = """
+.mos{display:grid!important;grid-template-columns:1fr 1fr;grid-auto-rows:1fr;gap:2px;padding:2px;box-sizing:border-box;background:var(--bg);
+ border:1px solid var(--line);overflow:hidden;position:relative}
+.mos.one{grid-template-columns:1fr}
+.mos img{width:100%;height:100%;object-fit:contain;background:color-mix(in srgb,var(--fg) 4%,var(--bg));border-radius:4px;min-height:0;min-width:0;display:block}
+.mos b{position:absolute;right:3px;bottom:3px;background:var(--accent);color:var(--bg);font-size:11px;font-weight:800;border-radius:7px;padding:0 6px;line-height:17px}
+.pjb{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 55%,var(--line));background:color-mix(in srgb,var(--accent) 12%,transparent)}
+"""
+
 JOBS_CSS = """
+.jr.proj{background:linear-gradient(90deg,color-mix(in srgb,var(--accent) 9%,transparent),transparent 55%);box-shadow:inset 3px 0 0 var(--accent)}
+.jr .mos{width:64px;height:64px;border-radius:12px;cursor:pointer}
+.xp{display:inline-flex;align-items:center;gap:5px;margin-left:8px;font:inherit;font-size:13px;font-weight:700;color:var(--accent);background:none;cursor:pointer;
+ border:1px solid color-mix(in srgb,var(--accent) 50%,var(--line));border-radius:999px;padding:1px 10px;min-height:0;vertical-align:2px}
+.xp:before{content:"▸";font-size:11px}.jr.open .xp:before{content:"▾"}
+.jr.kid{background:color-mix(in srgb,var(--fg) 2.5%,var(--bg));box-shadow:inset 3px 0 0 color-mix(in srgb,var(--accent) 45%,var(--line));padding-top:9px;padding-bottom:9px}
+.jr.kid[hidden]{display:none}
+.jr.kid>:nth-child(2){padding-left:22px;position:relative}
+.jr.kid>:nth-child(2):before{content:"";position:absolute;left:4px;top:-2px;width:11px;height:14px;border-left:2px solid var(--line);border-bottom:2px solid var(--line);border-radius:0 0 0 6px}
+.jr.kid .t,.jr.kid .ph{width:46px;height:46px;justify-self:end}.jr.kid .jn{font-size:15px}
+.jp.inproj{grid-template-columns:1fr;color:var(--muted);font-size:13px;gap:1px}.jp.inproj b{text-align:left;color:var(--fg);font-size:14px}.jp.inproj .nb{color:var(--muted)}
+.mcard .mos{width:64px;height:64px;border-radius:10px;grid-row:span 2}
+.mcard.proj{box-shadow:inset 3px 0 0 var(--accent)}
+.gcard .mos.gimg{aspect-ratio:1;height:auto;border:0;border-radius:0}
 .selbtn.on{background:var(--accent);color:#111;border-color:var(--accent)}
 .selmode :is(.jr,.gcard,.mcard){position:relative;user-select:none}
 .selmode :is(.jr,.gcard,.mcard)::after{content:"";position:absolute;left:8px;top:8px;width:24px;height:24px;border-radius:50%;z-index:2;
  border:2px solid var(--muted);background:var(--card);box-sizing:border-box;display:grid;place-items:center;font:700 15px/1 system-ui;color:#111}
 .selmode :is(.jr,.gcard,.mcard).picked{outline:2px solid var(--accent);outline-offset:-2px;background:color-mix(in srgb,var(--accent) 10%,var(--card))}
 .selmode :is(.jr,.gcard,.mcard).picked::after{content:"✓";background:var(--accent);border-color:var(--accent)}
-.selmode :is(.jr,.gcard,.mcard) :is(a,button){pointer-events:none}
+.selmode :is(.jr,.gcard,.mcard) :is(a,button){pointer-events:none}.selmode .jr .xp{pointer-events:auto}
 #selbar,#toast{position:fixed;left:50%;transform:translateX(-50%);bottom:16px;z-index:40;display:flex;align-items:center;gap:10px;
  background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 14px;box-shadow:0 10px 30px rgba(0,0,0,.4);
  width:min(640px,calc(100vw - 24px));box-sizing:border-box;flex-wrap:wrap}
@@ -181,6 +213,30 @@ JOBS_CSS = """
 #selbar .del{background:var(--bad);color:#fff;border-color:var(--bad);font-weight:700}#selbar .del:disabled{opacity:.4}
 @media(max-width:700px){#selbar{gap:6px;padding:8px 10px}#selbar .none{display:none}#selbar .sp{display:none}#selbar b{flex:1}}
 body.selmode{padding-bottom:90px}
+#selbar{width:min(780px,calc(100vw - 24px))}#selbar button{white-space:nowrap}
+#selbar .pjbtn{background:var(--accent);color:var(--bg);border-color:var(--accent);font-weight:700}#selbar .pjbtn:disabled{opacity:.4}
+.dlgbg{position:fixed;inset:0;background:#000a;z-index:60;display:flex;align-items:center;justify-content:center;padding:16px}
+.dlgbg[hidden]{display:none}
+.dlg{background:var(--card);border:1px solid var(--line);border-radius:18px;box-shadow:0 30px 80px #000c;width:min(720px,100%);padding:20px 22px;
+ max-height:calc(100vh - 32px);overflow:auto;box-sizing:border-box}
+.dlg h3{margin:0 0 4px;font-size:20px}.dlg .sub{color:var(--muted);font-size:14px;margin:0 0 14px}
+.dlg .seg2{display:flex;border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-bottom:14px}
+.dlg .seg2 button{flex:1;border:0;border-radius:0;background:none;padding:10px 6px;font-weight:700;color:var(--muted);font-size:15px;cursor:pointer}
+.dlg .seg2 button+button{border-left:1px solid var(--line)}.dlg .seg2 button.on{background:var(--accent);color:var(--bg)}
+.dlg .fr{display:grid;grid-template-columns:1.6fr 1fr 150px;gap:12px;margin-bottom:10px}
+.dlg label{display:flex;flex-direction:column;gap:5px;font-size:13px;font-weight:600;color:var(--muted)}
+.dlg label input,.dlg label select{width:100%;box-sizing:border-box}
+.dlg .stp{display:flex;align-items:stretch;border:1px solid var(--line);border-radius:10px;overflow:hidden;height:var(--ctl-h)}
+.dlg .stp button{border:0;border-radius:0;width:40px;min-height:0;padding:0;background:var(--bg);font-size:18px;cursor:pointer}
+.dlg .stp input{border:0;border-radius:0;text-align:center;min-width:0;flex:1;-moz-appearance:textfield}
+.dlg .hint{font-size:13px;color:var(--muted);margin:0 0 12px}
+.dlg .madd{margin-bottom:12px}
+.dlg .pl{border:1px solid var(--line);border-radius:12px;overflow:auto;max-height:260px;margin-bottom:14px}
+.dlg .pl div{display:flex;gap:10px;align-items:center;padding:6px 12px;font-size:14px;border-bottom:1px solid var(--line)}
+.dlg .pl div:last-child{border-bottom:0}
+.dlg .pl img,.dlg .pl i{width:34px;height:34px;border-radius:8px;border:1px solid var(--line);object-fit:contain;flex:none}
+.dlg .ft{display:flex;gap:10px;justify-content:flex-end;align-items:center;flex-wrap:wrap}.dlg .ft .sp{flex:1;font-size:13px;color:var(--muted);min-width:200px}
+@media (max-width:700px){.dlg .fr{grid-template-columns:1fr 1fr}.dlg .fr label:first-child{grid-column:1/-1}#selbar .pjbtn{font-size:14px}}
 .gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px}
 .gcard{background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden;text-decoration:none;color:var(--fg);display:block}
 .gcard .gimg{width:100%;aspect-ratio:1;object-fit:contain;background:var(--bg);display:block}
@@ -347,6 +403,9 @@ function bind(){
   document.querySelectorAll('.jr[data-href]').forEach(r=>r.onclick=ev=>{
     if(ev.target.closest('a,button,input,select,label'))return;location.href=r.dataset.href});
   markPicked();
+  let op=[];try{op=JSON.parse(sessionStorage.getItem('pl_open')||'[]')}catch(_){}
+  document.querySelectorAll('.xp').forEach(b=>{const pid=b.dataset.pid;if(op.includes(pid))setOpen(pid,true,false);
+    b.onclick=ev=>{ev.stopPropagation();ev.preventDefault();setOpen(pid,!b.closest('.jr').classList.contains('open'),true)}});
   document.querySelectorAll('.cb').forEach(b=>b.onclick=ev=>{ev.stopPropagation();
     const o=b.classList.contains('open');document.querySelectorAll('.cb.open').forEach(x=>x.classList.remove('open'));
     if(!o){b.classList.add('open');b.classList.remove('up');
@@ -355,6 +414,12 @@ function bind(){
     const r=b.getBoundingClientRect();if(r.bottom+260>innerHeight&&r.top>280)b.classList.add('up')});
 }
 document.addEventListener('click',ev=>{if(!ev.target.closest('.cb'))document.querySelectorAll('.cb.open').forEach(x=>x.classList.remove('open'))});
+// Projekt auf-/zuklappen (gemerkt für diese Sitzung)
+function setOpen(pid,on,save){const row=document.querySelector('.jr.proj[data-href="job?id='+pid+'"]');if(!row)return;
+  row.classList.toggle('open',on);row.querySelector('.xp').setAttribute('aria-expanded',on);
+  document.querySelectorAll('.jr.kid[data-parent="'+pid+'"]').forEach(k=>k.hidden=!on);
+  if(save){let op=[];try{op=JSON.parse(sessionStorage.getItem('pl_open')||'[]')}catch(_){}
+    op=op.filter(x=>x!==pid);if(on)op.push(pid);try{sessionStorage.setItem('pl_open',JSON.stringify(op))}catch(_){}}}
 const gb=form.querySelector('.gbtn');
 if(gb)gb.onclick=()=>{const gi=form.querySelector('input[name=group]');gi.value=gi.value?'':'day';
   gb.classList.toggle('on',!!gi.value);document.cookie='pl_group='+(gi.value||'none')+';path=/;max-age=31536000;SameSite=Lax';refresh()};
@@ -363,15 +428,43 @@ const picked=new Set(),sb=document.getElementById('selbar'),selBtn=form.querySel
 const ITEMS='.jr[data-href],.gcard,.mcard';
 function idOf(el){const m=(el.dataset.href||el.getAttribute('href')||'').match(/id=(\\d+)/);return m?m[1]:null}
 function markPicked(){document.querySelectorAll(ITEMS).forEach(el=>el.classList.toggle('picked',picked.has(idOf(el))));
-  sb.querySelector('.n').textContent=picked.size;sb.querySelector('.del').disabled=!picked.size}
+  sb.querySelector('.n').textContent=picked.size;sb.querySelector('.del').disabled=!picked.size;sb.querySelector('.pjbtn').disabled=!picked.size}
 function setSel(on){document.body.classList.toggle('selmode',on);selBtn.classList.toggle('on',on);sb.hidden=!on;if(!on)picked.clear();markPicked()}
 selBtn.onclick=()=>setSel(!document.body.classList.contains('selmode'));
-document.addEventListener('click',ev=>{if(!document.body.classList.contains('selmode'))return;
+document.addEventListener('click',ev=>{if(!document.body.classList.contains('selmode')||ev.target.closest('.xp'))return;
   const el=ev.target.closest(ITEMS);if(!el)return;ev.preventDefault();ev.stopPropagation();
   const id=idOf(el);if(!id)return;picked.has(id)?picked.delete(id):picked.add(id);markPicked()},true);
 sb.querySelector('.all').onclick=()=>{document.querySelectorAll(ITEMS).forEach(el=>{const id=idOf(el);if(id&&el.offsetParent)picked.add(id)});markPicked()};
 sb.querySelector('.none').onclick=()=>{picked.clear();markPicked()};
 sb.querySelector('.cancel').onclick=()=>setSel(false);
+// Projekt bilden: Dialog mit Name, Kunde, Stückzahl oder Auswahl eines vorhandenen Projekts
+const dlg=document.getElementById('pjdlg'),df=dlg.querySelector('form');
+function pickedEls(){const out=[];picked.forEach(id=>{const el=document.querySelector('.jr[data-href="job?id='+id+'"]')||document.querySelector('[href="job?id='+id+'"].mcard,[href="job?id='+id+'"].gcard');out.push([id,el])});return out}
+function dlgMode(m){df.querySelectorAll('.seg2 button').forEach(b=>b.classList.toggle('on',b.dataset.m===m));
+  df.querySelector('.mnew').hidden=m!=='new';df.querySelector('.madd').hidden=m!=='add';df.querySelector('input[name=name]').required=m==='new';
+  df.dataset.m=m;df.querySelector('.go').textContent=m==='new'?_t("Projekt anlegen"):_t("Hinzufügen")}
+df.querySelectorAll('.seg2 button').forEach(b=>b.onclick=()=>dlgMode(b.dataset.m));
+df.querySelectorAll('.stp button').forEach(b=>b.onclick=()=>{const i=df.querySelector('input[name=quantity]');i.value=Math.max(1,(+i.value||1)+(+b.dataset.d))});
+df.querySelector('.cancel').onclick=()=>dlg.hidden=true;
+dlg.onclick=ev=>{if(ev.target===dlg)dlg.hidden=true};
+sb.querySelector('.pjbtn').onclick=()=>{const els=pickedEls();if(!els.length)return;
+  const projs=els.filter(([,el])=>el&&el.dataset.kind==='project'),prints=els.filter(([,el])=>!el||el.dataset.kind!=='project');
+  const name=(prints.find(([,el])=>el)||projs[0]||[])[1];
+  df.querySelector('input[name=name]').value=name?name.dataset.name:'';df.querySelector('input[name=quantity]').value=1;
+  const cnt=new Map();els.forEach(([,el])=>{const c=el&&el.dataset.cust;if(c)cnt.set(c,(cnt.get(c)||0)+1)});
+  let best='',bn=0;cnt.forEach((n,c)=>{if(n>bn){best=c;bn=n}});df.querySelector('select[name=customer_id]').value=best;
+  const pl=df.querySelector('.pl');pl.textContent='';
+  els.forEach(([id,el])=>{const d=document.createElement('div');const im=el&&el.querySelector('img');
+    if(im){const i2=document.createElement('img');i2.src=im.src;d.appendChild(i2)}else d.appendChild(document.createElement('i'));
+    const n=document.createElement('span');n.textContent=(el&&el.dataset.kind==='project'?'📦 ':'')+(el?el.dataset.name:'#'+id);d.appendChild(n);pl.appendChild(d)});
+  const n=prints.length;df.querySelector('.ttl').textContent=n==1?_t("Projekt aus 1 Druck"):_t("Projekt aus {n} Drucken").replace('{n}',n);
+  const into=df.querySelector('select[name=into]');
+  if(projs.length===1&&into){into.value=projs[0][0];dlgMode('add')}else dlgMode('new');
+  dlg.hidden=false;if(df.dataset.m==='new')df.querySelector('input[name=name]').select()};
+df.onsubmit=async ev=>{ev.preventDefault();const fd=new FormData(df);fd.append('ids',[...picked].join(','));fd.append('mode',df.dataset.m);
+  const btn=df.querySelector('.go');btn.disabled=true;
+  try{const r=await fetch('api/projects',{method:'POST',body:fd});const d=await r.json();if(d.id){location.href='job?id='+d.id;return}}catch(_){}
+  btn.disabled=false};
 let toastTimer=null;
 sb.querySelector('.del').onclick=async()=>{const n=picked.size;if(!n)return;
   if(!confirm((n==1?_t("1 Druck in den Papierkorb legen? Du kannst ihn dort wiederherstellen."):_t("{n} Drucke in den Papierkorb legen? Du kannst sie dort wiederherstellen.").replace('{n}',n))))return;
@@ -465,9 +558,33 @@ def page_jobs(store: Store, f: dict[str, str | None], connected: bool) -> str:
 <div id="results">{results(store, f)}</div>
 <div id="selbar" hidden><b>{t('<span class="n">0</span> ausgewählt')}</b><button type="button" class="all">{t("Alle")}</button>
 <button type="button" class="none">{t("Keine")}</button><span class="sp"></span><button type="button" class="cancel">{t("Abbrechen")}</button>
+<button type="button" class="btn pjbtn" disabled title="{e(t("Ausgewählte Drucke zu einem Projekt zusammenfassen"))}">{t("📦 Projekt bilden")}</button>
 <button type="button" class="btn danger del" disabled>{t("🗑 Löschen")}</button></div>
+{_project_dialog(store, customers)}
 <div id="toast" hidden><span></span><button type="button">{t("Rückgängig")}</button></div>"""
-    return layout("Printlog", "jobs", f"<style>{JOBS_CSS}{ACT_CSS}{TODO_CSS}</style>" + body, ACT_JS + JOBS_JS)
+    return layout("Printlog", "jobs", f"<style>{MOS_CSS}{JOBS_CSS}{ACT_CSS}{TODO_CSS}</style>" + body, ACT_JS + JOBS_JS)
+
+
+def _project_dialog(store: Store, customers: list[dict[str, Any]]) -> str:
+    """Dialog „Projekt bilden“ für die Mehrfachauswahl (Inhalt füllt JOBS_JS)."""
+    cust_opts = opt("", t("– kein Kunde –"), "") + "".join(opt(str(c["id"]), c["name"], "") for c in customers)
+    projs = store.projects(40)
+    proj_opts = "".join(opt(str(p["id"]), " · ".join(x for x in (code_label(p.get("code")), p.get("task_name") or "–",
+                                                                   p.get("customer_name") or "", tn(p["n"], "{n} Druck", "{n} Drucke")) if x), "")
+                        for p in projs)
+    add_btn = f'<button type="button" data-m="add">{t("Zu bestehendem Projekt …")}</button>' if projs else ""
+    return f"""<div id="pjdlg" class="dlgbg" hidden><form class="dlg" autocomplete="off">
+<h3>📦 <span class="ttl"></span></h3><p class="sub">{t("Die Drucke bleiben einzeln erhalten und erscheinen im Projekt. Preis, Zahlung und Übergabe laufen danach über das Projekt.")}</p>
+<div class="seg2"><button type="button" data-m="new" class="on">{t("Neues Projekt")}</button>{add_btn}</div>
+<div class="mnew"><div class="fr"><label>{t("Name")}<input name="name" required maxlength="120"></label>
+<label>{t("Kunde")}<select name="customer_id">{cust_opts}</select></label>
+<label>{t("Stückzahl")}<span class="stp"><button type="button" data-d="-1" aria-label="{e(t("eins weniger"))}">−</button><input name="quantity" type="number" min="1" value="1" inputmode="numeric"><button type="button" data-d="1" aria-label="{e(t("eins mehr"))}">+</button></span></label></div>
+<p class="hint">{t("Fertige Objekte für den Kunden (z. B. 1 Set). Die Stückzahl der einzelnen Platten bleibt unverändert.")}</p></div>
+<div class="madd" hidden><label>{t("Projekt")}<select name="into">{proj_opts}</select></label></div>
+<div class="pl"></div>
+<div class="ft"><span class="sp">{t("Bekommt eine eigene Projekt-ID (PL-…), die Drucke behalten ihre.")}</span>
+<button type="button" class="btn cancel">{t("Abbrechen")}</button><button class="btn primary go">{t("Projekt anlegen")}</button></div>
+</form></div>"""
 
 
 def results(store: Store, f: dict[str, str | None]) -> str:
@@ -476,7 +593,7 @@ def results(store: Store, f: dict[str, str | None]) -> str:
     marker = f'<span id="opendata" hidden data-n="{store.count_jobs(pending="1")}"></span>'
     if f.get("view") == "todo":
         return marker + _todo_view(store, q)
-    jobs = store.list_jobs(**q)
+    jobs, kids, via = group_projects(store, store.list_jobs(**q))
     summary = store.summary(**q)
     mat_sum = store.material_summary(**q)
     names = printer_names(store)
@@ -517,7 +634,7 @@ def results(store: Store, f: dict[str, str | None]) -> str:
 
     photos = store.first_photos([j["id"] for j in jobs])
     if f.get("view") == "gallery":
-        cards = "".join(_gallery_card(j, names, photos.get(j["id"])) for j in jobs)
+        cards = "".join(_gallery_card(j, names, photos.get(j["id"]), kids.get(j["id"])) for j in jobs)
         listing = f'<div class="gallery">{cards}</div>' if cards else f'<p class="muted">{t("Keine Drucke gefunden.")}</p>'
     else:
         mg = margins(store)
@@ -527,8 +644,12 @@ def results(store: Store, f: dict[str, str | None]) -> str:
             if label:
                 rows.append(f'<div class="jday"><b>{label[0]}</b><span>{label[1]}</span></div>')
                 cards.append(f'<div class="mday"><b>{label[0]}</b><span>{label[1]}</span></div>')
-            rows += [_job_row(j, names, mg, grouped) for j in day_jobs]
-            cards += [_mobile_card(j, names, photos.get(j["id"])) for j in day_jobs]
+            for j in day_jobs:
+                if j.get("kind") == "project":
+                    rows.append(_project_rows(j, kids.get(j["id"], []), names, mg, grouped, j["id"] in via))
+                else:
+                    rows.append(_job_row(j, names, mg, grouped))
+            cards += [_mobile_card(j, names, photos.get(j["id"]), kids.get(j["id"])) for j in day_jobs]
         empty = f'<p class="muted" style="padding:14px 18px;margin:0">{t("Keine Drucke gefunden.")}</p>'
         listing = f"""<div class="jt"><div class="jh"><div></div><div>{t("Auftrag · Material · Kunde")}</div><div>{t("Drucker · Start")}</div>
 <div class="r">{t("Verbrauch")}</div><div class="r">{t("Kosten")}</div><div>{t("Verkaufspreise")}</div><div class="r">{t("Status")}</div></div>
@@ -557,7 +678,7 @@ TODO_CSS = """
 .otg.warn{color:var(--warn)}.otg.run{color:var(--run)}
 .or{display:grid;grid-template-columns:48px minmax(0,1fr) 220px 170px 236px;gap:14px;align-items:center;padding:11px 16px;border-bottom:1px solid var(--line)}
 .or:last-child{border-bottom:0}
-.or .t,.or .ph{width:48px;height:48px;border-radius:10px;border:1px solid var(--line)}
+.or .t,.or .ph{width:48px;height:48px;border-radius:10px;border:1px solid var(--line)}.or .t.mos{box-sizing:border-box}
 .or .oname b{display:block;font-size:16px;line-height:1.25;overflow-wrap:anywhere}.or .oname a{color:var(--fg);text-decoration:none}
 .or .oname>span{font-size:13px;color:var(--muted)}.or .pid{margin-left:6px}
 .prog{display:grid;gap:4px;font-size:13px}.prog .l{display:flex;justify-content:space-between;gap:8px;color:var(--muted);white-space:nowrap}
@@ -601,7 +722,7 @@ def _ago(ts: float | None) -> str:
     return t("heute") if days <= 0 else t("gestern") if days == 1 else t("vor {n} Tagen", n=days)
 
 
-def _todo_row(j: dict[str, Any], photo: str | None) -> str:
+def _todo_row(j: dict[str, Any], photo: str | None, kids: list[dict[str, Any]] | None = None) -> str:
     pay, ho = _open_state(j)
     jid, href = j["id"], f'job?id={j["id"]}'
     n, d = j.get("quantity") or 1, min(j.get("delivered") or 0, j.get("quantity") or 1)
@@ -624,8 +745,10 @@ def _todo_row(j: dict[str, Any], photo: str | None) -> str:
         _, _, title, items = _ho_menu(j)
         acts += f'<button type="button" class="btn ho act"{_acts(title, items)}>{t("📦 Übergabe")}</button>'
     when = fmt_date(j["start_ts"], "dm") if j.get("start_ts") else "–"
-    return (f'<div class="or">{_thumb(j, photo)}<div class="oname"><b><a href="{href}">{e(j["task_name"] or "–")}</a>{_pid(j)}</b>'
-            f'<span>{when} · {_ago(j.get("start_ts"))} · {_pcs(n)}</span></div>'
+    pic = mosaic(kids or []) if j.get("kind") == "project" else _thumb(j, photo)
+    pj = f'📦 {tn(len(kids or []), "{n} Druck", "{n} Drucke")} · ' if j.get("kind") == "project" else ""
+    return (f'<div class="or">{pic}<div class="oname"><b><a href="{href}">{e(j["task_name"] or "–")}</a>{_pid(j)}</b>'
+            f'<span>{pj}{when} · {_ago(j.get("start_ts"))} · {_pcs(n)}</span></div>'
             f'{pay_html}{ho_html}<div class="oact">{acts}</div></div>')
 
 
@@ -633,6 +756,7 @@ def _todo_view(store: Store, q: dict[str, Any]) -> str:
     """Offene Posten: Drucke mit offenem Betrag oder offenen Stück, nach Kunden gruppiert."""
     jobs = store.list_jobs(pending="1", **q)
     photos = store.first_photos([j["id"] for j in jobs])
+    kids = store.children([j["id"] for j in jobs if j.get("kind") == "project"])
     groups: dict[int, list[dict[str, Any]]] = {}
     for j in sorted(jobs, key=lambda j: j.get("start_ts") or 0):
         if any(_open_state(j)):
@@ -670,7 +794,7 @@ def _todo_view(store: Store, q: dict[str, Any]) -> str:
         out.append(f'<section class="og"><header><a class="nm" href="./?customer={cid}" title="{e(t("Alle Drucke von {name}", name=name))}">'
                    f'<span class="av" style="background:var(--s{i % 8 + 1})">{e(name[:1].upper())}</span>{e(name)}</a>'
                    f'<span class="muted" style="font-size:13px">{tn(len(items), "{n} Druck", "{n} Drucke")}</span><span class="sum">{tags}</span></header>'
-                   f'{"".join(_todo_row(j, photos.get(j["id"])) for j in items)}</section>')
+                   f'{"".join(_todo_row(j, photos.get(j["id"]), kids.get(j["id"])) for j in items)}</section>')
     hint = t("Offen sind Drucke mit Kunde, die noch nicht ganz bezahlt oder übergeben sind. Kunden mit „Keine Abrechnung“ und Fehldrucke, "
              "die nicht berechnet werden, fehlen. Verschenkte Drucke stehen nur hier, bis sie übergeben sind.")
     return f'{kpis}{"".join(out)}<p class="ohint">{hint}</p>'
@@ -712,14 +836,14 @@ def _bar_parts(j: dict[str, Any]) -> list[tuple[str, str, float, str]]:
     return parts
 
 
-def _cost_box(j: dict[str, Any]) -> str:
+def _cost_box(j: dict[str, Any], note: str = "") -> str:
     total = j.get("cost_total")
     if total is None:
         return '<div class="jc r"><b>–</b></div>'
     parts = _bar_parts(j)
     bar = "".join(f'<i class="{c}" style="flex:{v:.4f}"></i>' for _, c, v, _ in parts if v)
     q = j.get("quantity")
-    per = f'<span class="pp">{_per_piece(j)}</span>' if q and q > 1 else ""
+    per = f'<span class="pp">{e(note) if note else _per_piece(j)}</span>' if note or (q and q > 1) else ""
     rows = "".join(
         f'<div><i class="{c}"></i><span>{n}</span><b>{fmt_num(v, 2, "€")}</b><small>{e(sub)}</small></div>'
         for n, c, v, sub in parts
@@ -777,7 +901,12 @@ def defect_badges(j: dict[str, Any], cls: str = "bdg") -> str:
 
 
 def billable(j: dict[str, Any]) -> bool:
-    """Druck mit Kunde, bei dem abgerechnet wird (nicht „Keine Abrechnung“ beim Kunden)."""
+    """Druck mit Kunde, bei dem abgerechnet wird (nicht „Keine Abrechnung“, nicht über ein Projekt)."""
+    return has_billing(j) and not j.get("project_id")
+
+
+def has_billing(j: dict[str, Any]) -> bool:
+    """Kunde vorhanden, bei dem abgerechnet wird (Drucke im Projekt eingeschlossen)."""
     return bool(j.get("customer_id")) and not j.get("customer_nobill")
 
 
@@ -900,15 +1029,147 @@ def _pid(j: dict[str, Any], cls: str = "pid") -> str:
     return f'<span class="{cls}">{e(code_label(j.get("code")))}</span>' if j.get("code") else ""
 
 
-def _job_row(j: dict[str, Any], names: dict[str, str], mg: list[tuple[str, float]], grouped: bool = False) -> str:
+def group_projects(store: Store, jobs: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[int, list[dict[str, Any]]], set[int]]:
+    """Liste für die Anzeige: Drucke eines Projekts erscheinen unter ihrem Projekt.
+
+    Passt nur ein Druck des Projekts zum Filter, kommt das Projekt trotzdem in die Liste (``via``: aufgeklappt).
+    Gibt (oberste Ebene, Drucke je Projekt, Projekte nur über einen Druck gefunden) zurück.
+    """
+    tops = [j for j in jobs if not j.get("project_id")]
+    have = {j["id"] for j in tops}
+    via: set[int] = set()
+    for j in jobs:
+        pid = j.get("project_id")
+        if pid and pid not in have:
+            p = store.get(pid)
+            if p:
+                tops.append(p)
+                have.add(pid)
+                via.add(pid)
+    if via:
+        tops.sort(key=lambda j: (j.get("start_ts") or 0, j["id"]), reverse=True)
+    kids = store.children([j["id"] for j in tops if j.get("kind") == "project"])
+    return tops, kids, via
+
+
+def mosaic(kids: list[dict[str, Any]], cls: str = "t", count: bool = True) -> str:
+    """Vorschaubild eines Projekts: bis zu vier Bilder seiner Drucke, unten rechts die Anzahl."""
+    imgs: list[str] = []
+    for k in sorted(kids, key=lambda k: bool(k.get("is_scrap"))):
+        if k.get("image") and k["image"] not in imgs:
+            imgs.append(k["image"])
+    imgs = imgs[:4]
+    tiles = "".join(f'<img loading="lazy" src="images/{e(i)}" alt="">' for i in imgs) or '<span></span>'
+    one = " one" if len(imgs) == 1 else ""
+    n = f'<b>{len(kids)}</b>' if count and kids else ""
+    return f'<div class="{cls} mos{one}">{tiles}{n}</div>'
+
+
+def printers_of(kids: list[dict[str, Any]], names: dict[str, str]) -> str:
+    return " · ".join(dict.fromkeys(names.get(k["printer"], k.get("printer_name") or k["printer"]) for k in kids)) or "–"
+
+
+def print_hours(kids: list[dict[str, Any]]) -> float:
+    return sum(max(0.0, (k["end_ts"] or time.time()) - k["start_ts"]) for k in kids if k.get("start_ts")) / 3600
+
+
+def fmt_hours(h: float) -> str:
+    m = int(round(h * 60))
+    return f"{m // 60}:{m % 60:02d} h" if h else "–"
+
+
+def span_text(kids: list[dict[str, Any]]) -> str:
+    """Zeitraum eines Projekts, z. B. „22.–23.11.“ oder „22.11.“."""
+    days = sorted({datetime.fromtimestamp(k["start_ts"]).date() for k in kids if k.get("start_ts")})
+    if not days:
+        return "–"
+    a, b = days[0], days[-1]
+    if a == b:
+        return fmt_date(datetime(a.year, a.month, a.day), "dm")
+    if a.month == b.month and a.year == b.year and not lang_en():
+        return f"{a.day}.–{fmt_date(datetime(b.year, b.month, b.day), 'dm')}"
+    return f"{fmt_date(datetime(a.year, a.month, a.day), 'dm')}–{fmt_date(datetime(b.year, b.month, b.day), 'dm')}"
+
+
+def project_chips(kids: list[dict[str, Any]]) -> str:
+    """Material eines Projekts zusammengefasst (gleiches Filament addiert)."""
+    agg: dict[tuple[str, str], float] = {}
+    for k in kids:
+        factor = 1.0
+        if k.get("status") == "abgebrochen" and k.get("progress") is not None:
+            factor = max(0.0, min(1.0, k["progress"] / 100))
+        for m in parse_materials(k.get("materials")):
+            key = (m["name"] or "?", (m["color"] or "")[:7].upper())
+            agg[key] = agg.get(key, 0.0) + (m["grams"] or 0) * factor
+    items = sorted(agg.items(), key=lambda kv: -kv[1])
+    chips = "".join(f'<span><span class="dot" style="background:{_color(c)}"></span>{e(_short(n))} {fmt_num(g, 1, "g")}</span>'
+                    for (n, c), g in items[:4])
+    more = f'<span>+{len(items) - 4}</span>' if len(items) > 4 else ""
+    return f'<div class="chips">{chips}{more}</div>' if chips else ""
+
+
+def share_of(k: dict[str, Any], project: dict[str, Any]) -> float | None:
+    """Anteil eines Drucks an der Preisbasis des Projekts (0 bei unberechnetem Fehldruck)."""
+    base = price_base(project)
+    if not base or k.get("cost_total") is None:
+        return None
+    if no_charge(k):
+        return 0.0
+    c = k["cost_total"]
+    if k.get("is_scrap") and k.get("defect_charge") == "pct":
+        c = c * (k.get("defect_value") or 0) / 100
+    elif k.get("is_scrap") and k.get("defect_charge") == "amount":
+        c = (k.get("defect_value") or 0) / (1 + (project.get("customer_margin") or 0) / 100)
+    return c / base
+
+
+def _project_rows(p: dict[str, Any], kids: list[dict[str, Any]], names: dict[str, str], mg: list[tuple[str, float]],
+                  grouped: bool, open_: bool) -> str:
+    """Projektzeile in der Tabelle, darunter (aufklappbar) seine Drucke."""
+    href = f'job?id={p["id"]}'
+    tags = []
+    if p.get("customer_name"):
+        tags.append(f'<span class="tag">👤 {e(p["customer_name"])}</span>')
+    if p.get("quantity"):
+        tags.append(f'<span class="tag">{_pcs(p["quantity"])}</span>')
+    if p.get("job_note"):
+        tags.append(f'<span class="tnote">📝 {e(p["job_note"])}</span>')
+    when = span_text(kids)
+    if grouped and p.get("start_ts") and len({datetime.fromtimestamp(k["start_ts"]).date() for k in kids if k.get("start_ts")}) <= 1:
+        when = datetime.fromtimestamp(p["start_ts"]).strftime("%H:%M")
+    hours = print_hours(kids)
+    n_fd = sum(1 for k in kids if k.get("is_scrap"))
+    pp = (t("davon {n} Fehldruck", n=n_fd) if n_fd == 1 else t("davon {n} Fehldrucke", n=n_fd)) if n_fd else ""
+    cost = _cost_box(p, pp)
+    toggle = (f'<button type="button" class="xp" data-pid="{p["id"]}" aria-expanded="{"true" if open_ else "false"}" '
+              f'title="{e(t("Drucke ein- oder ausblenden"))}">{tn(len(kids), "{n} Druck", "{n} Drucke")}</button>')
+    cls = "jr proj" + (" open" if open_ else "") + (" run" if p.get("status") == "läuft" else "")
+    grams = p.get("filament_g")
+    row = (f'<div class="{cls}" data-href="{href}" data-kind="project" data-name="{e(p["task_name"] or "")}" data-cust="{p.get("customer_id") or ""}">'
+           f'{mosaic(kids)}'
+           f'<div><a class="jn" href="{href}">{e(p["task_name"] or "–")}</a>{_pid(p)}{toggle}{project_chips(kids)}'
+           f'<div class="tags">{"".join(tags)}</div></div>'
+           f'<div class="jc"><b>{e(printers_of(kids, names))}</b><span>{when}{" · " + fmt_hours(hours) if hours else ""}</span></div>'
+           f'<div class="jc r"><b>{fmt_num(grams, 1, "g")}</b><span>{fmt_num(p.get("kwh"), 3, "kWh")}</span></div>'
+           f'<div class="calc">{cost}</div>{_prices(p, mg)}<div class="js">{_status_badges(p)}</div></div>')
+    out = [row]
+    for i, k in enumerate(kids):
+        out.append(_job_row(k, names, mg, grouped, parent=p, last=i == len(kids) - 1, hidden=not open_))
+    return "".join(out)
+
+
+def _job_row(j: dict[str, Any], names: dict[str, str], mg: list[tuple[str, float]], grouped: bool = False,
+             parent: dict[str, Any] | None = None, last: bool = False, hidden: bool = False) -> str:
     href = f'job?id={j["id"]}'
     grams = j["filament_g"] if j.get("filament_g") is not None else j["weight_g"]
     tags = []
-    if j.get("customer_name"):
+    if j.get("customer_name") and not parent:
         tags.append(f'<span class="tag">👤 {e(j["customer_name"])}</span>')
     q = j.get("quantity")
     if q and q > 1:
         tags.append(f'<span class="tag">{_pcs(q)}</span>')
+    if j.get("reprint_of"):
+        tags.append(f'<span class="tnote">↻ {t("Nachdruck")}</span>')
     url, title = j.get("project_url"), j.get("project_title")
     if url and url.startswith(("http://", "https://")):
         tags.append(f'<a class="tag" href="{e(url)}" target="_blank" rel="noopener">🔗 {e(title or t("Projekt"))}</a>')
@@ -934,18 +1195,44 @@ def _job_row(j: dict[str, Any], names: dict[str, str], mg: list[tuple[str, float
         cls += " run"
     if no_charge(j):
         cls += " scrap"
+    prices = _prices(j, mg)
+    attrs = f' data-name="{e(j["task_name"] or "")}" data-cust="{j.get("customer_id") or ""}"'
+    if parent:
+        cls += " kid" + (" last" if last else "")
+        attrs += f' data-parent="{parent["id"]}"' + (" hidden" if hidden else "")
+        sh = share_of(j, parent)
+        prices = (f'<div class="jp inproj calc"><span>{t("im Projekt")}</span><span></span><span></span>'
+                  + (f'<b class="nb">{t("nicht berechnet")}</b>' if sh == 0 else
+                     f'<b>{t("{p} % der Kosten", p=fmt_num(sh * 100, 1))}</b>' if sh is not None else "<b>–</b>") + "</div>")
     return (
-        f'<div class="{cls}" data-href="{href}">{_thumb(j)}'
+        f'<div class="{cls}" data-href="{href}"{attrs}>{_thumb(j)}'
         f'<div><a class="jn" href="{href}">{e(j["task_name"] or "–")}</a>{_pid(j)}{_chips(j)}{tag_html}</div>'
         f'<div class="jc"><b>{e(names.get(j["printer"], j["printer_name"] or j["printer"]))}</b>'
         f'<span>{when}{" · " + dur if dur != "–" else ""}</span></div>'
         f'<div class="jc r"><b>{fmt_num(grams, 1, "g")}</b><span>{fmt_num(j["kwh"], 3, "kWh")}</span></div>'
-        f'<div class="calc">{_cost_box(j)}</div>{_prices(j, mg)}<div class="js">{_status_badges(j)}</div></div>'
+        f'<div class="calc">{_cost_box(j)}</div>{prices}<div class="js">{_status_badges(j)}</div></div>'
     )
 
 
-def _mobile_card(j: dict[str, Any], names: dict[str, str], photo: str | None) -> str:
+def _mobile_card(j: dict[str, Any], names: dict[str, str], photo: str | None,
+                 kids: list[dict[str, Any]] | None = None) -> str:
     """Karte für schmale Bildschirme statt der breiten Tabelle; Tippen öffnet die Details."""
+    if j.get("kind") == "project":
+        kids = kids or []
+        meta = [e(printers_of(kids, names)), span_text(kids)]
+        if j.get("quantity"):
+            meta.append(t("{q} Stk.", q=j["quantity"]))
+        if j.get("customer_name"):
+            meta.append(e(j["customer_name"]))
+        if j.get("code"):
+            meta.append(_pid(j))
+        status = _status_of(j)
+        return (f'<a class="mcard proj" href="job?id={j["id"]}" data-kind="project" data-name="{e(j["task_name"] or "")}" '
+                f'data-cust="{j.get("customer_id") or ""}">{mosaic(kids)}'
+                f'<div><div class="mt">{e(j["task_name"] or "–")}</div><div class="mp">📦 {t("Projekt")} · {tn(len(kids), "{n} Druck", "{n} Drucke")}</div></div>'
+                f'<div class="mr"><b class="calc">{fmt_num(j.get("cost_total"), 2, "€")}</b>'
+                f'<div class="s s-{e(status.split()[0])}">{e(t(status))}</div><div class="mcb">{customer_badges(j)}</div></div>'
+                f'<div class="mm">{project_chips(kids)}<div class="meta">{"".join(f"<span>{m}</span>" for m in meta)}</div></div></a>')
     status = _status_of(j)
     grams = j["filament_g"] if j.get("filament_g") is not None else j["weight_g"]
     extra = ""
@@ -972,7 +1259,7 @@ def _mobile_card(j: dict[str, Any], names: dict[str, str], photo: str | None) ->
     sub = j.get("project_title") or j.get("job_note")
     per = f'<div class="note">{_per_piece(j)}</div>' if _per_piece(j) else ""
     return (
-        f'<a class="mcard" href="job?id={j["id"]}">{_thumb(j, photo)}'
+        f'<a class="mcard" href="job?id={j["id"]}" data-name="{e(j["task_name"] or "")}" data-cust="{j.get("customer_id") or ""}">{_thumb(j, photo)}'
         f'<div><div class="mt">{e(j["task_name"] or "–")}</div>'
         + (f'<div class="mp">{e(sub)}</div>' if sub else "")
         + f'</div><div class="mr"><b class="calc">{fmt_num(j.get("cost_total"), 2, "€")}</b><span class="calc">{per}</span>'
@@ -982,8 +1269,18 @@ def _mobile_card(j: dict[str, Any], names: dict[str, str], photo: str | None) ->
     )
 
 
-def _gallery_card(j: dict[str, Any], names: dict[str, str], photo: str | None) -> str:
+def _gallery_card(j: dict[str, Any], names: dict[str, str], photo: str | None,
+                  kids: list[dict[str, Any]] | None = None) -> str:
     status = _status_of(j)
+    if j.get("kind") == "project":
+        kids = kids or []
+        cust = f' · {e(j["customer_name"])}' if j.get("customer_name") else ""
+        img = _thumb(j, photo, "gimg") if photo else mosaic(kids, "gimg", count=False)
+        return (f'<a class="gcard" href="job?id={j["id"]}">{img}'
+                f'<div class="gt"><b>📦 {e(j["task_name"] or "–")}</b>'
+                f'<span class="badge">{tn(len(kids), "{n} Druck", "{n} Drucke")} · {span_text(kids)}{cust} · {_pid(j)}</span><br>'
+                f'<span class="badge"><span class="s s-{e(status.split()[0])}">{e(t(status))}</span> · '
+                f'<span class="calc">{fmt_num(j.get("cost_total"), 2, "€")}</span></span></div></a>')
     cust = f' · {e(j["customer_name"])}' if j.get("customer_name") else ""
     badge = (" · 📷" if photo else "") + (" · 🔗" if j.get("project_url") else "") + (" · 📂" if j.get("local_path") else "")
     return (
@@ -1307,7 +1604,7 @@ def _defect_box(store: Store, job: dict[str, Any], photos: list[dict[str, Any]])
     cause = f'<div><h4>{t("Ursache")}</h4><form class="cats" method="post" action="{act}">{cats}</form></div>'
 
     cost = job.get("cost_total")
-    if billable(job):
+    if has_billing(job):
         mode = job.get("defect_charge") if charged(job) else "none"
         seg = "".join(f'<button name="defect_charge" value="{v}" class="{"on" if (mode in ("pct", "amount") and v == "part") or mode == v else ""}">{lbl}</button>'
                       for v, lbl in (("none", t("Nichts")), ("part", t("Anteilig")), ("full", t("Voll"))))
@@ -1326,7 +1623,7 @@ def _defect_box(store: Store, job: dict[str, Any], photos: list[dict[str, Any]])
         due = amount_due(job) if mode != "none" else 0.0
         gap = None if cost is None or due is None else cost - due
         left = (f'<div><span>{e(t("{name} zahlt", name=name))}</span><b class="calc">{fmt_num(due, 2, "€")}</b>'
-                f'<small>{t("nichts, fällt aus „Offen“ heraus") if mode == "none" else t("steht unter „Offen“ und auf dem Bon")}</small></div>')
+                f'<small>{(t("zählt nicht zum Projektpreis") if mode == "none" else t("fließt in den Projektpreis ein")) if job.get("project_id") else t("nichts, fällt aus „Offen“ heraus") if mode == "none" else t("steht unter „Offen“ und auf dem Bon")}</small></div>')
         right = (f'<div class="{"bad" if gap is not None and gap >= 0.005 else "ok"}"><span>{t("Ungedeckt") if gap is None or gap >= 0.005 else t("Gedeckt")}</span>'
                  f'<b class="calc">{fmt_num(max(gap, 0) if gap is not None else None, 2, "€")}</b>'
                  f'<small class="calc">{t("Kosten {c} − {d}", c=fmt_num(cost, 2, "€"), d=fmt_num(due, 2, "€"))}</small></div>')
@@ -1435,6 +1732,9 @@ SHARE_JS = """
 
 
 def page_job(store: Store, job: dict[str, Any], saved: str | None) -> str:
+    if job.get("kind") == "project":
+        return page_project(store, job, saved)
+    parent = store.get(job["project_id"]) if job.get("project_id") else None
     names = printer_names(store)
     customers = store.customers()
     photos = store.photos(job["id"])
@@ -1463,6 +1763,9 @@ def page_job(store: Store, job: dict[str, Any], saved: str | None) -> str:
         if orig:
             badges += (f'<a class="bdg" href="job?id={orig["id"]}" title="{e(t("Ersetzt einen Fehldruck"))}">'
                        f'↻ {t("Nachdruck von {ref}", ref=e(code_label(orig.get("code")) or "#" + str(orig["id"])))}</a>')
+    if parent:
+        badges += (f'<a class="bdg pjb" href="job?id={parent["id"]}" title="{e(t("Gehört zum Projekt {name}", name=parent.get("task_name") or ""))}">'
+                   f'📦 {e(code_label(parent.get("code")))}</a>')
     badges += f'<span class="bdg">🖨 {e(names.get(job["printer"], job["printer"]))}</span>'
     if job.get("customer_name"):
         badges += f'<span class="bdg">👤 {e(job["customer_name"])}</span>'
@@ -1486,6 +1789,30 @@ def page_job(store: Store, job: dict[str, Any], saved: str | None) -> str:
                        f'<div><b>{fmt_num(price, 2, "€")}</b>{each}</div></div>')
     if not price_rows:
         price_rows = f'<p class="muted" style="margin:6px 0 0">{t("Keine Margen eingestellt (Einstellungen).")}</p>'
+    pj_banner = pj_strip = ""
+    if parent:
+        sibs = store.children([parent["id"]]).get(parent["id"], [])
+        pos = next((i + 1 for i, k in enumerate(sibs) if k["id"] == job["id"]), 0)
+        sh = share_of(job, parent)
+        due = amount_due(parent) if billable(parent) else None
+        price_rows = (f'<div class="share"><div class="bigv">{t("nicht berechnet") if sh == 0 else (fmt_num(sh * 100, 1) + " %") if sh is not None else "–"}</div>'
+                      f'<div class="muted">{t("{c} von {b} berechneten Kosten", c=fmt_num(job.get("cost_total") if sh else 0, 2, "€"), b=fmt_num(price_base(parent), 2, "€"))}</div>'
+                      '<div class="bar3">' + "".join(
+                          f'<i style="flex:{max(share_of(k, parent) or 0, 0):.4f}" class="{"me" if k["id"] == job["id"] else ""}"></i>' for k in sibs) + '</div>'
+                      + (f'<div>{t("Entspricht <b>{v}</b> vom Preis {p}", v=fmt_num(due * sh, 2, "€"), p=fmt_num(due, 2, "€"))}</div>'
+                         if due is not None and sh else "") + '</div>')
+        pj_banner = (f'<div class="pjbanner">{mosaic(sibs)}<div class="t2"><b>📦 {t("Teil von „{name}“", name=e(parent.get("task_name") or "–"))} · {e(code_label(parent.get("code")))}</b>'
+                     f'<small>{t("Druck {i} von {n}", i=pos, n=len(sibs))} · {t("Kunde, Preis, Zahlung und Übergabe laufen über das Projekt.")}</small></div>'
+                     f'<a class="btn primary" href="job?id={parent["id"]}">{t("Zum Projekt →")}</a></div>')
+        if has_billing(parent):
+            pd, pp = amount_due(parent), parent.get("paid") or 0
+            info = [fmt_num(pd, 2, "€")]
+            if pd is not None and not parent.get("gift"):
+                info.append(t("bezahlt") if pp >= pd - 0.005 else t("{v} offen", v=fmt_num(pd - pp, 2, "€")))
+            n, d = parent.get("quantity") or 1, min(parent.get("delivered") or 0, parent.get("quantity") or 1)
+            info.append(t("{d} von {n} übergeben", d=d, n=n))
+            pj_strip = (f'<div class="strip"><div class="sa"><span>{t("Abrechnung")}</span><b class="pjn">{t("im Projekt {name}", name=e(parent.get("task_name") or ""))}</b>'
+                        f'<small class="calc">{" · ".join(info)}</small></div><a href="job?id={parent["id"]}#ab" class="btn sm">{t("Zum Projekt →")}</a></div>')
 
     # Übersicht
     materials = parse_materials(job.get("materials"))
@@ -1537,6 +1864,14 @@ def page_job(store: Store, job: dict[str, Any], saved: str | None) -> str:
                                 for i, m in enumerate(materials)) + '</div>')
     cur = str(job.get("customer_id") or "")
     cust_opts = opt("", t("– kein Kunde –"), cur) + "".join(opt(str(c["id"]), c["name"], cur) for c in customers)
+    if parent:
+        cust_field = (f'<label class="c3">{t("Kunde")}<span class="ro">{e(job.get("customer_name") or t("– kein Kunde –"))} · '
+                      f'<a href="job?id={parent["id"]}#ed">{t("im Projekt ändern")}</a></span></label>')
+        gift_field = ""
+    else:
+        cust_field = f'<label class="c3">{t("Kunde")}<select name="customer_id">{cust_opts}</select></label>'
+        gift_field = (f'<label class="c3">{t("Abrechnung")}<select name="gift">{opt("0", t("berechnen"), "1" if job.get("gift") else "0")}'
+                      f'{opt("1", t("🎁 verschenkt (keine Zahlung)"), "1" if job.get("gift") else "0")}</select></label>')
     sv = "" if job.get("scrap") is None else str(job["scrap"])
     scrap_opts = (opt("", t("automatisch ({x})", x=t("ja, abgebrochen") if job["status"] == "abgebrochen" else t("nein")), sv)
                   + opt("1", t("ja, Fehldruck"), sv) + opt("0", t("nein, in Ordnung"), sv))
@@ -1555,15 +1890,17 @@ def page_job(store: Store, job: dict[str, Any], saved: str | None) -> str:
         ab_pane = (f'<section class="pane{on("ab")}" data-pane="ab">'
                    f'{_deal_box(job, store.handovers(job["id"]), store.payments(job["id"]))}</section>')
     banner = f'<div class="banner">{t("Gespeichert.")}</div>' if saved else ""
+    unproject = (f'<form class="jdel" method="post" action="api/jobs/{job["id"]}/unproject"><button class="btn" '
+                 f'title="{e(t("Der Druck wird wieder einzeln abgerechnet."))}">{t("📦 Aus Projekt lösen")}</button></form>') if parent else ""
     body = f"""<div class="jd">{banner}<div class="jtop"><a class="back" href="./">{t("← alle Drucke")}</a>
 <div class="jact">{_share_button(job)}<form class="jdel" method="post" action="api/jobs/{job["id"]}/delete"><button class="btn sm danger" title="{e(t("Diesen Druck löschen"))}">{t("🗑 Löschen")}</button></form></div></div>
-<section class="hero"><div>{big}</div>
+{pj_banner}<section class="hero"><div>{big}</div>
 <div><h2 class="jtitle">{e(job["task_name"] or "–")}</h2><div class="badges">{badges}</div><div class="kps calc">{kpis}</div></div>
-{_sec("prices", t("Verkaufspreise"), price_sum, price_rows, "prices calc")}</section>
+{_sec("prices", t("Anteil am Projekt") if parent else t("Verkaufspreise"), "" if parent else price_sum, price_rows, "prices calc")}</section>
 <div class="tabs" role="tablist"><button type="button" data-tab="ov" class="{on("ov").strip()}">{t("Übersicht")}</button>
 {ab_tab}<button type="button" data-tab="ed" class="{on("ed").strip()}">{t("Bearbeiten")}</button>
 <button type="button" data-tab="ph" class="{on("ph").strip()}">{t("Fotos ({n})", n=len(photos))}</button></div>
-<section class="pane{on("ov")}" data-pane="ov">{_defect_box(store, job, photos)}{_deal_strip(job)}<div class="ovg">
+<section class="pane{on("ov")}" data-pane="ov">{_defect_box(store, job, photos)}{_deal_strip(job)}{pj_strip}<div class="ovg">
 {_sec("druck", t("Druck"), druck_sum, f'<div class="facts">{facts}</div>{side}')}
 {_sec("mat", t("Material"), mat_sum, mat_bar + mat_rows)}
 {_sec("fotos", t("Eigene Fotos"), tn(len(photos), "{n} Foto", "{n} Fotos"), _upload_form(job["id"]) + photo_box + more)}
@@ -1575,20 +1912,271 @@ def page_job(store: Store, job: dict[str, Any], saved: str | None) -> str:
 <button type="button" data-step="-1" aria-label="{e(t("eins weniger"))}">−</button>
 <input id="f_qty" name="quantity" type="number" min="1" step="1" inputmode="numeric" value="{job.get("quantity") or ""}" placeholder="1">
 <button type="button" data-step="1" aria-label="{e(t("eins mehr"))}">+</button></div></div></div>
-<label class="c3">{t("Kunde")}<select name="customer_id">{cust_opts}</select></label>
+{cust_field}
 <label class="c3">{t("Fehldruck")}<select name="scrap">{scrap_opts}</select></label>
-<label class="c3">{t("Abrechnung")}<select name="gift">{opt("0", t("berechnen"), "1" if job.get("gift") else "0")}{opt("1", t("🎁 verschenkt (keine Zahlung)"), "1" if job.get("gift") else "0")}</select></label>
+{gift_field}
 <label>{t("Projekttitel")}<input name="project_title" value="{e(job.get("project_title") or "")}" placeholder="{e(t("wird beim Speichern aus dem Link geholt, wenn leer"))}"></label>
 <label>{t("Projektlink (MakerWorld, Printables …)")}<input name="project_url" type="url" value="{e(job.get("project_url") or "")}" placeholder="https://makerworld.com/…"></label>
 <label class="full">{t("Lokaler Ordner oder 3D-Datei (Windows-Pfad)")}<input name="local_path" value="{e(job.get("local_path") or "")}" placeholder="{e(t("z. B. D:\\3D-Druck\\Projekte\\Halter"))}" spellcheck="false"></label>
 {mat_fields}<label class="full">{t("Notiz")}<textarea name="job_note" rows="3">{e(job.get("job_note") or "")}</textarea></label>
 <div class="act"><button class="primary">{t("Speichern")}</button></div>
 </form></div>
-<form class="jdel" method="post" action="api/jobs/{job["id"]}/delete"><button class="btn danger">{t("🗑 Druck löschen")}</button></form></section>
+{unproject}<form class="jdel" method="post" action="api/jobs/{job["id"]}/delete"><button class="btn danger">{t("🗑 Druck löschen")}</button></form></section>
 <section class="pane{on("ph")}" data-pane="ph"><div class="box">{_upload_form(job["id"])}
 {f'<div class="photos lg">{_photo_tiles(photos)}</div>' if photos else f'<p class="muted">{t("Noch keine eigenen Fotos.")}</p>'}</div></section>
 </div>"""
-    return layout(job["task_name"] or t("Druck"), "jobs", f"<style>{DETAIL_CSS}{ACT_CSS}</style>" + body, ACT_JS + DETAIL_JS + SHARE_JS)
+    return layout(job["task_name"] or t("Druck"), "jobs", f"<style>{MOS_CSS}{DETAIL_CSS}{PROJ_CSS}{ACT_CSS}</style>" + body, ACT_JS + DETAIL_JS + SHARE_JS)
+
+
+# ---- Projekt (mehrere Drucke als ein Auftrag) -------------------------------------
+
+PROJ_CSS = """
+.hero .mos{width:100%;aspect-ratio:1;border-radius:14px;gap:4px;padding:4px}.hero .mos b{font-size:15px;padding:2px 10px;right:10px;bottom:10px;border-radius:10px;line-height:20px}
+.bdg.pjb{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 55%,var(--line));background:color-mix(in srgb,var(--accent) 12%,transparent)}
+.pjbanner{display:flex;align-items:center;gap:14px;background:color-mix(in srgb,var(--accent) 10%,var(--card));border:1px solid color-mix(in srgb,var(--accent) 45%,var(--line));
+ border-radius:16px;padding:12px 16px;margin-bottom:14px}
+.pjbanner .mos{width:54px;height:54px;flex:none;border-radius:10px}.pjbanner .t2{flex:1;min-width:0}
+.pjbanner b{font-size:16px}.pjbanner small{display:block;color:var(--muted);font-size:13.5px;margin-top:2px}.pjbanner .btn{white-space:nowrap}
+.share{font-size:14px;line-height:1.5}.share .bigv{font-size:26px;font-weight:800;font-variant-numeric:tabular-nums}
+.share .bar3{display:flex;gap:2px;height:12px;border-radius:6px;overflow:hidden;margin:8px 0 6px}
+.share .bar3 i{display:block;height:100%;background:color-mix(in srgb,var(--fg) 16%,transparent);min-width:2px}.share .bar3 i.me{background:var(--accent)}
+.strip .sa b.pjn{font-size:18px}
+.fields .ro{display:flex;align-items:center;min-height:var(--ctl-h);font-weight:400;color:var(--fg);font-size:15px;gap:4px;flex-wrap:wrap}
+.boxh{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}.boxh h3{margin:0!important}.boxh .sp{flex:1}.boxh .muted{font-size:13px}
+.ptab{width:100%;border-collapse:collapse;font-size:14px}
+.ptab td,.ptab th{padding:8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
+.ptab th{font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:700}
+.ptab .r{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.ptab img,.ptab .ph{width:40px;height:40px;border-radius:8px;border:1px solid var(--line);object-fit:contain;display:block}
+.ptab .nm a{display:block;font-size:15px;font-weight:700;color:var(--fg);text-decoration:none}.ptab .nm small{color:var(--muted);font-size:12px}
+.ptab tr.fd .nm a{text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--bad) 60%,transparent);color:var(--muted)}
+.ptab tr.fd td.r{color:var(--muted)}
+.ptab tfoot td{font-weight:800;border-bottom:0}.ptab tfoot small{display:block;font-weight:500;color:var(--muted);font-size:12px}
+.ptab .st{display:flex;flex-wrap:wrap;gap:4px}.ptab .st .bdg{font-size:12px;padding:2px 9px}
+.ptab form{margin:0}.ptab .x{border:0;background:none;color:var(--muted);font-size:18px;cursor:pointer;min-height:0;padding:4px 8px}
+.ptab .x:hover{color:var(--bad)}
+.addf{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 0}.addf select{flex:1 1 260px;min-width:0;background:var(--bg)}
+.tl{position:relative;margin-top:6px}
+.tl .ln{display:grid;grid-template-columns:76px 1fr;gap:10px;align-items:center;height:34px}
+.tl .ln>span{font-size:13px;font-weight:700;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tl .tr{position:relative;height:26px;background:color-mix(in srgb,var(--fg) 4%,transparent);border-radius:8px}
+.tl .bk{position:absolute;top:2px;bottom:2px;border-radius:6px;background:color-mix(in srgb,var(--accent) 55%,var(--card));font-size:11.5px;font-weight:700;color:var(--fg);padding:0 7px;
+ display:flex;align-items:center;white-space:nowrap;overflow:hidden;border:1px solid color-mix(in srgb,var(--accent) 80%,transparent);box-sizing:border-box;text-decoration:none;min-width:4px}
+.tl .bk.bad{background:color-mix(in srgb,var(--bad) 35%,var(--card));border-color:var(--bad)}
+.tl .bk.run{background:color-mix(in srgb,var(--run) 40%,var(--card));border-color:var(--run)}
+.tl .ax{display:grid;grid-template-columns:76px 1fr;gap:10px;font-size:11.5px;color:var(--muted);margin-top:4px}
+.tl .ax div{position:relative;height:16px}.tl .ax i{position:absolute;font-style:normal;transform:translateX(-50%);white-space:nowrap}
+.tl .ax i:first-child{transform:none}.tl .ax i:last-child{transform:translateX(-100%)}
+.calcl{font-size:14px;border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin:12px 0 4px}
+.calcl div{display:flex;justify-content:space-between;gap:10px;padding:3px 0}.calcl .m{color:var(--muted)}.calcl .bad{color:var(--bad)}
+.calcl .t{border-top:1px solid var(--line);margin-top:4px;padding-top:7px;font-weight:700}
+.dissolve{margin-top:16px}.dissolve p{margin:6px 0 0;font-size:13px;color:var(--muted)}
+.kphotos h3{margin-top:18px!important}
+@media (max-width:760px){.ptab .hm{display:none}.ptab td,.ptab th{padding:7px 4px}.ptab .nm a{font-size:14px}
+ .tl .ln,.tl .ax{grid-template-columns:56px 1fr}.tl .ax i.mid{display:none}.pjbanner{flex-wrap:wrap}.pjbanner .btn{width:100%;text-align:center;justify-content:center}}
+"""
+
+
+def _timeline(kids: list[dict[str, Any]], names: dict[str, str]) -> str:
+    """Zeitleiste: je Drucker eine Spur, jeder Druck ein Balken (zeigt, was parallel lief)."""
+    items = [k for k in kids if k.get("start_ts")]
+    if not items:
+        return ""
+    now = time.time()
+    t0 = min(k["start_ts"] for k in items)
+    t1 = max((k["end_ts"] or now) for k in items)
+    span = max(t1 - t0, 60.0)
+    lanes: dict[str, list[dict[str, Any]]] = {}
+    for k in items:
+        lanes.setdefault(k["printer"], []).append(k)
+    rows = []
+    for key, ks in lanes.items():
+        bars = ""
+        for k in ks:
+            a = (k["start_ts"] - t0) / span * 100
+            w = max(((k["end_ts"] or now) - k["start_ts"]) / span * 100, 0.6)
+            cls = "bad" if k.get("is_scrap") else "run" if k["state"] != "done" else ""
+            label = ("⚠ " if k.get("is_scrap") else "") + (k.get("task_name") or "–")
+            tip = f'{k.get("task_name") or "–"} · {fmt_date(k["start_ts"], "dm_hm")} · {fmt_dur(k["start_ts"], k["end_ts"])}'
+            bars += (f'<a class="bk {cls}" href="job?id={k["id"]}" title="{e(tip)}" '
+                     f'style="left:{a:.3f}%;width:{min(w, 100 - a):.3f}%">{e(label)}</a>')
+        rows.append(f'<div class="ln"><span>{e(names.get(key, ks[0].get("printer_name") or key))}</span><div class="tr">{bars}</div></div>')
+    multi_day = datetime.fromtimestamp(t0).date() != datetime.fromtimestamp(t1).date()
+    ticks = []
+    for i in range(5):
+        ts = t0 + span * i / 4
+        txt = fmt_date(ts, "dm_hm") if multi_day else datetime.fromtimestamp(ts).strftime("%H:%M")
+        ticks.append(f'<i class="{"mid" if 0 < i < 4 else ""}" style="left:{i * 25}%">{txt}</i>')
+    most = 0
+    for k in items:
+        s_, e_ = k["start_ts"], k["end_ts"] or now
+        most = max(most, sum(1 for o in items if o["start_ts"] < e_ and (o["end_ts"] or now) > s_))
+    sub = t("bis zu {n} Drucker gleichzeitig", n=most) if most > 1 else t("nacheinander gedruckt")
+    return (f'<div class="box"><div class="boxh"><h3>{t("Zeitleiste")}</h3><span class="muted">{sub}</span></div>'
+            f'<div class="tl">{"".join(rows)}<div class="ax"><span></span><div>{"".join(ticks)}</div></div></div></div>')
+
+
+def _parts_box(store: Store, p: dict[str, Any], kids: list[dict[str, Any]], names: dict[str, str]) -> str:
+    """Tabelle der Drucke im Projekt mit Summe; Drucke lösen oder hinzufügen."""
+    rows = ""
+    for k in kids:
+        grams = k["filament_g"] if k.get("filament_g") is not None else k.get("weight_g")
+        st = f'<span class="bdg st-{_STATUS_TONE.get(_status_of(k).split()[0], "none")}">{e(t(_status_of(k)))}</span>'
+        st += defect_badges(k)
+        if k.get("reprint_of"):
+            st += f'<span class="bdg st-run">↻ {t("Nachdruck")}</span>'
+        rows += (f'<tr class="{"fd" if no_charge(k) else ""}"><td>{_thumb(k)}</td>'
+                 f'<td class="nm"><a href="job?id={k["id"]}">{e(k.get("task_name") or "–")}</a><small>{e(code_label(k.get("code")))} · '
+                 f'{e(names.get(k["printer"], k.get("printer_name") or k["printer"]))}</small></td>'
+                 f'<td class="hm">{fmt_date(k["start_ts"], "dm_hm") if k.get("start_ts") else "–"}</td>'
+                 f'<td class="r hm">{fmt_dur(k["start_ts"], k["end_ts"])}</td><td class="r hm">{k.get("quantity") or 1}</td>'
+                 f'<td class="r hm">{fmt_num(grams, 1, "g")}</td><td class="r calc"><b>{fmt_num(k.get("cost_total"), 2, "€")}</b></td>'
+                 f'<td><div class="st">{st}</div></td>'
+                 f'<td class="hm"><form method="post" action="api/jobs/{k["id"]}/unproject?back=project">'
+                 f'<button class="x" title="{e(t("Aus Projekt lösen"))}">×</button></form></td></tr>')
+    base = price_base(p)
+    foot = (f'<tr><td></td><td>{t("Summe")}</td><td class="hm"></td><td class="r hm">{fmt_hours(print_hours(kids))}</td><td class="hm"></td>'
+            f'<td class="r hm">{fmt_num(p.get("filament_g"), 1, "g")}</td><td class="r calc">{fmt_num(p.get("cost_total"), 2, "€")}'
+            + (f'<small>{t("berechnet {v}", v=fmt_num(base, 2, "€"))}</small>' if base is not None and p.get("cost_total") is not None
+               and abs(base - p["cost_total"]) >= 0.005 else "") + '</td><td colspan="2"></td></tr>')
+    cands = store.project_candidates(p)
+    add = ""
+    if cands:
+        options = "".join(opt(str(c["id"]), " · ".join(x for x in (code_label(c.get("code")), c.get("task_name") or "–",
+                                                                     names.get(c["printer"], c.get("printer_name") or c["printer"]),
+                                                                     fmt_date(c["start_ts"], "dm_hm") if c.get("start_ts") else "") if x), "")
+                          for c in cands)
+        add = (f'<form class="addf" method="post" action="api/projects/{p["id"]}/add"><select name="ids" aria-label="{e(t("Druck hinzufügen"))}">'
+               f'{options}</select><button class="btn">{t("＋ Hinzufügen")}</button></form>')
+    head = (f'<div class="boxh"><h3>{t("Drucke im Projekt")}</h3><span class="muted">'
+            f'{tn(len(kids), "{n} Druck", "{n} Drucke")} · {printers_of(kids, names)} · {t("{h} Druckzeit", h=fmt_hours(print_hours(kids)))}</span></div>')
+    return (f'<div class="box">{head}<div style="overflow-x:auto"><table class="ptab"><thead><tr><th style="width:44px"></th><th>{t("Druck")}</th>'
+            f'<th class="hm">{t("Start")}</th><th class="r hm">{t("Dauer")}</th><th class="r hm">{t("Stk.")}</th><th class="r hm">{t("Filament")}</th>'
+            f'<th class="r">{t("Kosten")}</th><th>{t("Status")}</th><th class="hm"></th></tr></thead><tbody>{rows}</tbody>'
+            f'<tfoot>{foot}</tfoot></table></div>{add}</div>')
+
+
+def _calc_lines(p: dict[str, Any], kids: list[dict[str, Any]]) -> str:
+    """Wie der Preisvorschlag des Projekts entsteht (Kosten, Fehldrucke, Marge)."""
+    total, base = p.get("cost_total"), price_base(p)
+    if total is None or base is None:
+        return ""
+    lines = f'<div class="m"><span>{t("Kosten aller Drucke")}</span><span>{fmt_num(total, 2, "€")}</span></div>'
+    for k in kids:
+        if not k.get("is_scrap") or k.get("cost_total") is None:
+            continue
+        sh = share_of(k, p) or 0.0
+        diff = k["cost_total"] - sh * base
+        if abs(diff) >= 0.005:
+            why = t("nicht berechnet") if no_charge(k) else charge_text(k)
+            lines += (f'<div class="bad"><span>− {t("Fehldruck {name}", name=e(k.get("task_name") or "–"))} ({e(why)})</span>'
+                      f'<span>−{fmt_num(diff, 2, "€")}</span></div>')
+    m = p.get("customer_margin") or 0
+    lines += f'<div><span>{t("Basis")}</span><span>{fmt_num(base, 2, "€")}</span></div>'
+    if m:
+        lines += f'<div class="m"><span>{t("+ {p} % Kundenmarge", p=fmt_input(m))}</span><span>{fmt_num(base * m / 100, 2, "€")}</span></div>'
+    lines += f'<div class="t"><span>{t("Vorschlag")}</span><span>{fmt_num(base * (1 + m / 100), 2, "€")}</span></div>'
+    return f'<div class="calcl calc">{lines}</div>'
+
+
+def page_project(store: Store, p: dict[str, Any], saved: str | None) -> str:
+    """Detailseite eines Projekts: Kopf wie beim Druck, dazu Drucke, Zeitleiste, Abrechnung fürs Ganze."""
+    names = printer_names(store)
+    customers = store.customers()
+    kids = store.children([p["id"]]).get(p["id"], [])
+    photos = store.photos(p["id"])
+    kid_photos = [ph for k in kids for ph in store.photos(k["id"])]
+    status = _status_of(p)
+    qty = p.get("quantity") or 1
+    total = p.get("cost_total")
+    n_fd = sum(1 for k in kids if k.get("is_scrap"))
+    hours = print_hours(kids)
+
+    tone = _STATUS_TONE.get(status.split()[0], "")
+    badges = f'<span class="bdg st st-{tone}">{e(t(status))}</span>'
+    badges += f'<span class="bdg pjb">📦 {t("Projekt")} · {tn(len(kids), "{n} Druck", "{n} Drucke")}</span>'
+    if p.get("code"):
+        badges += (f'<button type="button" class="bdg pidb" data-copy="{e(code_label(p["code"]))}" '
+                   f'title="{e(t("Projekt-ID: tippe sie in die Suche, um das Projekt wiederzufinden. Klick kopiert."))}">'
+                   f'# {e(code_label(p["code"]))}</button>')
+    if p.get("customer_name"):
+        badges += f'<span class="bdg">👤 {e(p["customer_name"])}</span>'
+    if p.get("quantity"):
+        badges += f'<span class="bdg">{_pcs(qty)}</span>'
+    sub = (t("inkl. {n} Fehldruck", n=n_fd) if n_fd == 1 else t("inkl. {n} Fehldrucke", n=n_fd)) if n_fd else \
+        (t("{v} pro Stück", v=fmt_num(total / qty, 2, "€")) if qty > 1 and total is not None else tn(len(kids), "{n} Druck", "{n} Drucke"))
+    kpis = (f'<div class="kp main"><span>{t("Gesamtkosten")}</span><b>{fmt_num(total, 2, "€")}</b><small>{e(sub)}</small></div>'
+            f'<div class="kp"><span>{t("⚡ Strom")}</span><b>{fmt_num(p.get("cost"), 2, "€")}</b><small>{fmt_num(p.get("kwh"), 3, "kWh")}</small></div>'
+            f'<div class="kp"><span>{t("🧵 Filament")}</span><b>{fmt_num(p.get("cost_filament"), 2, "€")}</b><small>{fmt_num(p.get("filament_g"), 1, "g")}</small></div>'
+            f'<div class="kp"><span>{t("🖨 Drucker")}</span><b>{fmt_num(p.get("cost_printer"), 2, "€")}</b>'
+            f'<small>{tn(len({k["printer"] for k in kids}), "{n} Drucker", "{n} Drucker")} · {fmt_hours(hours)}</small></div>')
+    mg = list(margins(store))
+    if p.get("customer_margin") is not None:
+        mg.insert(0, (f'{t("Kunde")} {p.get("customer_name") or ""}'.strip(), p["customer_margin"]))
+    price_rows = ""
+    if p.get("final_price") is not None:
+        each = f' <span class="tag">{t("{v}/Stk.", v=fmt_num(p["final_price"] / qty, 2, "€"))}</span>' if qty > 1 else ""
+        price_rows += f'<div class="pr"><div><b>{t("Endpreis")}</b></div><div><b>{fmt_num(p["final_price"], 2, "€")}</b>{each}</div></div>'
+    for n, pct in mg:
+        price = _price(p, pct)
+        each = f' <span class="tag">{t("{v}/Stk.", v=fmt_num(price / qty, 2, "€"))}</span>' if price is not None and qty > 1 else ""
+        price_rows += (f'<div class="pr"><div>{e(n)} <span class="tag">+{e(fmt_input(pct))} %</span></div>'
+                       f'<div><b>{fmt_num(price, 2, "€")}</b>{each}</div></div>')
+    base = price_base(p)
+    if base is not None and total is not None and abs(base - total) >= 0.005:
+        price_rows += f'<p class="muted" style="margin:8px 0 0;font-size:13px">{t("Basis {v} (ohne unberechnete Fehldrucke)", v=fmt_num(base, 2, "€"))}</p>'
+    if not price_rows:
+        price_rows = f'<p class="muted" style="margin:6px 0 0">{t("Keine Margen eingestellt (Einstellungen).")}</p>'
+    price_sum = " · ".join(re.sub(r"<[^>]+>", "", x) for x in re.findall(r"<b>([^<]*€[^<]*)</b>", price_rows)[:2])
+
+    start = "ov"
+
+    def on(tab: str) -> str:
+        return " on" if tab == start else ""
+
+    ab_tab = ab_pane = ""
+    if billable(p):
+        ab_tab = f'<button type="button" data-tab="ab" class="">{t("Abrechnung")}</button>'
+        ab_pane = (f'<section class="pane" data-pane="ab">{_deal_box(p, store.handovers(p["id"]), store.payments(p["id"]))}'
+                   f'<div class="box"><h3>{t("So entsteht der Preisvorschlag")}</h3>{_calc_lines(p, kids)}</div></section>')
+    note = (f'<div class="box"><h3>{t("Notiz")}</h3><div style="white-space:pre-wrap">{e(p["job_note"])}</div></div>'
+            if p.get("job_note") else "")
+    cur = str(p.get("customer_id") or "")
+    cust_opts = opt("", t("– kein Kunde –"), cur) + "".join(opt(str(c["id"]), c["name"], cur) for c in customers)
+    gv = "1" if p.get("gift") else "0"
+    banner = f'<div class="banner">{t("Gespeichert.")}</div>' if saved else ""
+    all_photos = (f'<div class="photos lg">{_photo_tiles(photos)}</div>' if photos else f'<p class="muted">{t("Noch keine eigenen Fotos.")}</p>')
+    kid_tiles = "".join(f'<figure><a href="job?id={ph["job_id"]}"><img src="images/{e(ph["file"])}" loading="lazy" alt=""></a></figure>'
+                        for ph in kid_photos)
+    kid_box = f'<div class="kphotos"><h3>{t("Fotos der einzelnen Drucke")}</h3><div class="photos lg">{kid_tiles}</div></div>' if kid_tiles else ""
+    body = f"""<div class="jd">{banner}<div class="jtop"><a class="back" href="./">{t("← alle Drucke")}</a>
+<div class="jact">{_share_button(p)}<form class="jdel" method="post" action="api/projects/{p["id"]}/dissolve"><button class="btn sm danger" title="{e(t("Projekt auflösen: die Drucke bleiben erhalten und werden wieder einzeln geführt"))}">{t("Auflösen")}</button></form></div></div>
+<section class="hero"><div>{mosaic(kids)}</div>
+<div><h2 class="jtitle">{e(p["task_name"] or "–")}</h2><div class="badges">{badges}</div><div class="kps calc">{kpis}</div></div>
+{_sec("prices", t("Verkaufspreise"), price_sum, price_rows, "prices calc")}</section>
+<div class="tabs" role="tablist"><button type="button" data-tab="ov" class="on">{t("Übersicht")}</button>
+{ab_tab}<button type="button" data-tab="ed" class="">{t("Bearbeiten")}</button>
+<button type="button" data-tab="ph" class="">{t("Fotos ({n})", n=len(photos) + len(kid_photos))}</button></div>
+<section class="pane on" data-pane="ov">{_deal_strip(p)}{_parts_box(store, p, kids, names)}{_timeline(kids, names)}{note}</section>
+{ab_pane}<section class="pane" data-pane="ed"><div class="box">
+<form class="fields" method="post" action="api/jobs/{p["id"]}?redirect=1">
+<div class="nrow full"><label>{t("Name")}<input name="task_name" value="{e(p["task_name"] or "")}"></label>
+<div class="fl"><label for="f_qty">{t("Stückzahl (fertige Objekte)")}</label><div class="step">
+<button type="button" data-step="-1" aria-label="{e(t("eins weniger"))}">−</button>
+<input id="f_qty" name="quantity" type="number" min="1" step="1" inputmode="numeric" value="{p.get("quantity") or ""}" placeholder="1">
+<button type="button" data-step="1" aria-label="{e(t("eins mehr"))}">+</button></div></div></div>
+<label class="c3">{t("Kunde")}<select name="customer_id">{cust_opts}</select></label>
+<label class="c3">{t("Abrechnung")}<select name="gift">{opt("0", t("berechnen"), gv)}{opt("1", t("🎁 verschenkt (keine Zahlung)"), gv)}</select></label>
+<label class="c3"></label>
+<label class="full">{t("Notiz")}<textarea name="job_note" rows="3">{e(p.get("job_note") or "")}</textarea></label>
+<div class="act"><button class="primary">{t("Speichern")}</button></div>
+</form></div>
+<form class="jdel dissolve" method="post" action="api/projects/{p["id"]}/dissolve"><button class="btn danger">{t("📦 Projekt auflösen")}</button>
+<p>{t("Die Drucke bleiben erhalten und werden wieder einzeln geführt. Zahlungen gehen an den ersten Druck.")}</p></form></section>
+<section class="pane" data-pane="ph"><div class="box">{_upload_form(p["id"])}{all_photos}{kid_box}</div></section>
+</div>"""
+    return layout(p["task_name"] or t("Projekt"), "jobs", f"<style>{MOS_CSS}{DETAIL_CSS}{PROJ_CSS}{ACT_CSS}</style>" + body,
+                  ACT_JS + DETAIL_JS + SHARE_JS)
 
 
 # ---- Kunden -------------------------------------------------------------------
@@ -2173,10 +2761,11 @@ def csv_rows(store: Store, f: dict[str, str | None]) -> list[list[Any]]:
     mg = margins(store)
     at = header.index(t("Gesamt €")) + 1
     header[at:at] = [f"{n} +{fmt_input(p)} % €" for n, p in mg]
-    header += [t("Endpreis €"), t("Zu zahlen €"), t("Bezahlt €"), t("Übergeben Stück")]
+    header += [t("Endpreis €"), t("Zu zahlen €"), t("Bezahlt €"), t("Übergeben Stück"), t("Gehört zu Projekt")]
     out: list[list[Any]] = [header]
     q = db_filters(f)
-    for j in store.list_jobs(limit=100000, **q):
+    codes = {p["id"]: code_label(p.get("code")) for p in store.projects(limit=100000)}
+    for j in store.list_jobs(limit=100000, real="1", **q):
         mats = "; ".join(f'{m["name"] or "?"} {m["grams"]} g' for m in parse_materials(j.get("materials")))
         dur = (j["end_ts"] - j["start_ts"]) / 3600 if j["start_ts"] and j["end_ts"] and j["end_ts"] > j["start_ts"] else None
         grams = j["filament_g"] if j.get("filament_g") is not None else j["weight_g"]
@@ -2188,7 +2777,7 @@ def csv_rows(store: Store, f: dict[str, str | None]) -> list[list[Any]]:
             t("ja") if j.get("is_scrap") else t("nein"), defect_label(j, icon=False) if j.get("is_scrap") else None,
             (charge_text(j) or t("nicht berechnet")) if j.get("is_scrap") else None, j.get("project_title"), j.get("project_url"), j.get("local_path"), j.get("job_note"),
             j.get("final_price"), (0 if j.get("gift") or no_charge(j) else round(amount_due(j), 2)) if billable(j) and amount_due(j) is not None else None,
-            round(j.get("paid") or 0, 2), j.get("delivered") or 0,
+            round(j.get("paid") or 0, 2), j.get("delivered") or 0, codes.get(j.get("project_id") or 0),
         ])
     return out
 

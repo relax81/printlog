@@ -154,7 +154,13 @@ class Store:
         "defect_charge": "TEXT",      # Fehldruck berechnen: leer/none = nichts, pct, amount, full
         "defect_value": "REAL",       # Prozent (pct) oder Betrag (amount)
         "reprint_of": "INTEGER",      # Nachdruck: ID des Fehldrucks, den dieser Druck ersetzt
+        "kind": "TEXT",               # 'project' = Projekt aus mehreren Drucken (kein echter Druck), sonst leer
+        "project_id": "INTEGER",      # Druck gehört zu diesem Projekt (ID der Projekt-Zeile)
+        "bill_base": "REAL",          # Projekt: Kostenbasis für den Preis (ohne unberechnete Fehldrucke)
     }
+
+    # Echter Druck (keine Projekt-Zeile): nur diese zählen in Statistik, Kosten-Kacheln, Kalender.
+    REAL_SQL = "jobs.kind IS NULL"
 
     # Übergebene Stück (Summe der Übergaben, auch Teilabholungen) und Soll-Stückzahl
     DELIVERED_SQL = "(SELECT COALESCE(SUM(h.qty),0) FROM handovers h WHERE h.job_id = jobs.id)"
@@ -165,11 +171,12 @@ class Store:
     SCRAP_SQL = "COALESCE(jobs.scrap, jobs.status = 'abgebrochen')"
     # Fehldruck, für den der Kunde nichts zahlt: fällt aus Offen und Abrechnung heraus.
     NOCHARGE_SQL = f"({SCRAP_SQL} = 1 AND COALESCE(jobs.defect_charge, '') NOT IN ('pct', 'amount', 'full'))"
+    # Drucke in einem Projekt werden über das Projekt abgerechnet und übergeben.
     DELIVERABLE_SQL = (f"(jobs.customer_id IS NOT NULL AND NOT {NOCHARGE_SQL} AND jobs.state = 'done' "
-                       f"AND NOT {NOBILL_SQL})")
+                       f"AND NOT {NOBILL_SQL} AND jobs.project_id IS NULL)")
 
     # Normaler Preis: Endpreis, sonst Kosten + Kundenmarge.
-    BASE_DUE_SQL = ("COALESCE(jobs.final_price, jobs.cost_total * (1 + COALESCE("
+    BASE_DUE_SQL = ("COALESCE(jobs.final_price, COALESCE(jobs.bill_base, jobs.cost_total) * (1 + COALESCE("
                     "(SELECT c.margin_pct FROM customers c WHERE c.id = jobs.customer_id), 0) / 100.0))")
     # Zu zahlen: normaler Preis, bei einem berechneten Fehldruck anteilig bzw. fester Betrag. Gezahlt: Summe der Zahlungen.
     DUE_SQL = (f"(CASE WHEN {SCRAP_SQL} = 1 AND jobs.defect_charge = 'pct' THEN {BASE_DUE_SQL} * COALESCE(jobs.defect_value, 0) / 100.0 "
@@ -178,7 +185,7 @@ class Store:
     GIFT_SQL = "COALESCE(jobs.gift, 0) = 1"
     # Druck mit Kunde (mit Abrechnung), kein unberechneter Fehldruck, nicht verschenkt, mit Preis: dafür wird Geld erwartet.
     PAYABLE_SQL = (f"(jobs.customer_id IS NOT NULL AND {DUE_SQL} IS NOT NULL "
-                   f"AND NOT {NOCHARGE_SQL} AND COALESCE(jobs.gift, 0) = 0 AND NOT {NOBILL_SQL})")
+                   f"AND NOT {NOCHARGE_SQL} AND COALESCE(jobs.gift, 0) = 0 AND NOT {NOBILL_SQL} AND jobs.project_id IS NULL)")
 
     def _migrate(self) -> None:
         have = {r["name"] for r in self._conn.execute("PRAGMA table_info(jobs)")}
@@ -196,6 +203,7 @@ class Store:
             # 1 = keine Abrechnung (z. B. Eigenbedarf): keine Zahlungen/Übergaben, Kosten zählen weiter
             self._conn.execute("ALTER TABLE customers ADD COLUMN no_billing INTEGER")
         self._conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_jobs_code ON jobs(code)")
+        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_project ON jobs(project_id)")
         self._conn.commit()
         self.ensure_codes()
 
@@ -251,11 +259,38 @@ class Store:
             self._conn.execute(
                 f"UPDATE jobs SET {sets} WHERE id = ?", [*fields.values(), job_id]
             )
+        row = self._conn.execute("SELECT kind, project_id FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        if not row:
+            return
+        if row["kind"] == "project":
+            if "customer_id" in fields:
+                # Kunde des Projekts gilt für alle seine Drucke (Filter „Kunde“ findet sie weiter).
+                with self._lock, self._conn:
+                    self._conn.execute("UPDATE jobs SET customer_id = ? WHERE project_id = ?", (fields["customer_id"], job_id))
+            if {"customer_id", "gift"} & set(fields):
+                self.refresh_project(job_id)
+        elif row["project_id"]:
+            self.refresh_project(row["project_id"])
 
     # ---- Papierkorb -------------------------------------------------------
 
     def trash_job(self, job_id: int) -> dict[str, Any] | None:
-        """Druck in den Papierkorb legen (aus jobs raus, wiederherstellbar)."""
+        """Druck in den Papierkorb legen (aus jobs raus, wiederherstellbar). Ein Projekt wird nur aufgelöst."""
+        row = self._conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        if row and row["kind"] == "project":
+            self.dissolve_project(job_id)
+            return None
+        if row and row["project_id"]:
+            pid = row["project_id"]
+            out = self._trash_row(job_id)
+            if not self._conn.execute("SELECT 1 FROM jobs WHERE project_id = ?", (pid,)).fetchone():
+                self.dissolve_project(pid)
+            else:
+                self.refresh_project(pid)
+            return out
+        return self._trash_row(job_id)
+
+    def _trash_row(self, job_id: int) -> dict[str, Any] | None:
         row = self._conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
         if not row:
             return None
@@ -292,11 +327,16 @@ class Store:
         if job.get("customer_id") and not self._conn.execute(
                 "SELECT 1 FROM customers WHERE id = ?", (job["customer_id"],)).fetchone():
             job["customer_id"] = None  # Kunde inzwischen gelöscht
+        pid = job.get("project_id")
+        if pid and not self._conn.execute("SELECT 1 FROM jobs WHERE id = ? AND kind = 'project'", (pid,)).fetchone():
+            job["project_id"] = pid = None  # Projekt gibt es nicht mehr: Druck kommt einzeln zurück
         cols = ", ".join(job)
         with self._lock, self._conn:
             self._conn.execute(f"INSERT OR REPLACE INTO jobs ({cols}) VALUES ({', '.join('?' for _ in job)})", list(job.values()))
             self._conn.execute("DELETE FROM trash WHERE id = ?", (job_id,))
         self.ensure_codes()
+        if pid:
+            self.refresh_project(pid)
         return True
 
     def purge_job(self, job_id: int) -> list[str]:
@@ -323,6 +363,194 @@ class Store:
                 self._conn.execute("DELETE FROM payments WHERE job_id = ?", (job_id,))
                 self._conn.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
         return job
+
+    # ---- Projekte (mehrere Drucke als ein Auftrag) -------------------------------
+
+    def projects(self, limit: int = 50) -> list[dict[str, Any]]:
+        """Projekte, neueste zuerst (für „Zu bestehendem Projekt“)."""
+        rows = self._conn.execute(
+            "SELECT jobs.id, jobs.code, jobs.task_name, jobs.start_ts, jobs.customer_id, customers.name AS customer_name, "
+            "(SELECT COUNT(*) FROM jobs k WHERE k.project_id = jobs.id) n FROM jobs "
+            "LEFT JOIN customers ON customers.id = jobs.customer_id WHERE jobs.kind = 'project' "
+            "ORDER BY jobs.start_ts DESC, jobs.id DESC LIMIT ?", (limit,)).fetchall()
+        return [dict(r) for r in rows]
+
+    def children(self, project_ids: list[int]) -> dict[int, list[dict[str, Any]]]:
+        """Drucke je Projekt (gleiche Felder wie list_jobs), nach Startzeit."""
+        out: dict[int, list[dict[str, Any]]] = {}
+        if not project_ids:
+            return out
+        marks = ", ".join("?" for _ in project_ids)
+        rows = self._conn.execute(
+            f"SELECT jobs.*, customers.name AS customer_name, customers.margin_pct AS customer_margin, COALESCE(customers.no_billing, 0) AS customer_nobill, "
+            f"{Store.SCRAP_SQL} AS is_scrap, {Store.DELIVERED_SQL} AS delivered, {Store.PAID_SQL} AS paid FROM jobs "
+            f"LEFT JOIN customers ON customers.id = jobs.customer_id WHERE jobs.project_id IN ({marks}) "
+            "ORDER BY jobs.start_ts, jobs.id", project_ids).fetchall()
+        for r in rows:
+            out.setdefault(r["project_id"], []).append(dict(r))
+        return out
+
+    def project_candidates(self, project: dict[str, Any], limit: int = 40) -> list[dict[str, Any]]:
+        """Drucke, die zu einem Projekt dazu passen: noch in keinem Projekt, gleicher Kunde und zeitlich nah zuerst."""
+        rows = self._conn.execute(
+            "SELECT id, code, task_name, start_ts, printer, printer_name, customer_id FROM jobs "
+            "WHERE kind IS NULL AND project_id IS NULL "
+            "ORDER BY (customer_id IS NOT NULL AND customer_id = ?) DESC, ABS(COALESCE(start_ts, 0) - ?) LIMIT ?",
+            (project.get("customer_id"), project.get("start_ts") or time.time(), limit)).fetchall()
+        return [dict(r) for r in rows]
+
+    def _flatten(self, ids: list[int]) -> tuple[list[int], list[int]]:
+        """(Drucke, Projekte) aus einer Auswahl; ausgewählte Projekte bringen ihre Drucke mit."""
+        jobs: list[int] = []
+        projects: list[int] = []
+        for i in dict.fromkeys(ids):
+            row = self._conn.execute("SELECT id, kind FROM jobs WHERE id = ?", (i,)).fetchone()
+            if not row:
+                continue
+            if row["kind"] == "project":
+                projects.append(i)
+                jobs += [r[0] for r in self._conn.execute("SELECT id FROM jobs WHERE project_id = ?", (i,))]
+            else:
+                jobs.append(i)
+        return list(dict.fromkeys(jobs)), projects
+
+    def create_project(self, ids: list[int], name: str | None = None, customer_id: int | None = None,
+                       quantity: int | None = None, into: int | None = None) -> int | None:
+        """Drucke zu einem Projekt zusammenfassen (``into`` = vorhandenes Projekt, sonst neues).
+
+        Zahlungen der Drucke wandern ins Projekt. Ausgewählte andere Projekte werden aufgelöst und
+        ihre Drucke (samt Zahlungen) übernommen.
+        """
+        jobs, projects = self._flatten(ids)
+        if into is None and len(projects) == 1:
+            into, projects = projects[0], []
+        if into is not None:
+            projects = [p for p in projects if p != into]
+            if not self._conn.execute("SELECT 1 FROM jobs WHERE id = ? AND kind = 'project'", (into,)).fetchone():
+                return None
+        if not jobs and into is None:
+            return None
+        rows = [dict(r) for r in self._conn.execute(
+            f"SELECT *, {Store.DELIVERED_SQL} AS delivered FROM jobs WHERE id IN ({', '.join('?' for _ in jobs)}) ORDER BY start_ts, id", jobs)] if jobs else []
+        if into is None:
+            first = rows[0]
+            if customer_id is None:
+                cids = [r["customer_id"] for r in rows if r["customer_id"]]
+                customer_id = max(set(cids), key=cids.count) if cids else None
+            all_gift = all(r.get("gift") for r in rows)
+            into = self.insert(kind="project", printer="", state="done", status="fertig",
+                               task_name=(name or first.get("task_name") or "Projekt").strip(), customer_id=customer_id,
+                               quantity=quantity, gift=1 if all_gift else None, start_ts=first.get("start_ts"))
+            done = [r for r in rows if r["state"] == "done"]
+            if done and all((r["delivered"] or 0) >= (r.get("quantity") or 1) for r in done) and len(done) == len(rows) \
+                    and self._conn.execute("SELECT 1 FROM handovers WHERE job_id IN (%s)" % ", ".join("?" for _ in jobs), jobs).fetchone():
+                self.add_handover(into, quantity or 1)  # alles schon übergeben: Projekt gilt als übergeben
+        else:
+            customer_id = self._conn.execute("SELECT customer_id FROM jobs WHERE id = ?", (into,)).fetchone()[0]
+        with self._lock, self._conn:
+            for p in projects:
+                self._conn.execute("UPDATE payments SET job_id = ? WHERE job_id = ?", (into, p))
+                self._conn.execute("UPDATE photos SET job_id = ? WHERE job_id = ?", (into, p))
+                self._conn.execute("DELETE FROM handovers WHERE job_id = ?", (p,))
+                self._conn.execute("UPDATE jobs SET project_id = NULL WHERE project_id = ?", (p,))
+                self._conn.execute("DELETE FROM jobs WHERE id = ?", (p,))
+            for j in jobs:
+                self._conn.execute("UPDATE payments SET job_id = ? WHERE job_id = ?", (into, j))
+                self._conn.execute("UPDATE jobs SET project_id = ?, customer_id = ? WHERE id = ?", (into, customer_id, j))
+        self.refresh_project(into)
+        return into
+
+    def remove_from_project(self, job_id: int) -> int | None:
+        """Druck aus seinem Projekt lösen; ein leeres Projekt wird aufgelöst. Gibt die Projekt-ID zurück."""
+        row = self._conn.execute("SELECT project_id FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        if not row or not row[0]:
+            return None
+        pid = row[0]
+        with self._lock, self._conn:
+            self._conn.execute("UPDATE jobs SET project_id = NULL WHERE id = ?", (job_id,))
+        if self._conn.execute("SELECT 1 FROM jobs WHERE project_id = ?", (pid,)).fetchone():
+            self.refresh_project(pid)
+        else:
+            self._drop_project(pid, job_id)
+        return pid
+
+    def dissolve_project(self, project_id: int) -> list[int]:
+        """Projekt auflösen: Drucke werden wieder einzeln. Zahlungen und Fotos gehen an den ersten Druck,
+        eine vollständige Übergabe gilt für alle Drucke."""
+        kids = [r[0] for r in self._conn.execute(
+            f"SELECT id FROM jobs WHERE project_id = ? ORDER BY {Store.SCRAP_SQL}, start_ts, id", (project_id,))]
+        proj = self.get(project_id)
+        if not proj or proj.get("kind") != "project":
+            return []
+        handed = (proj.get("delivered") or 0) >= (proj.get("quantity") or 1)
+        with self._lock, self._conn:
+            self._conn.execute("UPDATE jobs SET project_id = NULL WHERE project_id = ?", (project_id,))
+            if handed:
+                for k in kids:
+                    self._conn.execute(
+                        "INSERT INTO handovers (job_id, qty, ts, note) SELECT id, MAX(COALESCE(quantity,1) - "
+                        "(SELECT COALESCE(SUM(qty),0) FROM handovers h WHERE h.job_id = jobs.id), 0), ?, NULL FROM jobs WHERE id = ? "
+                        "AND COALESCE(quantity,1) > (SELECT COALESCE(SUM(qty),0) FROM handovers h WHERE h.job_id = jobs.id)",
+                        (time.time(), k))
+        self._drop_project(project_id, kids[0] if kids else None)
+        return kids
+
+    def _drop_project(self, project_id: int, heir: int | None) -> None:
+        with self._lock, self._conn:
+            if heir:
+                self._conn.execute("UPDATE payments SET job_id = ? WHERE job_id = ?", (heir, project_id))
+                self._conn.execute("UPDATE photos SET job_id = ? WHERE job_id = ?", (heir, project_id))
+            self._conn.execute("DELETE FROM handovers WHERE job_id = ?", (project_id,))
+            if not heir:
+                self._conn.execute("DELETE FROM payments WHERE job_id = ?", (project_id,))
+            self._conn.execute("DELETE FROM jobs WHERE id = ? AND kind = 'project'", (project_id,))
+
+    def refresh_project(self, project_id: int) -> None:
+        """Summen eines Projekts aus seinen Drucken neu berechnen (Kosten, Zeitraum, Bild, Preisbasis)."""
+        proj = self._conn.execute(
+            "SELECT jobs.*, customers.margin_pct AS customer_margin FROM jobs LEFT JOIN customers ON customers.id = jobs.customer_id "
+            "WHERE jobs.id = ? AND jobs.kind = 'project'", (project_id,)).fetchone()
+        if not proj:
+            return
+        kids = [dict(r) for r in self._conn.execute(
+            f"SELECT *, {Store.SCRAP_SQL} AS is_scrap FROM jobs WHERE project_id = ? ORDER BY start_ts, id", (project_id,))]
+        if not kids:
+            return
+
+        def total(col: str) -> float | None:
+            vals = [k[col] for k in kids if k[col] is not None]
+            return round(sum(vals), 4) if vals else None
+
+        margin = 1 + (proj["customer_margin"] or 0) / 100
+        base = 0.0
+        for k in kids:
+            c = k["cost_total"] or 0.0
+            if not k["is_scrap"] or k.get("defect_charge") == "full":
+                base += c
+            elif k.get("defect_charge") == "pct":
+                base += c * (k.get("defect_value") or 0) / 100
+            elif k.get("defect_charge") == "amount":
+                base += (k.get("defect_value") or 0) / margin
+        running = any(k["state"] != "done" for k in kids)
+        ends = [k["end_ts"] for k in kids if k["end_ts"]]
+        fields = {
+            "start_ts": min((k["start_ts"] for k in kids if k["start_ts"]), default=proj["start_ts"]),
+            "end_ts": None if running or not ends else max(ends),
+            "status": "läuft" if running else "fertig",
+            "image": next((k["image"] for k in kids if k["image"] and not k["is_scrap"]), None)
+                     or next((k["image"] for k in kids if k["image"]), None),
+            "kwh": total("kwh"), "cost": total("cost"), "cost_filament": total("cost_filament"),
+            "cost_printer": total("cost_printer"), "cost_total": total("cost_total"),
+            "filament_g": round(sum((k["filament_g"] if k["filament_g"] is not None else k["weight_g"] or 0) for k in kids), 2),
+            "bill_base": round(base, 4) if total("cost_total") is not None else None,
+        }
+        sets = ", ".join(f"{k} = ?" for k in fields)
+        with self._lock, self._conn:
+            self._conn.execute(f"UPDATE jobs SET {sets} WHERE id = ?", [*fields.values(), project_id])
+
+    def refresh_projects(self) -> None:
+        for (pid,) in self._conn.execute("SELECT id FROM jobs WHERE kind = 'project'").fetchall():
+            self.refresh_project(pid)
 
     # ---- Übergaben ---------------------------------------------------------
 
@@ -444,7 +672,7 @@ class Store:
         return self._conn.execute(f"SELECT COUNT(*) FROM jobs {where}", args).fetchone()[0]
 
     def summary(self, **filters: Any) -> dict[str, Any]:
-        where, args = self._filters(**filters)
+        where, args = self._filters(**{**filters, "real": "1"})
         total = self._conn.execute(
             f"SELECT COUNT(*) n, COALESCE(SUM(kwh),0) kwh, COALESCE(SUM(cost),0) cost, "
             f"COALESCE(SUM(COALESCE(filament_g, weight_g)),0) weight, "
@@ -453,7 +681,7 @@ class Store:
             f"COALESCE(SUM(CASE WHEN {Store.SCRAP_SQL} THEN 1 ELSE 0 END),0) scrap_n, "
             f"COALESCE(SUM(CASE WHEN {Store.SCRAP_SQL} THEN cost_total ELSE 0 END),0) scrap_cost, "
             f"COALESCE(SUM(CASE WHEN {Store.SCRAP_SQL} AND NOT {Store.NOCHARGE_SQL} AND jobs.customer_id IS NOT NULL "
-            f"AND NOT {Store.NOBILL_SQL} AND COALESCE(jobs.gift, 0) = 0 THEN {Store.DUE_SQL} ELSE 0 END),0) scrap_charged FROM jobs {where}",
+            f"AND NOT {Store.NOBILL_SQL} AND COALESCE(jobs.gift, 0) = 0 AND jobs.project_id IS NULL THEN {Store.DUE_SQL} ELSE 0 END),0) scrap_charged FROM jobs {where}",
             args,
         ).fetchone()
         per_printer = self._conn.execute(
@@ -473,7 +701,7 @@ class Store:
 
     def printers(self) -> list[dict[str, Any]]:
         rows = self._conn.execute(
-            "SELECT printer, MAX(printer_name) printer_name FROM jobs GROUP BY printer ORDER BY printer"
+            "SELECT printer, MAX(printer_name) printer_name FROM jobs WHERE kind IS NULL GROUP BY printer ORDER BY printer"
         ).fetchall()
         return [dict(r) for r in rows]
 
@@ -491,9 +719,12 @@ class Store:
         pending: str | None = None,
         since: float | None = None,
         until: float | None = None,
+        real: str | None = None,
     ) -> tuple[str, list[Any]]:
         clauses: list[str] = []
         args: list[Any] = []
+        if real:
+            clauses.append(Store.REAL_SQL)
         local_day = "strftime('%Y-%m-%d', jobs.start_ts, 'unixepoch', 'localtime')"
         if printer:
             clauses.append("jobs.printer = ?")
@@ -572,7 +803,8 @@ class Store:
     def customers(self) -> list[dict[str, Any]]:
         P, DUE, PAID = (x.replace("jobs.", "j.") for x in (self.PAYABLE_SQL, self.DUE_SQL, self.PAID_SQL))
         rows = self._conn.execute(
-            "SELECT c.*, COUNT(j.id) n, COALESCE(SUM(j.cost_total),0) cost_total, MAX(j.start_ts) last_ts, "
+            "SELECT c.*, COUNT(CASE WHEN j.kind IS NULL THEN j.id END) n, "
+            "COALESCE(SUM(CASE WHEN j.kind IS NULL THEN j.cost_total END),0) cost_total, MAX(j.start_ts) last_ts, "
             f"COALESCE(SUM(CASE WHEN {P} THEN MAX({DUE} - {PAID}, 0) END),0) open_amount, "
             f"COALESCE(SUM(CASE WHEN {P} AND {PAID} < {DUE} - 0.005 THEN 1 END),0) open_n, "
             f"COALESCE(SUM({PAID}),0) paid_amount, "
@@ -588,7 +820,7 @@ class Store:
         """Verschenktes pro Kunde (None = ohne Kunde) im Zeitraum: Anzahl, Stück, Kosten, Preis."""
         DUE = self.BASE_DUE_SQL
         q = (f"SELECT customer_id, COUNT(*) n, COALESCE(SUM({self.QTY_SQL}),0) pieces, COALESCE(SUM(cost_total),0) cost, "
-             f"COALESCE(SUM({DUE}),0) value FROM jobs WHERE {self.GIFT_SQL}")
+             f"COALESCE(SUM({DUE}),0) value FROM jobs WHERE {self.GIFT_SQL} AND project_id IS NULL")
         args: list[Any] = []
         if since is not None:
             q += " AND start_ts >= ?"; args.append(since)
@@ -684,7 +916,7 @@ class Store:
             f"COALESCE(SUM(CASE WHEN {Store.SCRAP_SQL} THEN 0 ELSE cost END),0) good_energy, "
             f"COALESCE(SUM(CASE WHEN {Store.SCRAP_SQL} THEN 0 ELSE cost_filament END),0) good_filament, "
             f"COALESCE(SUM(CASE WHEN {Store.SCRAP_SQL} THEN 0 ELSE cost_printer END),0) good_printer "
-            "FROM jobs WHERE start_ts >= ? AND start_ts < ? GROUP BY bucket, printer ORDER BY bucket",
+            "FROM jobs WHERE kind IS NULL AND start_ts >= ? AND start_ts < ? GROUP BY bucket, printer ORDER BY bucket",
             (since, until),
         ).fetchall()
         return [dict(r) for r in rows]
@@ -714,7 +946,7 @@ class Store:
         """Drucke, die als Nachdruck in Frage kommen: später gestartet, gleicher Kunde oder gleicher Name, passende zuerst."""
         rows = self._conn.execute(
             "SELECT id, code, task_name, start_ts, status, customer_id, reprint_of FROM jobs "
-            "WHERE id <> ? AND start_ts >= ? AND (reprint_of IS NULL OR reprint_of = ?) "
+            "WHERE id <> ? AND kind IS NULL AND start_ts >= ? AND (reprint_of IS NULL OR reprint_of = ?) "
             "ORDER BY (task_name = ?) + (customer_id IS NOT NULL AND customer_id = ?) DESC, start_ts LIMIT ?",
             (job["id"], job.get("start_ts") or 0, job["id"], job.get("task_name"), job.get("customer_id"), limit)).fetchall()
         return [dict(r) for r in rows]
@@ -725,6 +957,12 @@ class Store:
             self._conn.execute("UPDATE jobs SET reprint_of = NULL WHERE reprint_of = ?", (job_id,))
             if reprint_id and reprint_id != job_id:
                 self._conn.execute("UPDATE jobs SET reprint_of = ? WHERE id = ?", (job_id, reprint_id))
+        # Nachdruck eines Drucks aus einem Projekt gehört ins selbe Projekt (wenn er noch in keinem ist).
+        if reprint_id and reprint_id != job_id:
+            pid = self._conn.execute("SELECT project_id FROM jobs WHERE id = ?", (job_id,)).fetchone()
+            other = self._conn.execute("SELECT project_id, kind FROM jobs WHERE id = ?", (reprint_id,)).fetchone()
+            if pid and pid[0] and other and not other["project_id"] and not other["kind"]:
+                self.create_project([reprint_id], into=pid[0])
 
     def material_buckets(self, period: str, since: float, until: float) -> list[dict[str, Any]]:
         fmt = {"day": "%Y-%m-%d", "week": "%Y-W%W", "month": "%Y-%m"}[period]
@@ -767,7 +1005,7 @@ class Store:
         return [dict(r) for r in rows]
 
     def done_jobs(self) -> list[dict[str, Any]]:
-        rows = self._conn.execute("SELECT * FROM jobs WHERE state = 'done'").fetchall()
+        rows = self._conn.execute("SELECT * FROM jobs WHERE state = 'done' AND kind IS NULL").fetchall()
         return [dict(r) for r in rows]
 
     # ---- Einstellungen --------------------------------------------------
@@ -800,7 +1038,7 @@ class Store:
     def printed_hours_last_year(self) -> dict[str, float]:
         rows = self._conn.execute(
             "SELECT printer, SUM(end_ts - start_ts) / 3600.0 h FROM jobs "
-            "WHERE end_ts > start_ts AND start_ts > strftime('%s','now','-365 days') GROUP BY printer"
+            "WHERE kind IS NULL AND end_ts > start_ts AND start_ts > strftime('%s','now','-365 days') GROUP BY printer"
         ).fetchall()
         return {r["printer"]: r["h"] for r in rows}
 
