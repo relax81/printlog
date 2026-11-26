@@ -170,3 +170,18 @@ def test_neues_projekt_und_aufheben() -> None:
     assert store.get(share["project_id"]) is None  # leeres Projekt verschwindet wieder
     pid = store.create_project([_job(store, kundin, "Y")], name="P")
     assert store.set_split(pid, [{"project_id": pid, "qty": 1}]) is not None  # Projekt nicht in Projekt
+
+
+def test_anteil_mit_uebergabe_nach_rueckfrage_entfernen() -> None:
+    store, kundin, andere = _store()
+    j = _split_print(store, kundin, andere)
+    shares = store.shares([j])[j]
+    mine = next(s for s in shares if s["customer_id"] == kundin)
+    other = next(s for s in shares if s["customer_id"] == andere)
+    store.add_handover(other["id"], 1)
+    keep = [{"sid": mine["id"], "customer_id": kundin, "qty": 2}]
+    # ohne Rückfrage gesperrt, mit Rückfrage entfernt (samt Übergabe), Stück zurück im Vorrat
+    assert store.set_split(j, keep) is not None
+    assert store.set_split(j, keep, force=[other["id"]]) is None
+    assert store.get(other["id"]) is None
+    assert store.stock(store.get(j))["units"] == 8
