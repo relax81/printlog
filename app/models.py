@@ -399,8 +399,18 @@ def save_model(store: Store, model_id: int, **f: Any) -> None:
     if not allowed:
         return
     sets = ", ".join(f"{k} = ?" for k in allowed)
+    old = model(store, model_id) if "name" in allowed else None
     with store._lock, store._conn:
         store._conn.execute(f"UPDATE models SET {sets} WHERE id = ?", [*allowed.values(), model_id])
+        # Umbenennen: alten Namen als Alias behalten, damit neue Drucke mit dem alten Datei-/Projektnamen
+        # weiter erkannt werden. Der neue Name braucht keinen Alias mehr.
+        if old:
+            on, nn = normalize(old["name"]), normalize(allowed["name"])
+            if on and on != nn:
+                store._conn.execute("INSERT OR IGNORE INTO model_aliases (model_id, alias) VALUES (?, ?)", (model_id, on))
+                store._conn.execute("DELETE FROM model_rejects WHERE model_id = ? AND alias = ?", (model_id, on))
+            if nn:
+                store._conn.execute("DELETE FROM model_aliases WHERE model_id = ? AND alias = ?", (model_id, nn))
     apply_design(store, model_id)
 
 

@@ -149,3 +149,21 @@ def test_erster_lauf_still() -> None:
     assert not mdl.open_hints(store)
     rows = store._conn.execute("SELECT model_id FROM jobs").fetchall()
     assert all(r[0] for r in rows)
+
+
+def test_umbenennen_behaelt_alten_namen() -> None:
+    store = _store()
+    t0 = time.time() - 10 * 86400
+    a = _job(store, "Wolfbox", t0, img_hash="ffff0000ffff0000", gcode_plate=1)
+    mdl.recognize(store, a, IMG)
+    mid = store.get(a)["model_id"]
+    mdl.save_model(store, mid, name="Wolf-Aufbewahrungsbox")
+    # alter Name bleibt als Alias → neuer Druck mit altem Namen wird weiter automatisch erkannt
+    b = _job(store, "Wolfbox", t0 + 86400, img_hash="ffff0000ffff0001", gcode_plate=1)
+    mdl.recognize(store, b, IMG)
+    jb = store.get(b)
+    assert jb["model_id"] == mid and jb["model_state"] == "auto"
+    # Zurückbenennen: der wieder aktuelle Name steht nicht doppelt als Alias
+    mdl.save_model(store, mid, name="Wolfbox")
+    al = {r["alias"] for r in store._conn.execute("SELECT alias FROM model_aliases WHERE model_id = ?", (mid,))}
+    assert "wolfbox" not in al and "wolf aufbewahrungsbox" in al
