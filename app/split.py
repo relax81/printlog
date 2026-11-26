@@ -595,7 +595,7 @@ SPLIT_JS = r"""
  // ---- Aufteilen ----
  const S=D.split;let sBg,sD;
  function openSplit(){if(!S)return;if(!sBg)[sBg,sD]=shell();sD.textContent='';
-   const rows=S.rows.map(r=>({...r}));const project=S.project;const word=project?_t("Sätze"):_t("Stück");
+   const rows=S.rows.map(r=>({...r}));const force=[];const project=S.project;const word=project?_t("Sätze"):_t("Stück");
    sD.append(el('h3',null,_t("„{name}“ aufteilen").replace('{name}',S.title)));
    sD.append(el('p','sub',(project?_t("{n} Sätze"):_t("{n} Stück")).replace('{n}',S.total)+(S.unit!=null?' · '+eur(S.unit)+' '+(project?_t("Kosten pro Satz"):_t("Kosten pro Stück")):'')));
    const list=el('div');sD.append(list);const add=el('button','add','👤 '+_t("＋ Kunde hinzufügen"));add.type='button';sD.append(add);
@@ -630,15 +630,16 @@ SPLIT_JS = r"""
        const m=r.cid!=null?S.margins[String(r.cid)]:null;
        nm.append(el('small',null,isP(r)?(r.newProject?_t("neues Projekt"):_t("Projekt")):r.cid==null?_t("neuer Kunde"):(r.from?r.from+' · ':'')+(m?'+'+m+' % '+_t("Kundenmarge"):_t("ohne Marge"))));
        r.st=stepper(r.qty,r.min||1,null,v=>{r.qty=v;upd()});r.prEl=el('span','spp');
-       const x=el('button','x','✕');x.type='button';x.disabled=!!r.locked;x.title=r.locked?_t("Hat schon Zahlungen oder Übergaben"):_t("Entfernen");
-       x.onclick=()=>{rows.splice(i,1);draw()};const av=avatar(r.name);if(isP(r))av.textContent='📦';row.append(av,nm,r.st,r.prEl,x);list.append(row)});upd()}
+       const x=el('button','x','✕');x.type='button';x.title=r.locked?_t("Hat schon Zahlungen oder Übergaben"):_t("Entfernen");
+       x.onclick=()=>{if(r.locked&&!confirm(_t("{n} hat hier schon Zahlungen oder Übergaben. Beim Entfernen werden sie gelöscht und die Stück gehen zurück in den Vorrat. Trotzdem entfernen?").replace('{n}',r.name)))return;
+         if(r.locked)force.push(r.sid);rows.splice(i,1);draw()};const av=avatar(r.name);if(isP(r))av.textContent='📦';row.append(av,nm,r.st,r.prEl,x);list.append(row)});upd()}
    add.onclick=()=>KP.open(add,{ids:[],title:S.title,prefix:_t("Anteil für")+' ',onpick:fd=>{const id=fd.get('customer_id'),nn=fd.get('new_name');
        if(nn){rows.push({sid:null,cid:null,name:nn,newName:nn,qty:1,min:1});draw();return}
        if(!id)return;const c=(KP.custs||[]).find(x=>String(x.id)===String(id));
        const have=rows.find(r=>String(r.cid)===String(id)&&!r.sid&&!isP(r));if(have){have.qty++;draw();return}
        rows.push({sid:null,cid:+id,name:c?c.name:'?',qty:1,min:1});draw()}});
    cancel.onclick=()=>sBg.hidden=true;
-   save.onclick=()=>{const fd=new FormData();fd.append('rows',JSON.stringify(rows.map(r=>isP(r)?{sid:r.sid,project_id:r.pid,new_project:r.newProject||null,qty:r.qty}:{sid:r.sid,customer_id:r.cid,new_name:r.newName||null,qty:r.qty})));
+   save.onclick=()=>{const fd=new FormData();fd.append('force',JSON.stringify(force));fd.append('rows',JSON.stringify(rows.map(r=>isP(r)?{sid:r.sid,project_id:r.pid,new_project:r.newProject||null,qty:r.qty}:{sid:r.sid,customer_id:r.cid,new_name:r.newName||null,qty:r.qty})));
      save.disabled=true;post('api/jobs/'+S.id+'/split',fd,err).finally(()=>save.disabled=false)};
    off.onclick=()=>{if(!confirm(_t("Aufteilung aufheben? Der erste Kunde bekommt den Druck wieder ganz, die anderen Anteile werden entfernt.")))return;
      const fd=new FormData();fd.append('off','1');post('api/jobs/'+S.id+'/split',fd,err)};

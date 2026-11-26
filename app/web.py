@@ -1148,7 +1148,11 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
                 rows.append({"sid": int(r["sid"]) if r.get("sid") else None, "customer_id": cid, "qty": int(r.get("qty") or 0)})
         except (ValueError, TypeError, KeyError, AttributeError):
             raise web.HTTPBadRequest() from None
-        err = store.set_split(job_id, rows)
+        try:
+            force = [int(x) for x in json.loads(str(form.get("force") or "[]"))]
+        except (ValueError, TypeError):
+            force = []
+        err = store.set_split(job_id, rows, force)
         return web.json_response({"ok": not err, "error": t(err) if err else None})
 
     @routes.post("/api/jobs/{job_id:\\d+}/give")

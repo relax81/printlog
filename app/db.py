@@ -886,9 +886,11 @@ class Store:
                           task_name=parent.get("task_name"), image=parent.get("image"), **extra)
         return sid
 
-    def set_split(self, parent_id: int, rows: list[dict[str, Any]]) -> str | None:
+    def set_split(self, parent_id: int, rows: list[dict[str, Any]], force: Any = ()) -> str | None:
         """Aufteilung speichern. ``rows`` = [{"sid": Anteil oder None, "customer_id", "qty"}] für die Anteile
         ganzer Stücke/Sätze mit Kunde; fehlende Anteile werden entfernt. Gibt einen Fehlertext oder None zurück.
+        ``force`` = Anteile, die trotz Zahlungen/Übergaben entfernt werden dürfen (nach Rückfrage); deren
+        Zahlungen und Übergaben werden dabei gelöscht.
 
         Beim ersten Aufteilen bekommt der Anteil des bisherigen Kunden dessen Zahlungen, Übergaben und Endpreis.
         """
@@ -910,8 +912,9 @@ class Store:
                 return "Ein Projekt lässt sich nicht in ein anderes Projekt aufteilen"
         keep = {int(r["sid"]) for r in rows if r.get("sid")}
         drop = [s for sid, s in editable.items() if sid not in keep]
+        force = {int(x) for x in force}
         for s in drop:
-            if self._conn.execute("SELECT 1 FROM payments WHERE job_id = ? UNION SELECT 1 FROM handovers WHERE job_id = ?",
+            if s["id"] not in force and self._conn.execute("SELECT 1 FROM payments WHERE job_id = ? UNION SELECT 1 FROM handovers WHERE job_id = ?",
                                   (s["id"], s["id"])).fetchone():
                 return "Anteil mit Zahlungen oder Übergaben kann nicht entfernt werden"
         # Vorrat prüfen: neue Stückzahlen dürfen nicht mehr als vorhanden vergeben
@@ -932,6 +935,10 @@ class Store:
                 and self._conn.execute("SELECT 1 FROM payments WHERE job_id = ? UNION SELECT 1 FROM handovers WHERE job_id = ?",
                                        (parent_id, parent_id)).fetchone():
             return "Der bisherige Kunde hat schon Zahlungen oder Übergaben, bitte in der Aufteilung lassen"
+        for s in drop:
+            if s["id"] in force:
+                self.clear_payments(s["id"])
+                self.clear_handovers(s["id"])
         heir = None
         with self._lock, self._conn:
             for s in drop:

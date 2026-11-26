@@ -1080,6 +1080,7 @@ EN: dict[str, str] = {
     "Standard (ja)": "Default (yes)",
     "{n} Posten offen": "{n} open",
     "alles bezahlt": "all paid",
+    "{n} hat hier schon Zahlungen oder Übergaben. Beim Entfernen werden sie gelöscht und die Stück gehen zurück in den Vorrat. Trotzdem entfernen?": "{n} already has payments or handovers here. Removing deletes them and the pieces go back to stock. Remove anyway?",
     "Standard": "Default",
     "Marge auch auf Arbeitszeit": "Margin also on labour",
     "Gilt für alle Kunden mit „Standard“ und für neue Margen. Abweichungen stellst du pro Marge oder pro Kunde ein.": "Applies to all customers set to “Default” and to new margins. Exceptions are set per margin or per customer.",
