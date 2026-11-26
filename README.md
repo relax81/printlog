@@ -40,7 +40,8 @@ in a **light and a dark** colour scheme (Settings → View → Colour scheme, or
   cover image, filament per AMS slot with colour, and kWh.
 - **Find anything again** – live search over name, material, customer, notes and project links; filters for printer,
   month, status, material, customer and payment as compact chips (an active filter shows its value and an ✕ to remove it);
-  table or gallery, optionally grouped by day.
+  table or gallery, optionally grouped by day. The tiles above the list follow the filters, including **Open**: what is
+  still to be paid for the filtered prints (e.g. one customer).
 - **Open items** – the **Open** view next to Table and Gallery lists every print that is not fully paid or handed over yet,
   grouped by customer with the open amount and pieces per customer and buttons to record a payment or hand-over right there.
   Customers with **No billing** and failed prints that are not charged are left out; gifted prints only show up until they are handed over.
@@ -455,7 +456,8 @@ in **hell und dunkel** (Einstellungen → Ansicht → Farbschema, oder automatis
   Auftragsname, Drucker, Vorschaubild, Filament pro AMS-Fach mit Farbe und kWh.
 - **Alles wiederfinden** – Live-Suche über Name, Material, Kunde, Notizen und Projektlinks; Filter nach Drucker, Monat,
   Status, Material, Kunde und Zahlung als schmale Chips (ein aktiver Filter zeigt seinen Wert und ein ✕ zum Entfernen);
-  Tabelle oder Galerie, wahlweise nach Tagen gruppiert.
+  Tabelle oder Galerie, wahlweise nach Tagen gruppiert. Die Kacheln über der Liste folgen den Filtern, auch **Offen**: was
+  für die gefilterten Drucke (z. B. eines Kunden) noch zu zahlen ist.
 - **Offene Posten** – die Ansicht **Offen** neben Tabelle und Galerie zeigt alle Drucke, die noch nicht ganz bezahlt oder
   übergeben sind, nach Kunden gruppiert mit offenem Betrag und Stückzahl pro Kunde und Knöpfen, um Zahlung oder Übergabe
   direkt einzutragen. Kunden mit **Keine Abrechnung** und Fehldrucke, die nicht berechnet werden, fehlen; verschenkte Drucke stehen nur bis zur Übergabe darin.

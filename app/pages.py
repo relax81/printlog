@@ -931,7 +931,8 @@ def results(store: Store, f: dict[str, str | None]) -> str:
         (t("⚡ Strom"), fmt_num(tot["cost"], 2, "€"), fmt_num(tot["kwh"], 2, "kWh"), False, True),
         (t("🧵 Filament"), fmt_num(tot["cost_filament"], 2, "€"), fmt_num((tot["weight"] or 0) / 1000, 2, "kg"), False, True),
         (t("🖨 Drucker"), fmt_num(tot["cost_printer"], 2, "€"), t("Abschr. + Wartung"), False, True),
-        (t("Drucke"), str(n), " ", False, False),
+        (t("Offen"), fmt_num(tot.get("open_amount") or 0, 2, "€"),
+         tn(tot.get("open_n") or 0, "{n} Posten offen", "{n} Posten offen") if tot.get("open_n") else t("alles bezahlt"), False, True),
         (t("Fehldrucke"), fmt_num(tot["scrap_cost"], 2, "€"), tn(tot["scrap_n"], "{n} Druck", "{n} Drucke")
          + (" · " + t("{v} berechnet", v=fmt_num(tot["scrap_charged"], 2, "€")) if tot.get("scrap_charged", 0) >= 0.005 else ""), False, True),
     ]

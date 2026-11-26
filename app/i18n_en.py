@@ -1078,6 +1078,8 @@ EN: dict[str, str] = {
     "auch auf Arbeitszeit": "also on labour",
     "„Auch auf Arbeitszeit“: Die Marge kommt auch auf Arbeit und Design. Ist dein Stundensatz schon dein Endpreis, schalte es aus, dann kommt die Arbeit erst nach der Marge dazu.": "“Also on labour”: the margin also applies to labour and design. If your hourly rate already is your final price, turn it off, then labour is added after the margin.",
     "Standard (ja)": "Default (yes)",
+    "{n} Posten offen": "{n} open",
+    "alles bezahlt": "all paid",
     "Standard": "Default",
     "Marge auch auf Arbeitszeit": "Margin also on labour",
     "Gilt für alle Kunden mit „Standard“ und für neue Margen. Abweichungen stellst du pro Marge oder pro Kunde ein.": "Applies to all customers set to “Default” and to new margins. Exceptions are set per margin or per customer.",

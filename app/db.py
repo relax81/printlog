@@ -1204,7 +1204,16 @@ class Store:
             f"FROM jobs {where} GROUP BY printer ORDER BY cost_total DESC, cost DESC",
             args,
         ).fetchall()
-        return {"total": dict(total), "per_printer": [dict(r) for r in per_printer]}
+        # Noch offen (Verkaufspreis − Gezahltes) zu denselben Filtern. Wie unter „Offen“: Anteile einzeln,
+        # Projekte statt ihrer Drucke, damit ein Kundenfilter nur die Anteile dieses Kunden zählt.
+        pw, pa = self._filters(**{**filters, "pending": "1"})
+        op = self._conn.execute(
+            f"SELECT COALESCE(SUM(MAX({Store.DUE_SQL} - {Store.PAID_SQL}, 0)),0) amount, "
+            f"COALESCE(SUM(CASE WHEN {Store.PAID_SQL} < {Store.DUE_SQL} - 0.005 THEN 1 END),0) n FROM jobs {pw} "
+            f"{'AND' if pw else 'WHERE'} {Store.PAYABLE_SQL}", pa).fetchone()
+        tot = dict(total)
+        tot["open_amount"], tot["open_n"] = op["amount"], op["n"]
+        return {"total": tot, "per_printer": [dict(r) for r in per_printer]}
 
     def months(self) -> list[str]:
         rows = self._conn.execute(
