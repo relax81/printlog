@@ -7,6 +7,7 @@ from datetime import date, datetime
 from typing import Any
 
 from . import extras as _extras
+from . import orders as _orders
 from .costing import parse_materials
 from .db import Store, code_label
 from .defects import no_charge
@@ -196,9 +197,9 @@ def page_customer(store: Store, cid: int, period: str | None = None) -> str | No
 
     sub = [x for x in (c.get("contact"), c.get("note")) if x]
     if d["first"]:
-        sub.append(t("erster Auftrag {d}", d=fmt_date(d["first"], "date_s")))
+        sub.append(t("erster Druck {d}", d=fmt_date(d["first"], "date_s")))
     if d["last"]:
-        sub.append(t("letzter Auftrag {d}", d=fmt_date(d["last"], "date_s")))
+        sub.append(t("letzter Druck {d}", d=fmt_date(d["last"], "date_s")))
     tags = ""
     if c.get("margin_pct"):
         tags += f'<span class="tag calc">{t("+{p} % Marge", p=fmt_input(c["margin_pct"]))}</span>'
@@ -213,14 +214,14 @@ def page_customer(store: Store, cid: int, period: str | None = None) -> str | No
 
     n = int(tot["n"])
     pieces = int(tot["pieces"])
-    kp = (f'<div><span>{t("Aufträge")}</span><b>{n}</b><small>{tn(pieces, "{n} Stück", "{n} Stück")}</small></div>')
+    kp = (f'<div><span>{t("Drucke")}</span><b>{n}</b><small>{tn(pieces, "{n} Stück", "{n} Stück")}</small></div>')
     if nobill:
         kp += f'<div><span>{t("Kosten")}</span><b>{fmt_num(tot["own_cost"], 2, "€")}</b><small>{t("Eigenbedarf, keine Abrechnung")}</small></div>'
     else:
         avg = tot["revenue"] / tot["billed"] if tot["billed"] else None
         pct = t("{p} % auf die Selbstkosten", p=fmt_num(tot["profit"] / tot["cost"] * 100, 0)) if tot["cost"] > 0 else "–"
         kp += (f'<div><span>{t("Umsatz")}</span><b>{fmt_num(tot["revenue"], 2, "€")}</b>'
-               f'<small>{t("Ø {v} pro Auftrag", v=fmt_num(avg, 2, "€")) if avg is not None else "–"}</small></div>'
+               f'<small>{t("Ø {v} pro Druck", v=fmt_num(avg, 2, "€")) if avg is not None else "–"}</small></div>'
                f'<div><span>{t("Bezahlt")}</span><b>{fmt_num(tot["paid"], 2, "€")}</b>'
                f'<small>{t("{v} offen", v=fmt_num(tot["open"], 2, "€")) if tot["open"] >= 0.005 else t("nichts offen")}</small></div>'
                f'<div class="calc"><span>{t("Selbstkosten")}</span><b>{fmt_num(tot["cost"], 2, "€")}</b><small>{t("Druck, Zubehör, Arbeit")}</small></div>'
@@ -252,9 +253,9 @@ def page_customer(store: Store, cid: int, period: str | None = None) -> str | No
                   f'<td><a href="job?id={j["share_of"] if j.get("kind") == "share" and j.get("share_of") else j["id"]}">{e(j.get("task_name") or t("Druck"))}</a>'
                   f'{f"<small>{e(ref)}</small>" if ref else ""}</td>'
                   f'<td class="n">{fmt_num(o["price"], 2, "€") if o["price"] is not None else "–"}</td><td class="n">{_badge(o)}</td></tr>')
-    more = (f'<a class="more" href="./?customer={cid}">{t("Alle {n} Aufträge in der Druckliste →", n=n)}</a>' if n > LIST_N else "")
+    more = (f'<a class="more" href="./?customer={cid}">{t("Alle {n} Drucke in der Druckliste →", n=n)}</a>' if n > LIST_N else "")
     orders = (f'<table class="lt"><tbody>{lrows}</tbody></table>{more}' if lrows
-              else f'<p class="muted" style="margin:0">{t("Im Zeitraum keine Aufträge.")}</p>')
+              else f'<p class="muted" style="margin:0">{t("Im Zeitraum keine Drucke.")}</p>')
 
     mats = d["mats"][:MATS_N]
     mx = max((g for _, g in mats), default=0) or 1
@@ -270,10 +271,12 @@ def page_customer(store: Store, cid: int, period: str | None = None) -> str | No
 
     chart_card = ("" if nobill else f'<div class="card calc"><h3>{t("Umsatz pro Monat")}</h3>'
                   f'<p class="muted" style="font-size:13px">{t("letzte 12 Monate")}</p>{_chart(store, cid)}</div>')
-    body = (f'<style>{REVENUE_CSS}{CSS}</style>{head}<div class="rvk">{kp}</div><div class="cg">'
+    oft = _orders.often_card(store, cid) or (f'<div class="card"><h3>{t("Öfter gedruckt")}</h3>'
+                                              f'<p class="muted" style="font-size:13px">{t("gleiches Modell oder gleicher Name, mit Druckkosten")}</p>{models}</div>')
+    body = (f'<style>{REVENUE_CSS}{CSS}{_orders.CSS}</style>{head}<div class="rvk">{kp}</div>'
+            f'<div class="cg" style="align-items:start">{_orders.customer_card(store, cid)}{oft}</div><div class="cg">'
             f'{chart_card}<div class="card"><h3>{t("Auf einen Blick")}</h3><div class="facts">{fc}</div></div>'
-            f'<div class="card"><h3>{t("Letzte Aufträge")}</h3>{orders}</div>'
-            f'<div class="card"><h3>{t("Filament")}</h3>{mat}<h3 style="margin-top:16px">{t("Öfter gedruckt")}</h3>'
-            f'<p class="muted" style="font-size:13px">{t("gleiches Modell oder gleicher Name, mit Druckkosten")}</p>{models}</div></div>'
+            f'<div class="card"><h3>{t("Letzte Drucke")}</h3>{orders}</div>'
+            f'<div class="card"><h3>{t("Filament")}</h3>{mat}</div></div>'
             f'<p class="muted" style="font-size:13px;margin:12px 0 0">{t("Nach Druckstart. Preis = Endpreis oder Kosten + Kundenmarge; wurde mehr bezahlt, zählt das Gezahlte.")}</p>')
-    return layout(c["name"], "customers", body)
+    return layout(c["name"], "customers", body + _orders.again_dialog(store), _orders.AGAIN_JS)

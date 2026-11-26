@@ -108,6 +108,10 @@ const hdr = { 'Accept-Language': lang };
   // Modelle: Hinweise (Glocke) und Modellliste
   await shot('hints', 'hints', { h: 760 });
   await shot('models', 'models', { h: 860 });
+  // Aufträge: Übersicht und ein Auftrag in Arbeit
+  await shot('orders', 'orders', { h: 820 });
+  const ord = await p.evaluate(() => (document.querySelector('.ocard.running') || document.querySelector('.ocard')).getAttribute('href'));
+  await shot('order-detail', ord, { h: 980 });
   // phone
   const ph = await b.newContext({ ...devices['iPhone 13'], locale: lang, colorScheme: scheme, extraHTTPHeaders: hdr });
   await ph.addInitScript(init);

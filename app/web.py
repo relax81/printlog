@@ -20,6 +20,7 @@ from aiohttp import web
 from . import archive
 from . import extras as zk
 from . import models as mdl
+from . import orders as od
 from . import storage as lg
 from .costing import compute, parse_materials, recompute_all
 from .db import Store
@@ -767,15 +768,115 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
             if "spread_n" in form:
                 n = parse_num(form.get("spread_n"))
                 f["spread_n"] = max(2, min(int(n), 999)) if n else None
+            if "fav" in form:
+                f["fav"] = 1 if str(form["fav"]) == "1" else None
             mdl.save_model(store, mid, **f)
         back = str(form.get("back") or "")
+        if re.fullmatch(r"models(\?[\w=&%-]*)?", back):
+            raise web.HTTPSeeOther(f"../../{back}#m{target}")
+        if re.fullmatch(r"customer\?id=\d+", back):
+            raise web.HTTPSeeOther(f"../../{back}")
         if re.fullmatch(r"job\?id=\d+", back):
             raise web.HTTPSeeOther(f"../../{back}#zk")
         raise web.HTTPSeeOther(f"../../models#m{target}")
 
     @routes.get("/models")
     async def models_page(request: web.Request) -> web.Response:
-        return _html(mdl.page_models(store, request.query.get("q")))
+        q = request.query
+        cid = q.get("c")
+        return _html(mdl.page_models(store, q.get("q"), q.get("f"), int(cid) if cid and cid.isdigit() else None))
+
+    # ---- Aufträge -------------------------------------------------------------
+
+    def _customer(form: Any) -> int | None:
+        name = str(form.get("customer") or "").strip()
+        return store.customer_by_name(name) if name else None
+
+    def _item(form: Any) -> tuple[int | None, str]:
+        name = str(form.get("item") or "").strip()
+        return (od.model_by_name(store, name) if name else None), name
+
+    @routes.get("/orders")
+    async def orders_page(request: web.Request) -> web.Response:
+        cid = request.query.get("c")
+        return _html(od.page_orders(store, int(cid) if cid and cid.isdigit() else None, bool(request.query.get("archiv"))))
+
+    @routes.get("/order")
+    async def order_page(request: web.Request) -> web.Response:
+        q = request.query
+        if q.get("new"):
+            cid = q.get("c")
+            return _html(od.page_new(store, int(cid) if cid and cid.isdigit() else None))
+        o = od.order(store, int(q["id"])) if str(q.get("id") or "").isdigit() else None
+        if not o:
+            raise web.HTTPNotFound(text=t("Auftrag nicht gefunden"))
+        return _html(od.page_order(store, o, q.get("saved"), bool(q.get("link"))))
+
+    @routes.post("/orders")
+    async def order_create(request: web.Request) -> web.Response:
+        form = await request.post()
+        oid = od.create_order(store, _customer(form), str(form.get("title") or ""), form.get("due"),
+                              parse_num(form.get("agreed")), str(form.get("note") or ""))
+        mid, name = _item(form)
+        if mid or name:
+            od.add_item(store, oid, mid, name, int(parse_num(form.get("qty")) or 1))
+        raise web.HTTPSeeOther(f"order?id={oid}")
+
+    @routes.post("/orders/again")
+    async def order_again(request: web.Request) -> web.Response:
+        form = await request.post()
+        mid = str(form.get("model") or "")
+        if not mid.isdigit() or not mdl.model(store, int(mid)):
+            raise web.HTTPSeeOther("../orders")
+        into = str(form.get("into") or "")
+        oid = od.again(store, int(mid), _customer(form), int(parse_num(form.get("qty")) or 1),
+                       int(into) if into.isdigit() else None, form.get("due"))
+        raise web.HTTPSeeOther(f"../order?id={oid}&saved=1")
+
+    @routes.post("/orders/{oid:\\d+}")
+    async def order_edit(request: web.Request) -> web.Response:
+        oid = int(request.match_info["oid"])
+        o = od.order(store, oid)
+        if not o:
+            raise web.HTTPNotFound()
+        form = await request.post()
+        do = str(form.get("do") or "")
+        item = int(str(form["item"])) if str(form.get("item") or "").isdigit() else None
+        if item is not None and not any(i["id"] == item for i in o["items"]):
+            raise web.HTTPBadRequest()
+        job = int(str(form["job"])) if str(form.get("job") or "").isdigit() else None
+        saved, extra = "1", ""
+        if do == "save":
+            od.save_order(store, oid, customer_id=_customer(form), title=str(form.get("title") or ""), due=form.get("due"),
+                          agreed_price=parse_num(form.get("agreed")), note=str(form.get("note") or "").strip() or None)
+        elif do == "add":
+            mid, name = _item(form)
+            if mid or name:
+                od.add_item(store, oid, mid, name, int(parse_num(form.get("qty")) or 1))
+        elif do == "qty" and item:
+            it = next(i for i in o["items"] if i["id"] == item)
+            od.set_item(store, item, qty=it["qty"] + (1 if str(form.get("d")) == "1" else -1))
+        elif do == "del_item" and item:
+            od.delete_item(store, item)
+        elif do == "link" and job and item:
+            od.link(store, job, item)
+            extra = "&link=1#od"
+        elif do == "unlink" and job:
+            if any(j["id"] == job for i in o["items"] for j in i["jobs"]):
+                od.link(store, job, None)
+            extra = "#od"
+        elif do == "bill":
+            target, err = od.bill(store, oid)
+            if err:
+                saved = err
+        elif do == "close":
+            od.save_order(store, oid, closed=1)
+        elif do == "reopen":
+            od.reopen(store, oid)
+        elif do == "delete":
+            od.delete_order(store, oid)
+            raise web.HTTPSeeOther("../orders")
+        raise web.HTTPSeeOther(f"../order?id={oid}&saved={quote(saved)}{extra}")
 
     @routes.get("/hints")
     async def hints_page(request: web.Request) -> web.Response:
