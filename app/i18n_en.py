@@ -1180,4 +1180,12 @@ EN: dict[str, str] = {
     'Alle Gruppen': 'All groups',
     'Alle Orte': 'All locations',
     '{n} Zubehör': '{n} accessories',
+    'Einmalig': 'Once',
+    'Verteilt': 'Spread',
+    'beim ersten berechneten Druck': 'on the first billed print',
+    'auf': 'over',
+    'Zusammenlegen …': 'Merge …',
+    'zusammenlegen mit …': 'merge with …',
+    'Kein passendes Modell.': 'No matching model.',
+    '„{a}“ mit „{b}“ zusammenlegen? Drucke und Namen wandern in „{b}“.': 'Merge “{a}” into “{b}”? Prints and names move to “{b}”.',
 }

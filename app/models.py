@@ -587,10 +587,10 @@ def page_models(store: Store, q: str | None = None) -> str:
     aliases: dict[int, list[str]] = {}
     for r in store._conn.execute("SELECT * FROM model_aliases ORDER BY alias"):
         aliases.setdefault(r["model_id"], []).append(r["alias"])
+    all_rows = sorted(rows, key=lambda r: r["name"].casefold())
     if q:
         qn = normalize(q)
         rows = [r for r in rows if qn in normalize(r["name"]) or any(qn in a for a in aliases.get(r["id"], []))]
-    allm = sorted(((r["id"], r["name"]) for r in rows), key=lambda x: x[1].casefold())
     items = ""
     for r in rows:
         mid = r["id"]
@@ -598,29 +598,76 @@ def page_models(store: Store, q: str | None = None) -> str:
         al = "".join(f'<form method="post" action="{act}" class="al"><input type="hidden" name="unalias" value="{e(a)}">'
                      f'<span>{e(a)}</span><button title="{e(t("Alias entfernen"))}">×</button></form>' for a in aliases.get(mid, []))
         spread = r.get("design_mode") == "spread"
-        merge_opts = "".join(f'<option value="{i}">{e(n)}</option>' for i, n in allm if i != mid)
         dot_ = f' <a class="mdot y" href="hints" title="{e(t("offene Hinweise"))}"></a>' if r.get("open") else ""
+        dm = fmt_input(r.get("design_min")) if r.get("design_min") else ""
         items += (
-            f'<div class="mdrow" id="m{mid}"><div class="mimg">{_img(r)}</div>'
+            f'<div class="mdrow" id="m{mid}" data-n="{e(r["name"].casefold())}"><div class="mimg">{_img(r)}</div>'
             f'<form method="post" action="{act}" class="mdf"><div class="mdname"><input name="name" value="{e(r["name"])}" maxlength="120" aria-label="{e(t("Name"))}">'
             f'<small class="muted">{dot_.strip()}<a href="./?model={mid}">{e(t("{n} Drucke", n=r["n"]))}</a>'
             + (f' · {e(t("zuletzt {d}", d=fmt_date(r["last"])))}' if r.get("last") else "") + f'</small>'
             f'<div class="als">{al}</div></div>'
-            f'<label class="mdes">✏️ {e(t("Design"))}<span><input class="num" name="design_min" value="{fmt_input(r.get("design_min")) if r.get("design_min") else ""}" inputmode="decimal" placeholder="0"> min</span></label>'
-            f'<label class="mmode">{e(t("Berechnen"))}<select name="design_mode"><option value="first">{e(t("einmal beim ersten Druck"))}</option>'
-            f'<option value="spread"{" selected" if spread else ""}>{e(t("verteilt auf"))}</option></select>'
-            f'<span class="spn"{"" if spread else " hidden"}><input class="num" name="spread_n" value="{r.get("spread_n") or 3}" inputmode="numeric"> {e(t("Drucke"))}</span></label>'
-            f'<button class="btn">{e(t("Speichern"))}</button></form>'
-            f'<form method="post" action="{act}" class="mmerge"><select name="merge" onchange="if(this.value&&confirm(this.dataset.q))this.form.requestSubmit()" data-q="{e(t("Zusammenlegen? Drucke und Namen wandern in das gewählte Modell."))}">'
-            f'<option value="">{e(t("Zusammenlegen mit …"))}</option>{merge_opts}</select></form></div>')
+            f'<div class="mdbox"><label class="mdes"><span class="lb">✏️ {e(t("Design"))}</span>'
+            f'<span class="mv"><input class="num" name="design_min" value="{dm}" inputmode="decimal" placeholder="0"> min</span></label>'
+            f'<div class="mr2"><div class="mseg" role="radiogroup" aria-label="{e(t("Berechnen"))}">'
+            f'<label title="{e(t("beim ersten berechneten Druck"))}"><input type="radio" name="design_mode" value="first"{"" if spread else " checked"}><span>{e(t("Einmalig"))}</span></label>'
+            f'<label><input type="radio" name="design_mode" value="spread"{" checked" if spread else ""}><span>{e(t("Verteilt"))}</span></label></div>'
+            f'<span class="spn"{"" if spread else " hidden"}>{e(t("auf"))} <input class="num" name="spread_n" value="{r.get("spread_n") or 3}" inputmode="numeric"> {e(t("Drucke"))}</span></div></div>'
+            f'<div class="mact"><button class="btn msave">{e(t("Speichern"))}</button>'
+            f'<button type="button" class="btn mmb" data-id="{mid}" data-name="{e(r["name"])}">⇢ {e(t("Zusammenlegen …"))}</button></div></form></div>')
+    data = json.dumps([{"id": r["id"], "name": r["name"], "n": r["n"], "img": r.get("image") or ""} for r in all_rows],
+                      ensure_ascii=False).replace("</", "<\\/")
     if not items:
         items = f'<p class="muted">{e(t("Noch keine Modelle. Sie entstehen automatisch, sobald ein Druck fertig ist."))}</p>'
     intro = e(t("Ein Modell ist ein Design, das du öfter druckst, egal auf welchem Drucker oder welcher Platte. printlog erkennt es am Namen, am Vorschaubild und an der Druckdatei. Die Designzeit wird einmal beim ersten berechneten Druck berechnet oder auf mehrere verteilt."))
     search = (f'<form class="msrch" method="get"><input type="search" name="q" value="{e(q or "")}" placeholder="{e(t("Modell suchen …"))}"></form>')
-    js = ("document.querySelectorAll('.mmode select').forEach(s=>s.onchange=()=>{s.parentElement.querySelector('.spn').hidden=s.value!=='spread'});"
-          "if(location.hash){const el=document.querySelector(location.hash);if(el)el.classList.add('mdhl')}")
-    body = f'<h2 style="margin-top:4px">🧩 {e(t("Modelle"))}</h2><p class="muted">{intro} <a href="hints">🔔 {e(t("Hinweise"))}</a></p>{search}<div class="ml">{items}</div>'
+    js = MODELS_JS.replace("%Q%", json.dumps(t("„{a}“ mit „{b}“ zusammenlegen? Drucke und Namen wandern in „{b}“.")))
+    merge_dlg = (f'<script type="application/json" id="mdata">{data}</script>'
+                 f'<div id="mmpop" class="mmpop" hidden role="dialog"><div class="hd"></div>'
+                 f'<label class="srch">🔍<input type="search" autocomplete="off" placeholder="{e(t("Modell suchen …"))}"></label>'
+                 f'<div class="lst"></div><form method="post" class="mmf"><input type="hidden" name="merge"></form></div><div id="mmbg" class="mmbg" hidden></div>')
+    body = (f'<h2 style="margin-top:4px">🧩 {e(t("Modelle"))}</h2><p class="muted">{intro} <a href="hints">🔔 {e(t("Hinweise"))}</a></p>'
+            f'{search}<div class="ml">{items}</div>{merge_dlg}')
     return layout(t("Modelle"), "models", f'<style>{CSS}</style>{body}', js)
+
+
+MODELS_JS = r"""
+// Design: Umschalter einmalig / verteilt; Speichern hervorheben, sobald etwas geändert ist
+document.querySelectorAll('.mdf').forEach(f=>{
+  const sync=()=>{const sp=f.querySelector('input[name=design_mode][value=spread]').checked;
+    f.querySelector('.mr2 .spn').hidden=!sp};
+  f.addEventListener('change',()=>{sync();f.classList.add('dirty')});f.addEventListener('input',()=>f.classList.add('dirty'))});
+if(location.hash){const el=document.querySelector(location.hash);if(el)el.classList.add('mdhl')}
+// Zusammenlegen: Auswahl mit Suche
+(()=>{let all=[];try{all=JSON.parse(document.getElementById('mdata').textContent)}catch(_){}
+  const pop=document.getElementById('mmpop'),bg=document.getElementById('mmbg');if(!pop)return;
+  const q=pop.querySelector('input[type=search]'),lst=pop.querySelector('.lst'),f=pop.querySelector('.mmf');
+  let src=null,anchor=null;const norm=x=>x.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  function render(){lst.textContent='';const term=norm(q.value.trim());let i=0;
+    all.filter(m=>m.id!==+src.id&&(!term||norm(m.name).includes(term))).forEach(m=>{
+      const b=document.createElement('button');b.type='button';b.className='it'+(i++===0&&term?' hl':'');
+      const im=document.createElement(m.img?'img':'span');if(m.img){im.src='images/'+m.img;im.loading='lazy'}else im.className='ph';
+      const n=document.createElement('span');n.className='n';n.textContent=m.name;
+      const s=document.createElement('small');s.textContent=_t("{n} Drucke").replace('{n}',m.n);
+      b.append(im,n,s);b.onclick=()=>pick(m);lst.append(b)});
+    if(!lst.children.length){const d=document.createElement('div');d.className='none';d.textContent=_t("Kein passendes Modell.");lst.append(d)}}
+  function place(){if(innerWidth<=700){pop.style.left='';pop.style.top='';return}
+    const r=anchor.getBoundingClientRect(),w=pop.offsetWidth,h=pop.offsetHeight;
+    let left=Math.min(Math.max(8,r.right-w),innerWidth-w-8),top=r.bottom+8;
+    if(top+h>innerHeight-8&&r.top-h-8>8)top=r.top-h-8;
+    pop.style.left=(left+scrollX)+'px';pop.style.top=(top+scrollY)+'px'}
+  function open(b){anchor=b;src={id:b.dataset.id,name:b.dataset.name};
+    const hd=pop.querySelector('.hd');hd.textContent='';const x=document.createElement('b');x.textContent=src.name;
+    hd.append(x,' '+_t("zusammenlegen mit …"));
+    q.value='';render();pop.hidden=false;bg.hidden=false;place();if(matchMedia('(pointer:fine)').matches)q.focus()}
+  function close(){pop.hidden=true;bg.hidden=true}
+  function pick(m){if(!confirm(%Q%.replaceAll('{a}',src.name).replaceAll('{b}',m.name)))return;
+    f.action='api/models/'+src.id;f.querySelector('input').value=m.id;f.submit()}
+  document.querySelectorAll('.mmb').forEach(b=>b.onclick=()=>open(b));
+  q.addEventListener('input',render);
+  q.addEventListener('keydown',ev=>{if(ev.key==='Enter'){ev.preventDefault();const b=lst.querySelector('.it.hl')||lst.querySelector('.it');if(b)b.click()}});
+  bg.onclick=close;document.addEventListener('keydown',ev=>{if(ev.key==='Escape')close()});
+  addEventListener('resize',()=>{if(!pop.hidden)place()})})();
+"""
 
 
 def notify_text(hints: list[str]) -> str:
@@ -646,19 +693,44 @@ CSS = """
 .lowl li{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line);flex-wrap:wrap}
 .msrch input{width:100%;max-width:420px;margin:4px 0 14px}
 .ml{display:flex;flex-direction:column;gap:10px}
-.mdrow{display:grid;grid-template-columns:64px minmax(0,1fr) 200px;gap:14px;align-items:start;background:var(--card);border:1px solid var(--line);
+.mdrow{display:grid;grid-template-columns:64px minmax(0,1fr);gap:14px;align-items:center;background:var(--card);border:1px solid var(--line);
  border-radius:14px;padding:12px 14px}
 .mdrow.mdhl{box-shadow:0 0 0 2px var(--accent)}
 .mimg img,.mimg .ph{width:64px;height:64px;border-radius:10px;object-fit:cover;display:block;background:var(--bg)}
-.mdf{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:12px;align-items:start;margin:0}
-.mdname input{font-weight:700;width:100%;box-sizing:border-box}.mdname small{display:block;margin-top:4px}
-.als{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.mdf{display:grid;grid-template-columns:minmax(0,1fr) 320px 170px;gap:16px;align-items:center;margin:0}
+.mdname input{font-weight:700;width:100%;box-sizing:border-box}.mdname small{display:block;margin-top:5px}
+.als{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}.als:empty{display:none}
 .al{display:inline-flex;align-items:center;gap:2px;border:1px solid var(--line);border-radius:999px;padding:0 2px 0 9px;font-size:12px;color:var(--muted);margin:0}
 .al button{border:0;background:none;color:var(--muted);cursor:pointer;padding:2px 6px;min-height:0}
-.mdes,.mmode{display:flex;flex-direction:column;gap:4px;font-size:12.5px;color:var(--muted);font-weight:600}
-.mdes span,.mmode .spn{display:flex;align-items:center;gap:6px;color:var(--fg)}.mdes input,.mmode input{width:64px;text-align:right}
-.mmerge select{width:100%}.mmode .spn[hidden]{display:none}
+.mdbox{display:flex;flex-direction:column;gap:6px;border:1px solid var(--line);border-radius:12px;padding:7px 10px;background:color-mix(in srgb,var(--fg) 3%,transparent)}
+.mdes{display:flex;align-items:center;justify-content:space-between;gap:10px}.mdes .lb{font-size:12.5px;color:var(--muted);font-weight:700;white-space:nowrap}
+.mdes .mv{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}.mdes input{width:64px;text-align:right;padding:4px 8px;min-height:0;height:30px}
+.mr2{display:flex;align-items:center;gap:8px}
+.mseg{flex:1;display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--line);border-radius:9px;overflow:hidden;min-width:150px}
+.mseg label{position:relative;cursor:pointer}.mseg input{position:absolute;opacity:0;pointer-events:none}
+.mseg span{display:block;text-align:center;padding:5px 8px;font-size:12.5px;font-weight:700;color:var(--muted)}
+.mseg label+label span{border-left:1px solid var(--line)}
+.mseg input:checked+span{background:var(--accent);color:var(--bg)}.mseg input:focus-visible+span{outline:2px solid var(--accent);outline-offset:-2px}
+.mr2 .spn{display:flex;align-items:center;gap:5px;font-size:12.5px;color:var(--muted);white-space:nowrap}.mr2 .spn[hidden]{display:none}
+.mr2 .spn input{width:44px;text-align:right;padding:4px 6px;min-height:0;height:28px}
+.mact{display:flex;flex-direction:column;gap:6px}.mact .btn{min-height:0;padding:6px 10px}.mact .btn{width:100%;justify-content:center}
+.mdf.dirty .msave{background:var(--accent);color:var(--bg);border-color:var(--accent)}
+.mmpop{position:absolute;z-index:70;width:360px;max-width:calc(100vw - 16px);background:var(--card);border:1px solid var(--line);border-radius:16px;
+ box-shadow:0 24px 70px rgba(0,0,0,.45);padding:12px;font-size:14px;display:flex;flex-direction:column}
+.mmpop[hidden],.mmbg[hidden]{display:none}.mmbg{position:fixed;inset:0;z-index:69;background:transparent}
+.mmpop .hd{font-size:12.5px;color:var(--muted);margin:0 4px 8px}.mmpop .hd b{color:var(--fg);margin-right:4px}
+.mmpop .srch{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:11px;padding:0 12px;background:var(--bg);margin-bottom:6px}
+.mmpop .srch:focus-within{border-color:var(--accent)}.mmpop .srch input{flex:1;border:0;background:transparent;color:var(--fg);font:inherit;padding:10px 0;outline:0;min-width:0}
+.mmpop .lst{overflow:auto;max-height:min(380px,55vh);overscroll-behavior:contain}
+.mmpop .it{display:flex;align-items:center;gap:10px;padding:7px 8px;border-radius:10px;width:100%;border:0;background:none;color:var(--fg);font:inherit;font-weight:600;text-align:left;cursor:pointer}
+.mmpop .it:hover,.mmpop .it.hl{background:color-mix(in srgb,var(--fg) 7%,transparent)}
+.mmpop .it img,.mmpop .it .ph{width:34px;height:34px;border-radius:8px;object-fit:cover;background:var(--bg);flex:none}
+.mmpop .it .n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mmpop .it small{margin-left:auto;color:var(--muted);font-weight:500;font-size:12px;white-space:nowrap;padding-left:8px}
+.mmpop .none{color:var(--muted);padding:10px 8px}.mmf{display:none}
+@media (max-width:1100px){.mdf{grid-template-columns:minmax(0,1fr) 280px}.mact{grid-column:1/-1;flex-direction:row}}
 @media (max-width:760px){.mhint{flex-direction:column}.mhj{width:auto}
- .mdrow{grid-template-columns:52px minmax(0,1fr)}.mimg img,.mimg .ph{width:52px;height:52px}.mmerge{grid-column:1/-1}
- .mdf{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.mmode select{width:100%;min-width:0}.mdf>*{min-width:0}.mdf .mdname{grid-column:1/-1}.mdf .btn{grid-column:1/-1}}
+ .mdrow{grid-template-columns:52px minmax(0,1fr);align-items:start}.mimg img,.mimg .ph{width:52px;height:52px}
+ .mdf{grid-template-columns:minmax(0,1fr)}.mdf>*{min-width:0}
+ .mmpop{position:fixed;left:0!important;right:0;bottom:0;top:auto!important;width:auto;max-width:none;border-radius:22px 22px 0 0;padding:10px 16px calc(18px + env(safe-area-inset-bottom))}
+ .mmbg{background:rgba(0,0,0,.55)}}
 """
