@@ -309,7 +309,10 @@ class Store:
     # Normaler Preis: Endpreis, sonst Kosten + Kundenmarge.
     # Arbeit (cost_work) bekommt die Marge nur, wenn der Kunde „Marge auch auf Arbeitszeit“ hat.
     WORK_SQL = "COALESCE(jobs.bill_work, jobs.cost_work, 0)"
-    WORK_ON_SQL = "COALESCE((SELECT cw.work_margin FROM customers cw WHERE cw.id = jobs.customer_id), 0)"
+    # Standard für Kunden ohne eigene Wahl: Einstellung work_margin_default ("1"/"0"), ohne Wert = an.
+    WORK_DEFAULT_SQL = "COALESCE((SELECT CAST(sw.value AS INTEGER) FROM settings sw WHERE sw.key = 'work_margin_default'), 1)"
+    WORK_ON_SQL = f"COALESCE((SELECT cw.work_margin FROM customers cw WHERE cw.id = jobs.customer_id), {WORK_DEFAULT_SQL})"
+    CUSTOMER_WORK_SQL = f"COALESCE(customers.work_margin, {WORK_DEFAULT_SQL})"
     BASE_DUE_SQL = (f"COALESCE(jobs.final_price, (COALESCE(jobs.bill_base, jobs.cost_total) + {WORK_SQL} * {WORK_ON_SQL}) * (1 + COALESCE("
                     f"(SELECT c.margin_pct FROM customers c WHERE c.id = jobs.customer_id), 0) / 100.0) + {WORK_SQL} * (1 - {WORK_ON_SQL}))")
     # Zu zahlen: normaler Preis, bei einem berechneten Fehldruck anteilig bzw. fester Betrag. Gezahlt: Summe der Zahlungen.
@@ -349,7 +352,7 @@ class Store:
             # 1 = keine Abrechnung (z. B. Eigenbedarf): keine Zahlungen/Übergaben, Kosten zählen weiter
             self._conn.execute("ALTER TABLE customers ADD COLUMN no_billing INTEGER")
         if "work_margin" not in have:
-            # Marge auch auf Arbeitszeit: 1 an, 0 aus, NULL = Standard (aus)
+            # Marge auch auf Arbeitszeit: 1 an, 0 aus, NULL = Standard (Einstellung work_margin_default, sonst an)
             self._conn.execute("ALTER TABLE customers ADD COLUMN work_margin INTEGER")
         have = {r["name"] for r in self._conn.execute("PRAGMA table_info(accessories)")}
         if "location_id" not in have:
@@ -578,7 +581,7 @@ class Store:
             return out
         marks = ", ".join("?" for _ in project_ids)
         rows = self._conn.execute(
-            f"SELECT jobs.*, customers.name AS customer_name, customers.margin_pct AS customer_margin, customers.work_margin AS customer_work, COALESCE(customers.no_billing, 0) AS customer_nobill, (SELECT name FROM locations l WHERE l.id = jobs.location_id) AS location_name, "
+            f"SELECT jobs.*, customers.name AS customer_name, customers.margin_pct AS customer_margin, {Store.CUSTOMER_WORK_SQL} AS customer_work, COALESCE(customers.no_billing, 0) AS customer_nobill, (SELECT name FROM locations l WHERE l.id = jobs.location_id) AS location_name, "
             f"{Store.SCRAP_SQL} AS is_scrap, {Store.DELIVERED_SQL} AS delivered, {Store.PAID_SQL} AS paid FROM jobs "
             f"LEFT JOIN customers ON customers.id = jobs.customer_id WHERE jobs.project_id IN ({marks}) "
             "ORDER BY jobs.start_ts, jobs.id", project_ids).fetchall()
@@ -715,7 +718,7 @@ class Store:
     def refresh_project(self, project_id: int) -> None:
         """Summen eines Projekts aus seinen Drucken neu berechnen (Kosten, Zeitraum, Bild, Preisbasis)."""
         proj = self._conn.execute(
-            "SELECT jobs.*, customers.margin_pct AS customer_margin, customers.work_margin AS customer_work FROM jobs LEFT JOIN customers ON customers.id = jobs.customer_id "
+            f"SELECT jobs.*, customers.margin_pct AS customer_margin, {Store.CUSTOMER_WORK_SQL} AS customer_work FROM jobs LEFT JOIN customers ON customers.id = jobs.customer_id "
             "WHERE jobs.id = ? AND jobs.kind = 'project'", (project_id,)).fetchone()
         if not proj:
             return
@@ -789,7 +792,7 @@ class Store:
             return out
         marks = ", ".join("?" for _ in parent_ids)
         rows = self._conn.execute(
-            f"SELECT jobs.*, customers.name AS customer_name, customers.margin_pct AS customer_margin, customers.work_margin AS customer_work, COALESCE(customers.no_billing, 0) AS customer_nobill, (SELECT name FROM locations l WHERE l.id = jobs.location_id) AS location_name, "
+            f"SELECT jobs.*, customers.name AS customer_name, customers.margin_pct AS customer_margin, {Store.CUSTOMER_WORK_SQL} AS customer_work, COALESCE(customers.no_billing, 0) AS customer_nobill, (SELECT name FROM locations l WHERE l.id = jobs.location_id) AS location_name, "
             f"{Store.SCRAP_SQL} AS is_scrap, {Store.DELIVERED_SQL} AS delivered, {Store.PAID_SQL} AS paid, "
             "(SELECT p.task_name FROM jobs p WHERE p.id = jobs.project_id) AS project_name, "
             "(SELECT p.code FROM jobs p WHERE p.id = jobs.project_id) AS project_code FROM jobs "
@@ -1107,7 +1110,7 @@ class Store:
 
     def get(self, job_id: int) -> dict[str, Any] | None:
         row = self._conn.execute(
-            f"SELECT jobs.*, customers.name AS customer_name, customers.margin_pct AS customer_margin, customers.work_margin AS customer_work, COALESCE(customers.no_billing, 0) AS customer_nobill, (SELECT name FROM locations l WHERE l.id = jobs.location_id) AS location_name, "
+            f"SELECT jobs.*, customers.name AS customer_name, customers.margin_pct AS customer_margin, {Store.CUSTOMER_WORK_SQL} AS customer_work, COALESCE(customers.no_billing, 0) AS customer_nobill, (SELECT name FROM locations l WHERE l.id = jobs.location_id) AS location_name, "
             f"{Store.SCRAP_SQL} AS is_scrap, {Store.DELIVERED_SQL} AS delivered, {Store.PAID_SQL} AS paid FROM jobs LEFT JOIN customers ON customers.id = jobs.customer_id "
             "WHERE jobs.id = ?", (job_id,)).fetchone()
         return dict(row) if row else None
@@ -1170,7 +1173,7 @@ class Store:
     def list_jobs(self, limit: int = 500, offset: int = 0, **filters: Any) -> list[dict[str, Any]]:
         where, args = self._filters(**filters)
         rows = self._conn.execute(
-            f"SELECT jobs.*, customers.name AS customer_name, customers.margin_pct AS customer_margin, customers.work_margin AS customer_work, COALESCE(customers.no_billing, 0) AS customer_nobill, (SELECT name FROM locations l WHERE l.id = jobs.location_id) AS location_name, "
+            f"SELECT jobs.*, customers.name AS customer_name, customers.margin_pct AS customer_margin, {Store.CUSTOMER_WORK_SQL} AS customer_work, COALESCE(customers.no_billing, 0) AS customer_nobill, (SELECT name FROM locations l WHERE l.id = jobs.location_id) AS location_name, "
             f"{Store.SCRAP_SQL} AS is_scrap, {Store.DELIVERED_SQL} AS delivered, {Store.PAID_SQL} AS paid FROM jobs "
             f"LEFT JOIN customers ON customers.id = jobs.customer_id {where} "
             "ORDER BY start_ts DESC, jobs.id DESC LIMIT ? OFFSET ?",
@@ -1496,7 +1499,7 @@ class Store:
         nobill=True nimmt auch Kunden mit „Keine Abrechnung“ mit (für die Kundenseite)."""
         fmt = {"day": "%Y-%m-%d", "week": "%Y-W%W", "month": "%Y-%m"}[period]
         q = (f"SELECT strftime('{fmt}', jobs.start_ts, 'unixepoch', 'localtime') bucket, jobs.*, customers.name AS customer_name, "
-             "customers.margin_pct AS customer_margin, customers.work_margin AS customer_work, COALESCE(customers.no_billing, 0) AS customer_nobill, (SELECT name FROM locations l WHERE l.id = jobs.location_id) AS location_name, "
+             f"customers.margin_pct AS customer_margin, {Store.CUSTOMER_WORK_SQL} AS customer_work, COALESCE(customers.no_billing, 0) AS customer_nobill, (SELECT name FROM locations l WHERE l.id = jobs.location_id) AS location_name, "
              f"{Store.SCRAP_SQL} AS is_scrap, {Store.DELIVERED_SQL} AS delivered, {Store.PAID_SQL} AS paid, "
              "(SELECT MAX(p.ts) FROM payments p WHERE p.job_id = jobs.id) AS last_pay_ts "
              "FROM jobs JOIN customers ON customers.id = jobs.customer_id "

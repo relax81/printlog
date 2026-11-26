@@ -331,12 +331,16 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
                 store.set_material_price(key[6:], "type", parse_num(value))
             elif key.startswith("name__"):
                 store.set_material_price(key[6:], "name", parse_num(value))
+        if "margin1_name" in form:
+            store.set_setting("work_margin_default", "1" if form.get("work_margin_default") else "0")
+        wdflt = "0" if store.settings().get("work_margin_default") == "0" else "1"
         for i in (1, 2):
             store.set_setting(f"margin{i}_name", str(form.get(f"margin{i}_name") or "").strip() or None)
             pct = parse_num(form.get(f"margin{i}_pct"))
             store.set_setting(f"margin{i}_pct", None if pct is None else f"{pct:g}")
             if f"margin{i}_name" in form:
-                store.set_setting(f"margin{i}_work", "1" if form.get(f"margin{i}_work") else None)
+                w = "1" if form.get(f"margin{i}_work") else "0"
+                store.set_setting(f"margin{i}_work", None if w == wdflt else w)  # wie Standard: folgt ihm
         zk.save_settings(store, form)
         days = str(form.get("trash_days") or "").strip()
         if days.isdigit() and 1 <= int(days) <= 3650:

@@ -131,8 +131,9 @@ in a **light and a dark** colour scheme (Settings → View → Colour scheme, or
   - Assigned accessories are **reserved**; they leave the stock when you count pieces as **🔧 Assembled** (partial amounts
     are fine) or when the pieces are handed over.
   - **Take over** copies labour and accessories from the last print with the same name.
-  - Price = (print + accessories) × (1 + margin) + labour. Whether a margin also applies to labour is a checkbox per
-    margin (*also on labour*) and a setting per customer (default / yes / no; default = no).
+  - Price = (print + accessories + labour) × (1 + margin). Whether the margin also applies to labour is set once under
+    Settings → Margins (*Default: margin also on labour*, on unless you turn it off). Exceptions: a checkbox per margin
+    and a setting per customer (default / yes / no). With it off, labour is added after the margin.
   - The price box shows **profit over cost** and the **effective hourly rate** of the final price
     ((final price − print − accessories) ÷ hours of labour and design).
   - Paid more than the price (rounded up, a tip)? The amount paid then counts as the actual price: shown in the list,
@@ -552,8 +553,9 @@ in **hell und dunkel** (Einstellungen → Ansicht → Farbschema, oder automatis
   - Zugeordnetes Zubehör ist **reserviert**; vom Bestand geht es ab, wenn Stück als **🔧 Montiert** gezählt werden
     (Teilmengen gehen) oder wenn die Stücke übergeben werden.
   - **Übernehmen** kopiert Arbeit und Zubehör vom letzten Druck mit gleichem Namen.
-  - Preis = (Druck + Zubehör) × (1 + Marge) + Arbeit. Ob eine Marge auch auf die Arbeit kommt, ist ein Häkchen pro Marge
-    (*auch auf Arbeitszeit*) und eine Einstellung pro Kunde (Standard / ja / nein; Standard = nein).
+  - Preis = (Druck + Zubehör + Arbeit) × (1 + Marge). Ob die Marge auch auf die Arbeit kommt, stellst du einmal unter
+    Einstellungen → Margen ein (*Standard: Marge auch auf Arbeitszeit*, an, solange du es nicht ausschaltest). Abweichend:
+    Häkchen pro Marge und Einstellung pro Kunde (Standard / ja / nein). Ist es aus, kommt die Arbeit nach der Marge dazu.
   - Der Preiskasten zeigt den **Gewinn über Selbstkosten** und den **effektiven Stundenlohn** des Endpreises
     ((Endpreis − Druck − Zubehör) ÷ Stunden Arbeit und Design).
   - Mehr bezahlt als der Preis (aufgerundet, Trinkgeld)? Dann gilt der gezahlte Betrag als tatsächlicher Preis: in der Liste,

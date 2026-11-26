@@ -37,6 +37,7 @@ def _fill(store, jid, ring, kette):
 
 def test_kosten_und_preis() -> None:
     store, jid, ring, kette = _setup()
+    store.set_setting("work_margin_default", "0")
     _fill(store, jid, ring, kette)
     j = store.get(jid)
     assert round(j["cost_extras"], 2) == 2.70
@@ -44,7 +45,7 @@ def test_kosten_und_preis() -> None:
     assert round(j["cost_total"], 2) == round(0.05 + 2.70, 2)
     assert round(j["cost_work"], 2) == round(25 / 60 * 20 + 7.5, 2)
     assert round(j["cost_design"], 2) == 7.5
-    # Kunde +10 %, Marge nicht auf Arbeit
+    # Kunde +10 %, Standard ausgeschaltet: Marge nicht auf Arbeit
     due = amount_due(j)
     assert abs(due - (j["cost_total"] * 1.1 + j["cost_work"])) < 1e-6
     # gleiche Rechnung in SQL (Offen)
@@ -64,6 +65,24 @@ def test_marge_auf_arbeit_pro_kunde_und_marge() -> None:
     store.set_setting("margin1_work", "1")
     m = margins(store)[0]
     assert m.work and abs(mprice(j, m) - (j["cost_total"] + j["cost_work"]) * 1.6) < 1e-6
+
+
+def test_standard_marge_auf_arbeit() -> None:
+    """Ohne Einstellung gilt „Marge auch auf Arbeitszeit“ für Kunden mit Standard und für Margen ohne Wert."""
+    store, jid, ring, kette = _setup()
+    _fill(store, jid, ring, kette)
+    j = store.get(jid)
+    assert abs(amount_due(j) - (j["cost_total"] + j["cost_work"]) * 1.1) < 1e-6
+    c = [c for c in store.customers() if c["id"] == j["customer_id"]][0]
+    assert abs(c["open_amount"] - amount_due(j)) < 1e-6
+    store.set_setting("margin1_pct", "60")
+    assert margins(store)[0].work
+    store.set_setting("margin1_work", "0")
+    assert not margins(store)[0].work
+    # Kunde mit eigener Wahl „nein“ bleibt dabei
+    store.save_customer(j["customer_id"], "Lena", None, None, margin_pct=10, work_margin=0)
+    j = store.get(jid)
+    assert abs(amount_due(j) - (j["cost_total"] * 1.1 + j["cost_work"])) < 1e-6
 
 
 def test_bestand_reserviert_und_montiert() -> None:

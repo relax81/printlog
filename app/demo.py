@@ -668,7 +668,8 @@ def seed(store: Store, image_dir: Path, lang: str, now: float | None = None) -> 
             if age > 2 or rnd.random() < 0.3:
                 store.add_handover(j["id"], qty, j["end"] + rnd.uniform(0.5, min(age, 6)) * 86400 if age > 0.6 else now - 600)
             continue
-        due = (job.get("cost_total") or 0) * (1 + (c.get("margin") or 0) / 100) + (job.get("cost_work") or 0)
+        # Standard: Marge auch auf Arbeitszeit
+        due = ((job.get("cost_total") or 0) + (job.get("cost_work") or 0)) * (1 + (c.get("margin") or 0) / 100)
         if rnd.random() < 0.45:
             step = 0.5 if due < 10 else 1.0
             due = max(step, math.ceil(due * rnd.uniform(1.0, 1.25) / step) * step)
