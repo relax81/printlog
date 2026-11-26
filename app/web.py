@@ -191,6 +191,14 @@ def _save_printers(store: Store, form: Any) -> str | None:
     return " ".join(msgs) or None
 
 
+def _delta(v: Any) -> float | None:
+    """Schritt der −/+-Knöpfe mit Vorzeichen (parse_num lässt nur Werte ≥ 0 zu)."""
+    v = str(v or "").strip()
+    neg = v.startswith(("-", "−"))
+    n = parse_num(v[1:] if neg else v)
+    return None if n is None else (-n if neg else n)
+
+
 def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: Any, demo: bool = False) -> None:
     """Alle Routen. Mit ``demo`` (Demo-Modus unter /demo/) bleibt das Backup ins Netzwerkziel aus."""
     routes = web.RouteTableDef()
@@ -717,13 +725,13 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
         elif fld == "design_min" and job.get("model_id") and mdl.model(store, job["model_id"]):
             # Designzeit gehört zum Modell, nicht zum einzelnen Druck
             m = mdl.model(store, job["model_id"]) or {}
-            delta = parse_num(form.get("delta"))
+            delta = _delta(form.get("delta"))
             val = (m.get("design_min") or 0) + delta if delta is not None else parse_num(form.get("value"))
             mdl.save_model(store, m["id"], design_min=None if not val or val <= 0 else round(val, 2))
         elif fld == "design_mode" and job.get("model_id"):
             mdl.save_model(store, job["model_id"], design_mode="spread" if str(form.get("value")) == "spread" else None)
         elif fld in ("prep_min", "post_min", "design_min"):
-            delta = parse_num(form.get("delta"))
+            delta = _delta(form.get("delta"))
             val = (job.get(fld) or 0) + delta if delta is not None else parse_num(form.get("value"))
             store.update(job_id, **{fld: None if not val or val <= 0 else round(val, 2)})
         zk.refresh(store, job_id)
