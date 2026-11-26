@@ -223,7 +223,8 @@ def _prefill_qty(store: Store, job_id: int, model_id: int) -> None:
     """Stück pro Platte wie beim letzten guten Druck des Modells vorbelegen (nur wenn mehr als 1)."""
     from . import orders
 
-    pp = (orders.model_stats(store, [model_id]).get(model_id) or {}).get("per_plate")
+    j = store._conn.execute("SELECT gcode_plate FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    pp = orders.per_plate(store, model_id, j["gcode_plate"] if j else None)
     if pp and pp > 1:
         store.update(job_id, quantity=int(pp))
 
@@ -355,6 +356,7 @@ def _drop_if_empty(store: Store, model_id: int | None, keep: int | None = None) 
     m = model(store, model_id)
     used = store._conn.execute("SELECT 1 FROM jobs WHERE model_id = ? LIMIT 1", (model_id,)).fetchone()
     used = used or store._conn.execute("SELECT 1 FROM order_items WHERE model_id = ? LIMIT 1", (model_id,)).fetchone()
+    used = used or store._conn.execute("SELECT 1 FROM plate_info WHERE part_model_id = ? LIMIT 1", (model_id,)).fetchone()
     if m and not used and not m.get("design_min") and not m.get("fav"):
         delete_model(store, model_id)
 
@@ -368,6 +370,8 @@ def delete_model(store: Store, model_id: int) -> None:
         store._conn.execute("DELETE FROM model_rejects WHERE model_id = ?", (model_id,))
         store._conn.execute("UPDATE jobs SET model_id = NULL, model_state = NULL WHERE model_id = ?", (model_id,))
         store._conn.execute("UPDATE order_items SET model_id = NULL WHERE model_id = ?", (model_id,))  # bleibt als Freitext
+        store._conn.execute("DELETE FROM plate_info WHERE model_id = ?", (model_id,))
+        store._conn.execute("UPDATE plate_info SET part_model_id = NULL WHERE part_model_id = ?", (model_id,))
 
 
 def merge(store: Store, src: int, dst: int) -> None:
@@ -383,6 +387,9 @@ def merge(store: Store, src: int, dst: int) -> None:
                             (dst, src))
         store._conn.execute("INSERT OR IGNORE INTO model_aliases (model_id, alias) VALUES (?, ?)", (dst, normalize(a["name"])))
         store._conn.execute("UPDATE order_items SET model_id = ? WHERE model_id = ?", (dst, src))
+        store._conn.execute("UPDATE plate_info SET model_id = ? WHERE model_id = ? AND plate NOT IN "
+                            "(SELECT plate FROM plate_info WHERE model_id = ?)", (dst, src, dst))
+        store._conn.execute("UPDATE plate_info SET part_model_id = ? WHERE part_model_id = ?", (dst, src))
         if a.get("fav") and not b.get("fav"):
             store._conn.execute("UPDATE models SET fav = 1 WHERE id = ?", (dst,))
         if not b.get("design_min") and a.get("design_min"):

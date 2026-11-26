@@ -21,6 +21,7 @@ from . import archive
 from . import extras as zk
 from . import models as mdl
 from . import orders as od
+from . import plates as pl
 from . import storage as lg
 from .costing import compute, parse_materials, recompute_all
 from .db import Store
@@ -896,6 +897,36 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
             if any(j["id"] == job for i in o["items"] for j in i["jobs"]):
                 od.link(store, job, None)
             extra = "#od"
+        elif do == "cell" and item:
+            it = next(i for i in o["items"] if i["id"] == item)
+            m = re.fullmatch(r"(\d+):(\d+)", str(form.get("cell") or ""))
+            if m:
+                pl.set_cell(store, it, int(m.group(1)), int(m.group(2)))
+            extra = f"#pb{item}"
+        elif do == "by_plate" and item:
+            od.set_item(store, item, by_plate=1 if str(form.get("on")) == "1" else None)
+            extra = f"#pb{item}"
+        elif do == "plates" and item:
+            it = next(i for i in o["items"] if i["id"] == item)
+            n = parse_num(form.get("n_plates")) if "n_plates" in form else None
+            rows = []
+            for p in form.getall("plate", []):
+                if str(p).isdigit():
+                    part = None
+                    pname = str(form.get(f"ppart_{p}") or "").strip()
+                    if pname:
+                        part = od.model_by_name(store, pname) or mdl.create_model(store, pname[:120])
+                    rows.append({"plate": int(p), "name": form.get(f"pname_{p}"), "grp": form.get(f"pgrp_{p}"),
+                                 "part_model_id": part})
+            pl.save_plates(store, it, rows, int(n) if n else (0 if "n_plates" in form else None))
+            if str(form.get("on")) == "1" or rows:
+                od.set_item(store, item, by_plate=1)
+            extra = f"#pb{item}"
+        elif do == "use_stock" and item:
+            it = next(i for i in o["items"] if i["id"] == item)
+            if str(form.get("plate") or "").isdigit():
+                pl.use_stock(store, it, int(str(form["plate"])))
+            extra = f"#pb{item}"
         elif do == "bill":
             target, err = od.bill(store, oid, stock=str(form.get("stock") or "") == "1")
             if err:
