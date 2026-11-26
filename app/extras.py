@@ -607,8 +607,10 @@ def settings_section(store: Store) -> str:
     wr, dr = cfg.get("work_rate") or "", cfg.get("design_rate") or ""
     return f"""<h2 style="margin-top:0">{t("Arbeitszeit")}</h2>
 <p class="muted">{t("Stundensätze für den Kasten „Arbeit & Zubehör“ in der Übersicht eines Drucks. Leer = Zeit wird nur notiert, nicht berechnet. Ob die Marge auch auf die Arbeitszeit kommt, stellst du im Tab „Margen“ ein (Standard: ja), abweichend pro Marge oder pro Kunde.")}</p>
-<div class="zrates"><label>⏱ {t("Arbeit (Vorbereitung, Nachbearbeitung)")}<span><input class="num" name="work_rate" value="{e(fmt_input(parse_num(wr)))}" inputmode="decimal" placeholder="20"> €/h</span></label>
-<label>✏️ {t("Design")}<span><input class="num" name="design_rate" value="{e(fmt_input(parse_num(dr)))}" inputmode="decimal" placeholder="30"> €/h</span></label></div>
+<div class="fbox"><div class="frow"><label class="flbl" for="s_wrate">⏱ {t("Arbeit (Vorbereitung, Nachbearbeitung)")}</label><span class="fctl">
+<span class="ig"><input class="num" id="s_wrate" name="work_rate" value="{e(fmt_input(parse_num(wr)))}" inputmode="decimal" placeholder="20"><i>€/h</i></span></span></div>
+<div class="frow"><label class="flbl" for="s_drate">✏️ {t("Design")}</label><span class="fctl">
+<span class="ig"><input class="num" id="s_drate" name="design_rate" value="{e(fmt_input(parse_num(dr)))}" inputmode="decimal" placeholder="30"><i>€/h</i></span></span></div></div>
 <p class="muted">{t("Das Zubehör-Inventar (Ringe, Magnete …) steht jetzt oben unter „Lager“.")} <a href="storage">{t("Zum Lager")} →</a></p>"""
 
 
@@ -657,9 +659,6 @@ def inventory_rows(store: Store) -> str:
 
 
 SETTINGS_CSS = """
-.zrates{display:grid;grid-template-columns:repeat(2,minmax(0,280px));gap:12px;margin:10px 0 22px}
-.zrates label{border:1px solid var(--line);border-radius:14px;padding:12px 14px;background:var(--card);display:flex;flex-direction:column;gap:8px;font-size:13px;font-weight:600;color:var(--muted)}
-.zrates span{display:flex;align-items:center;gap:8px;color:var(--fg)}.zrates input{width:90px;text-align:right;font-size:17px}
 table.acc{width:100%}table.acc input{width:100%;box-sizing:border-box;min-width:0}
 table.acc input.ico{width:42px;padding:6px 0;text-align:center;font-size:18px}
 table.acc input.num{width:64px;text-align:right}table.acc td{padding:6px;vertical-align:top}
