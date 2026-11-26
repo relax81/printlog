@@ -697,23 +697,23 @@ CSS = """
  border-radius:14px;padding:12px 14px}
 .mdrow.mdhl{box-shadow:0 0 0 2px var(--accent)}
 .mimg img,.mimg .ph{width:64px;height:64px;border-radius:10px;object-fit:cover;display:block;background:var(--bg)}
-.mdf{display:grid;grid-template-columns:minmax(0,1fr) 320px 170px;gap:16px;align-items:center;margin:0}
+.mdf{display:grid;grid-template-columns:minmax(0,1fr) 440px auto;gap:16px;align-items:center;margin:0}
 .mdname input{font-weight:700;width:100%;box-sizing:border-box}.mdname small{display:block;margin-top:5px}
 .als{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}.als:empty{display:none}
 .al{display:inline-flex;align-items:center;gap:2px;border:1px solid var(--line);border-radius:999px;padding:0 2px 0 9px;font-size:12px;color:var(--muted);margin:0}
 .al button{border:0;background:none;color:var(--muted);cursor:pointer;padding:2px 6px;min-height:0}
-.mdbox{display:flex;flex-direction:column;gap:6px;border:1px solid var(--line);border-radius:12px;padding:7px 10px;background:color-mix(in srgb,var(--fg) 3%,transparent)}
-.mdes{display:flex;align-items:center;justify-content:space-between;gap:10px}.mdes .lb{font-size:12.5px;color:var(--muted);font-weight:700;white-space:nowrap}
-.mdes .mv{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}.mdes input{width:64px;text-align:right;padding:4px 8px;min-height:0;height:30px}
+.mdbox{justify-self:end;display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:11px;padding:5px 8px;background:color-mix(in srgb,var(--fg) 3%,transparent)}
+.mdes{display:flex;align-items:center;gap:6px}.mdes .lb{font-size:12.5px;color:var(--muted);font-weight:700;white-space:nowrap}
+.mdes .mv{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}.mdes input{width:48px;text-align:right;padding:3px 6px;min-height:0;height:28px}
 .mr2{display:flex;align-items:center;gap:8px}
-.mseg{flex:1;display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--line);border-radius:9px;overflow:hidden;min-width:150px}
+.mseg{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--line);border-radius:8px;overflow:hidden}
 .mseg label{position:relative;cursor:pointer}.mseg input{position:absolute;opacity:0;pointer-events:none}
-.mseg span{display:block;text-align:center;padding:5px 8px;font-size:12.5px;font-weight:700;color:var(--muted)}
+.mseg span{display:block;text-align:center;padding:4px 9px;font-size:12px;font-weight:700;color:var(--muted)}
 .mseg label+label span{border-left:1px solid var(--line)}
 .mseg input:checked+span{background:var(--accent);color:var(--bg)}.mseg input:focus-visible+span{outline:2px solid var(--accent);outline-offset:-2px}
 .mr2 .spn{display:flex;align-items:center;gap:5px;font-size:12.5px;color:var(--muted);white-space:nowrap}.mr2 .spn[hidden]{display:none}
-.mr2 .spn input{width:44px;text-align:right;padding:4px 6px;min-height:0;height:28px}
-.mact{display:flex;flex-direction:column;gap:6px}.mact .btn{min-height:0;padding:6px 10px}.mact .btn{width:100%;justify-content:center}
+.mr2 .spn input{width:38px;text-align:right;padding:4px 6px;min-height:0;height:28px}
+.mact{display:flex;gap:6px}.mact .btn{min-height:0;padding:6px 10px;white-space:nowrap}.mact .btn{width:100%;justify-content:center}
 .mdf.dirty .msave{background:var(--accent);color:var(--bg);border-color:var(--accent)}
 .mmpop{position:absolute;z-index:70;width:360px;max-width:calc(100vw - 16px);background:var(--card);border:1px solid var(--line);border-radius:16px;
  box-shadow:0 24px 70px rgba(0,0,0,.45);padding:12px;font-size:14px;display:flex;flex-direction:column}
@@ -727,8 +727,9 @@ CSS = """
 .mmpop .it img,.mmpop .it .ph{width:34px;height:34px;border-radius:8px;object-fit:cover;background:var(--bg);flex:none}
 .mmpop .it .n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mmpop .it small{margin-left:auto;color:var(--muted);font-weight:500;font-size:12px;white-space:nowrap;padding-left:8px}
 .mmpop .none{color:var(--muted);padding:10px 8px}.mmf{display:none}
-@media (max-width:1100px){.mdf{grid-template-columns:minmax(0,1fr) 280px}.mact{grid-column:1/-1;flex-direction:row}}
+@media (max-width:1180px){.mdf{grid-template-columns:minmax(0,1fr) auto}.mact{grid-column:1/-1;justify-content:flex-end}.mact .btn{width:auto}}
 @media (max-width:760px){.mhint{flex-direction:column}.mhj{width:auto}
+ .mdbox{flex-wrap:wrap;justify-self:stretch}.mact{justify-content:stretch}.mact .btn{flex:1}
  .mdrow{grid-template-columns:52px minmax(0,1fr);align-items:start}.mimg img,.mimg .ph{width:52px;height:52px}
  .mdf{grid-template-columns:minmax(0,1fr)}.mdf>*{min-width:0}
  .mmpop{position:fixed;left:0!important;right:0;bottom:0;top:auto!important;width:auto;max-width:none;border-radius:22px 22px 0 0;padding:10px 16px calc(18px + env(safe-area-inset-bottom))}
