@@ -22,6 +22,7 @@ from datetime import date, datetime
 from typing import Any
 
 from . import extras as _extras
+from . import plates as _plates
 from .db import Store, code_label
 from .i18n import N_, t, tn
 from .ui import e, fmt_date, fmt_hours, fmt_input, fmt_num, layout
@@ -77,6 +78,9 @@ def _full(store: Store, orders: list[dict[str, Any]]) -> list[dict[str, Any]]:
         i["running"] = [j for j in js if j["state"] != "done"]
         i["label"] = i["model_name"] or i["name"] or t("Position")
         i["stats"] = stats.get(i["model_id"]) if i["model_id"] else None
+        i["pl"] = _plates.summary(store, i)
+        if i["pl"]:  # pro Platte: Sätze statt Stück
+            i["done"] = i["pl"]["sets_done"]
         by_order.setdefault(i["order_id"], []).append(i)
     for o in orders:
         o["items"] = by_order.get(o["id"], [])
@@ -161,6 +165,14 @@ def estimate(o: dict[str, Any]) -> dict[str, Any]:
     done = sum(min(i["done"], i["qty"]) for i in o["items"])
     rest_min, plates, cost, work, missing = 0.0, 0, 0.0, 0.0, 0
     for i in o["items"]:
+        if i.get("pl"):
+            sm = i["pl"]
+            plates += sm["n_open"]
+            rest_min += sm["rest_min"]
+            missing += sm["missing"] + (1 if sm["cost_missing"] else 0)
+            cost += sm["cost"]
+            work += sm["work"]
+            continue
         s = i.get("stats") or {}
         pp = int(s.get("per_plate") or i.get("per_plate") or 1)
         rest = max(i["qty"] - i["done"], 0)
@@ -274,15 +286,16 @@ def add_item(store: Store, oid: int, model_id: int | None, name: str | None, qty
         if r:
             set_item(store, r["id"], qty=r["qty"] + qty)
             return int(r["id"])
+    by_plate = 1 if _plates.has_plates(store, model_id) else None
     with store._lock, store._conn:
         cur = store._conn.execute(
-            "INSERT INTO order_items (order_id, model_id, name, qty, created_at) VALUES (?, ?, ?, ?, ?)",
-            (oid, model_id, None if model_id else (name or "").strip()[:120] or t("Position"), qty, time.time()))
+            "INSERT INTO order_items (order_id, model_id, name, qty, by_plate, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (oid, model_id, None if model_id else (name or "").strip()[:120] or t("Position"), qty, by_plate, time.time()))
         return int(cur.lastrowid)
 
 
 def set_item(store: Store, item_id: int, **f: Any) -> None:
-    allowed = {k: v for k, v in f.items() if k in ("qty", "adjust", "name", "model_id", "est_min", "est_g", "per_plate")}
+    allowed = {k: v for k, v in f.items() if k in ("qty", "adjust", "name", "model_id", "est_min", "est_g", "per_plate", "by_plate", "n_plates")}
     if "qty" in allowed:
         allowed["qty"] = max(1, min(int(allowed["qty"] or 1), 9999))
     if not allowed:
@@ -293,6 +306,7 @@ def set_item(store: Store, item_id: int, **f: Any) -> None:
 
 
 def delete_item(store: Store, item_id: int) -> None:
+    _plates.forget_item(store, item_id)
     with store._lock, store._conn:
         store._conn.execute("UPDATE jobs SET order_item_id = NULL WHERE order_item_id = ?", (item_id,))
         store._conn.execute("DELETE FROM order_items WHERE id = ?", (item_id,))
@@ -300,6 +314,8 @@ def delete_item(store: Store, item_id: int) -> None:
 
 def delete_order(store: Store, oid: int) -> None:
     """Auftrag löschen: Drucke bleiben, sind danach nur keinem Auftrag mehr zugeordnet."""
+    for r in store._conn.execute("SELECT id FROM order_items WHERE order_id = ?", (oid,)).fetchall():
+        _plates.forget_item(store, r["id"])
     with store._lock, store._conn:
         store._conn.execute("UPDATE jobs SET order_item_id = NULL WHERE order_item_id IN (SELECT id FROM order_items WHERE order_id = ?)", (oid,))
         store._conn.execute("DELETE FROM order_items WHERE order_id = ?", (oid,))
@@ -331,24 +347,39 @@ def link(store: Store, job_id: int, item_id: int | None, state: str = "confirmed
 
 def _prefill(store: Store, job_id: int, item_id: int) -> None:
     """Stück pro Platte vorbelegen, wenn am Druck noch keine Stückzahl steht."""
-    j = store._conn.execute("SELECT quantity, model_id FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    j = store._conn.execute("SELECT quantity, model_id, gcode_plate FROM jobs WHERE id = ?", (job_id,)).fetchone()
     it = store._conn.execute("SELECT model_id, per_plate FROM order_items WHERE id = ?", (item_id,)).fetchone()
     if not j or j["quantity"] is not None:
         return
     mid = j["model_id"] or (it["model_id"] if it else None)
-    pp = (model_stats(store, [mid]).get(mid) or {}).get("per_plate") if mid else (it["per_plate"] if it else None)
+    pp = per_plate(store, mid, j["gcode_plate"]) if mid else (it["per_plate"] if it else None)
     if pp and pp > 1:
         store.update(job_id, quantity=int(pp))
 
 
+def per_plate(store: Store, model_id: int | None, plate: int | None = None) -> int | None:
+    """Stück pro Platte vom letzten guten Druck des Modells, bei bekannter Plattennummer von dieser Platte."""
+    if not model_id:
+        return None
+    if plate:
+        ps = _plates.plate_stats(store, model_id).get(int(plate))
+        if ps:
+            return ps["pieces"]
+    return (model_stats(store, [model_id]).get(model_id) or {}).get("per_plate")
+
+
 def adopt_models(store: Store) -> None:
     """Freitext-Position bekommt das Modell, sobald ihr erster Druck einem Modell zugeordnet ist."""
-    with store._lock, store._conn:
-        store._conn.execute(
-            "UPDATE order_items SET model_id = (SELECT j.model_id FROM jobs j WHERE j.order_item_id = order_items.id "
-            "AND j.model_id IS NOT NULL AND j.kind IS NULL ORDER BY j.start_ts LIMIT 1) "
-            "WHERE model_id IS NULL AND EXISTS (SELECT 1 FROM jobs j WHERE j.order_item_id = order_items.id "
-            "AND j.model_id IS NOT NULL AND j.kind IS NULL AND j.model_state IN ('auto', 'confirmed', 'new'))")
+    rows = store._conn.execute(
+        "SELECT i.id, (SELECT j.model_id FROM jobs j WHERE j.order_item_id = i.id AND j.model_id IS NOT NULL AND j.kind IS NULL "
+        "AND j.model_state IN ('auto', 'confirmed', 'new') ORDER BY j.start_ts LIMIT 1) AS mid FROM order_items i "
+        "WHERE i.model_id IS NULL").fetchall()
+    for r in rows:
+        if not r["mid"]:
+            continue
+        with store._lock, store._conn:
+            store._conn.execute("UPDATE order_items SET model_id = ? WHERE id = ?", (r["mid"], r["id"]))
+        _plates.adopt(store, r["id"], r["mid"])
 
 
 def candidates(store: Store, o: dict[str, Any], limit: int = 12) -> list[dict[str, Any]]:
@@ -366,7 +397,7 @@ def candidates(store: Store, o: dict[str, Any], limit: int = 12) -> list[dict[st
 
 def surplus(o: dict[str, Any]) -> int:
     """Mehr gedruckt als bestellt (nur Aufträge mit einer Position und Kunde): so viele Stück gehen in den Vorrat."""
-    if len(o["items"]) != 1 or not o.get("customer_id"):
+    if len(o["items"]) != 1 or not o.get("customer_id") or o["items"][0].get("pl"):
         return 0
     i = o["items"][0]
     printed = sum((j.get("quantity") or 1) for j in i["jobs"] if j["state"] == "done" and not j["is_scrap"])
@@ -399,6 +430,10 @@ def bill(store: Store, oid: int, stock: bool = False) -> tuple[int | None, str |
         store.assign_customer([target], o["customer_id"])
     if o.get("agreed_price") is not None:
         store.update(target, final_price=o["agreed_price"])
+    notes: list[str] = []
+    for i in o["items"]:
+        if i.get("pl") and i["pl"]["n_stock"]:
+            notes += _plates.book_stock(store, i, o.get("customer_id"), free=o.get("agreed_price") is not None)
     extra = surplus(o) if stock else 0
     if extra:
         tj = store.get(target) or {}
@@ -409,7 +444,7 @@ def bill(store: Store, oid: int, stock: bool = False) -> tuple[int | None, str |
             log.warning("Überschuss in den Vorrat: %s", err)
     with store._lock, store._conn:
         store._conn.execute("UPDATE orders SET billed_job = ?, done_at = COALESCE(done_at, ?) WHERE id = ?", (target, time.time(), oid))
-    return target, None
+    return target, ("; ".join(notes) or None)
 
 
 def reopen(store: Store, oid: int) -> None:
@@ -451,7 +486,10 @@ def _open_items(store: Store) -> list[dict[str, Any]]:
         if o["state"] not in ("open", "running"):
             continue
         for i in o["items"]:
-            if i["done"] + sum((j.get("quantity") or 1) for j in i["running"]) < i["qty"]:
+            if i.get("pl"):
+                if i["pl"]["n_open"]:
+                    out.append({**i, "order": o})
+            elif i["done"] + sum((j.get("quantity") or 1) for j in i["running"]) < i["qty"]:
                 out.append({**i, "order": o})
     return out
 
@@ -472,9 +510,17 @@ def matches(store: Store, job: dict[str, Any], items: list[dict[str, Any]] | Non
     out = []
     for i in items:
         if i["model_id"] and i["model_id"] == mid:
-            out.append(i)
+            pass
         elif not i["model_id"] and name and (mdl.normalize(i["name"]) == name or mdl.similar(mdl.normalize(i["name"]), name)):
-            out.append(i)
+            pass
+        else:
+            continue
+        if i.get("pl"):  # pro Platte: nur, wenn diese Platte noch gebraucht wird
+            nums = {p["plate"] for p in i["pl"]["plates"]}
+            plate = job.get("gcode_plate")
+            if plate in nums and not any(p == plate for _s, p in i["pl"]["grid"]["open"]):
+                continue
+        out.append(i)
     out.sort(key=lambda i: (i["order"].get("due") is None, i["order"].get("due") or "", i["order"]["created_at"]))
     return out
 
@@ -622,6 +668,13 @@ def _card(o: dict[str, Any], names: dict[str, str]) -> str:
     live = ""
     for i in o["items"]:
         run = bool(i["running"])
+        if i.get("pl"):
+            sm = i["pl"]
+            pos += (f'<div class="opos">{_img(i)}<div class="n"><s>{e(i["label"])}</s>{_bar(sm["n_done"], sm["n_print"] or 1, run)}</div>'
+                    f'<b class="c" title="{e(t("Sätze fertig · Platten gedruckt"))}">{i["done"]}/{i["qty"]} <small>▦ {sm["n_done"]}/{sm["n_print"]}</small></b></div>')
+            if run and not live:
+                live = _live(i, names)
+            continue
         pos += (f'<div class="opos">{_img(i)}<div class="n"><s>{e(i["label"])}</s>{_bar(i["done"], i["qty"], run)}</div>'
                 f'<b class="c">{i["done"]}/{i["qty"]}</b></div>')
         if run and not live:
@@ -791,7 +844,8 @@ def page_order(store: Store, o: dict[str, Any], saved: str | None = None, show_l
     rest_sub = (tn(est["plates"], "{n} Platte", "{n} Platten") if est["plates"] else t("alles gedruckt"))
     if est["missing"] and est["plates"]:
         rest_sub += " · " + t("ohne Schätzung: {n}", n=est["missing"])
-    kp = (f'<div class="okp"><div><small>{e(t("Stück"))}</small><b>{est["done"]} / {est["qty"]}</b><em>{pct:.0f} %</em></div>'
+    all_sets = bool(o["items"]) and all(i.get("pl") for i in o["items"])
+    kp = (f'<div class="okp"><div><small>{e(t("Sätze") if all_sets else t("Stück"))}</small><b>{est["done"]} / {est["qty"]}</b><em>{pct:.0f} %</em></div>'
           f'<div><small>{e(t("Druckzeit bisher"))}</small><b>{fmt_hours(est["hours"]) if est["hours"] else "–"}</b><em>{e(tn(est["n_jobs"], "{n} Druck", "{n} Drucke"))}</em></div>'
           f'<div><small>{e(t("Noch zu drucken"))}</small><b>{rest}</b><em>{e(rest_sub)}</em></div>'
           f'<div class="calc"><small>{e(t("Kosten bisher"))}</small><b>{fmt_num(est["spent"], 2, "€")}</b><em>{e(t("Druck, Zubehör, Arbeit"))}</em></div>'
@@ -802,7 +856,11 @@ def page_order(store: Store, o: dict[str, Any], saved: str | None = None, show_l
     for i in o["items"]:
         s = i.get("stats") or {}
         sub = []
-        if i["model_id"]:
+        if i.get("pl"):
+            sub.append(tn(len(i["pl"]["plates"]), "{n} Platte pro Satz", "{n} Platten pro Satz"))
+            if i.get("model_fav"):
+                sub.append("★ " + t("Favorit"))
+        elif i["model_id"]:
             pp = s.get("per_plate")
             if pp:
                 sub.append(tn(pp, "{n} Stk. pro Platte", "{n} Stk. pro Platte"))
@@ -814,17 +872,19 @@ def page_order(store: Store, o: dict[str, Any], saved: str | None = None, show_l
             sub.append(t("Freitext, noch kein Modell"))
         run = bool(i["running"])
         state_txt = _live(i, names) if run else (f'<span class="muted">{e(t("fertig"))}</span>' if i["done"] >= i["qty"]
+                                                  else f'<span class="muted">{e(tn(i["pl"]["n_open"], "noch {n} Platte", "noch {n} Platten"))}</span>' if i.get("pl")
                                                   else f'<span class="muted">{e(t("noch nicht gedruckt") if not i["done"] else t("{n} fehlen", n=i["qty"] - i["done"]))}</span>')
         model_link = (f'<a href="./?model={i["model_id"]}">{e(i["label"])}</a>' if i["model_id"] else e(i["label"]))
         rows += (f'<div class="oprow">{_img(i, "big")}<div class="nm"><b>{model_link}</b><small>{e(" · ".join(sub))}</small></div>'
-                 f'<div class="pg">{_bar(i["done"], i["qty"], run)}<small>{state_txt}</small></div>'
-                 f'<b class="c">{i["done"]} / {i["qty"]}</b>'
+                 f'<div class="pg">{_bar(i["pl"]["n_done"] if i.get("pl") else i["done"], (i["pl"]["n_print"] or 1) if i.get("pl") else i["qty"], run)}<small>{state_txt}</small></div>'
+                 f'<b class="c">{i["done"]} / {i["qty"]}{"<small> " + e(t("Sätze")) + "</small>" if i.get("pl") else ""}</b>'
                  f'<form method="post" action="{act}" class="oqty"><input type="hidden" name="do" value="qty"><input type="hidden" name="item" value="{i["id"]}">'
                  f'<button name="d" value="-1" class="btn" title="{e(t("Stückzahl verringern"))}">−</button>'
                  f'<button name="d" value="1" class="btn" title="{e(t("Stückzahl erhöhen"))}">＋</button></form>'
                  f'<form method="post" action="{act}" class="odel" data-q="{e(t("Position entfernen? Zugeordnete Drucke bleiben erhalten."))}">'
                  f'<input type="hidden" name="do" value="del_item"><input type="hidden" name="item" value="{i["id"]}">'
                  f'<button class="btn" title="{e(t("Position entfernen"))}">✕</button></form></div>')
+        rows += _plate_box(store, o, i, act)
     if not rows:
         rows = f'<p class="muted">{e(t("Noch keine Positionen. Füge ein Modell oder Freitext hinzu."))}</p>'
     add = (f'<form method="post" action="{act}" class="oaddf"><input type="hidden" name="do" value="add">'
@@ -840,7 +900,7 @@ def page_order(store: Store, o: dict[str, Any], saved: str | None = None, show_l
             stj = (f'<span class="ost running">{e(t("läuft"))}</span>' if j["state"] != "done" else
                    f'<span class="ost bad">{e(t("Fehldruck"))}</span>' if j["is_scrap"] else f'<span class="ost done">{e(t("fertig"))}</span>')
             jl += (f'<div class="ojl"><span class="d">{fmt_date(j.get("start_ts"), "dm_hm")}</span>'
-                   f'<span><a href="job?id={j["id"]}">{e(j.get("task_name") or t("Druck"))}</a> <small class="muted">{e(code_label(j.get("code")))}{" · " + e(i["label"]) if i["label"] != j.get("task_name") else ""}</small></span>'
+                   f'<span><a href="job?id={j["id"]}">{e(j.get("task_name") or t("Druck"))}</a> <small class="muted">{e(code_label(j.get("code")))}{" · " + e(i["label"]) if i["label"] != j.get("task_name") else ""}{" · " + e(t("Platte {n}", n=j["gcode_plate"])) if j.get("gcode_plate") else ""}</small></span>'
                    f'<span>{e(names.get(j["printer"], j.get("printer_name") or j["printer"]))}</span>'
                    f'<span class="n">{e(t("{n} Stk.", n=j.get("quantity") or 1))}</span>{stj}'
                    f'<form method="post" action="{act}"><input type="hidden" name="do" value="unlink"><input type="hidden" name="job" value="{j["id"]}">'
@@ -895,8 +955,129 @@ def page_order(store: Store, o: dict[str, Any], saved: str | None = None, show_l
     return layout(o.get("title") or t("Auftrag"), "orders", f'<style>{CSS}</style>{body}', ORDER_JS)
 
 
+
+# ---- Platten pro Position (siehe app/plates.py) ------------------------------------------
+
+def _swatches(colors: list[str]) -> str:
+    return "".join(f'<i class="osw" style="background:{e(c)}" title="{e(c)}"></i>' for c in colors[:4])
+
+
+def _plate_box(store: Store, o: dict[str, Any], i: dict[str, Any], act: str) -> str:
+    """Unter einer Position: Tabelle Platte × Satz, oder der Knopf zum Einschalten."""
+    hid = f'<input type="hidden" name="item" value="{i["id"]}">'
+    sm = i.get("pl")
+    if not sm:
+        if i["model_id"] and _plates.has_plates(store, i["model_id"]):
+            n = len(_plates.model_plate_numbers(store, i["model_id"]))
+            return (f'<form method="post" action="{act}" class="opon"><input type="hidden" name="do" value="by_plate">{hid}'
+                    f'<input type="hidden" name="on" value="1"><span class="muted">{e(tn(n, "Dieses Modell hat {n} Platte.", "Dieses Modell hat {n} Platten."))}</span>'
+                    f'<button class="btn sm">▦ {e(t("Pro Platte verfolgen"))}</button></form>')
+        if i["model_id"]:
+            return ""
+        return (f'<form method="post" action="{act}" class="opon"><input type="hidden" name="do" value="plates">{hid}'
+                f'<input type="hidden" name="on" value="1"><span class="muted">{e(t("Mehrere Platten pro Satz?"))}</span>'
+                f'<input name="n_plates" inputmode="numeric" class="num" placeholder="{e(t("Anzahl"))}" aria-label="{e(t("Anzahl Platten"))}" '
+                f'value="{i.get("n_plates") or ""}"><button class="btn sm">▦ {e(t("Pro Platte verfolgen"))}</button></form>')
+    plates, g, qty = sm["plates"], sm["grid"]["cells"], int(i["qty"])
+    names = {}
+    from .ui import printer_names
+    names = printer_names(store)
+    head = "".join(f'<th class="c">{e(t("Satz {n}", n=s))}</th>' for s in range(1, qty + 1))
+    order = [p for p in plates if not p["grp"]]
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for p in plates:
+        if p["grp"]:
+            groups.setdefault(p["grp"], []).append(p)
+    body = ""
+
+    def row(p: dict[str, Any]) -> str:
+        meta = []
+        if p["min"]:
+            meta.append("~" + fmt_hours(p["min"] / 60))
+        if p["g"]:
+            meta.append(fmt_num(p["g"], 0, "g"))
+        if (p["pieces"] or 1) > 1:
+            meta.append(t("{n} Stk.", n=p["pieces"]))
+        if not p["n"]:
+            meta.append(t("noch nie gedruckt"))
+        tds = ""
+        need = done = stock = 0
+        for s in range(1, qty + 1):
+            c = g[(s, p["plate"])]
+            st = c["state"]
+            if st in ("done", "running"):
+                j = c["job"]
+                lab = (f'✓ {e(t("fertig"))}' if st == "done" else
+                       f'⏳ {e(t("läuft"))} <small>{e(names.get(j["printer"], j.get("printer_name") or j["printer"]))}</small>')
+                tds += f'<td class="c"><a class="pc {st}" href="job?id={j["id"]}" title="{e(fmt_date(j.get("start_ts"), "dm_hm"))}">{lab}</a></td>'
+            else:
+                lab = {"open": f'○ {e(t("offen"))}', "stock": f'📦 {e(t("aus Vorrat"))}',
+                       "skip": f'— {e(t("nicht gewählt") if p["grp"] else t("nicht nötig"))}'}[st]
+                tds += (f'<td class="c"><button class="pc {st}" name="cell" value="{s}:{p["plate"]}" '
+                        f'title="{e(t("Tippen: drucken → aus Vorrat → nicht nötig"))}">{lab}</button></td>')
+            need += st in ("done", "running", "open")
+            done += st == "done"
+            stock += st == "stock"
+        right = f'{done} / {need}' if need else ""
+        if stock:
+            st_info = _plates.stock_for(store, i.get("model_id"), p)
+            have = st_info["pieces"] // (p["pieces"] or 1)
+            right += (" · " if right else "") + f'<span class="{"bad" if have < stock else ""}">📦 {e(t("{a} von {b} im Vorrat", a=stock, b=have))}</span>'
+        part = ""
+        if p.get("part_model_id"):
+            pm = store._conn.execute("SELECT name FROM models WHERE id = ?", (p["part_model_id"],)).fetchone()
+            if pm:
+                part = f' <span class="ptag">🔗 {e(pm["name"])}</span>'
+        return (f'<tr><td><div class="pl"><span class="pnr">{p["plate"]}</span><div><b>{e(p["name"])}</b>{part}'
+                f'<small>{e(" · ".join(meta))} {_swatches(p["colors"])}</small></div></div></td>{tds}<td class="pr">{right}</td></tr>')
+
+    for p in order:
+        body += row(p)
+    for gname, ps in groups.items():
+        body += f'<tr class="pgrp"><td colspan="{qty + 2}">{e(t("Auswahl „{g}“ · eine pro Satz", g=gname))}</td></tr>'
+        for p in ps:
+            body += row(p)
+    tot = [t("Sätze fertig {a} / {b}", a=sm["sets_done"], b=qty), t("Platten gedruckt {a} / {b}", a=sm["n_done"], b=sm["n_print"])]
+    if sm["n_open"]:
+        tot.append(t("noch zu drucken: {n}", n=tn(sm["n_open"], "{n} Platte", "{n} Platten")) +
+                   (f' · ~{fmt_hours(sm["rest_min"] / 60)}' if sm["rest_min"] else ""))
+    if sm["n_stock"]:
+        tot.append(t("aus Vorrat: {n}", n=sm["n_stock"]))
+    table = (f'<form method="post" action="{act}" class="ptab"><input type="hidden" name="do" value="cell">{hid}'
+             f'<table class="pm"><tr><th>{e(t("Platte"))}</th>{head}<th>{e(t("je Platte"))}</th></tr>{body}</table></form>')
+    # Platten bearbeiten
+    grps = sorted({p["grp"] for p in plates if p["grp"]})
+    glist = f'<datalist id="pg{i["id"]}">' + "".join(f'<option value="{e(x)}">' for x in grps) + "</datalist>"
+    erows = ""
+    for p in plates:
+        erows += (f'<div class="perow"><span class="pnr">{p["plate"]}</span><input type="hidden" name="plate" value="{p["plate"]}">'
+                  f'<input name="pname_{p["plate"]}" maxlength="80" value="{e(p["name"]) if p["named"] else ""}" placeholder="{e(t("Platte {n}", n=p["plate"]))}" aria-label="{e(t("Name"))}">'
+                  f'<input name="pgrp_{p["plate"]}" maxlength="40" value="{e(p["grp"] or "")}" list="pg{i["id"]}" placeholder="{e(t("Auswahlgruppe (leer = immer)"))}" aria-label="{e(t("Auswahlgruppe"))}">'
+                  f'{_part_input(store, i, p)}</div>')
+    n_in = ""
+    if not i["model_id"] or i.get("n_plates"):
+        n_in = (f'<label class="pn">{e(t("Anzahl Platten"))} <input name="n_plates" inputmode="numeric" class="num" value="{i.get("n_plates") or len(plates)}"></label>')
+    scope = t("Gilt für alle Aufträge mit diesem Modell.") if i["model_id"] else t("Gilt für diese Position.")
+    edit = (f'<form method="post" action="{act}" class="pedit" id="pe{i["id"]}" hidden><input type="hidden" name="do" value="plates">{hid}'
+            f'<p class="muted">{e(t("Platten mit gleicher Auswahlgruppe (z. B. „Design“) stehen zur Wahl: pro Satz wird eine davon gedruckt."))} {e(scope)}</p>'
+            f'{erows}{glist}{n_in}<div class="obtns"><button class="btn primary">{e(t("Speichern"))}</button></div></form>'
+            f'<form method="post" action="{act}" class="poff" id="po{i["id"]}" hidden><input type="hidden" name="do" value="by_plate">{hid}'
+            f'<input type="hidden" name="on" value="0"><button class="btn lnk">{e(t("Nicht mehr pro Platte verfolgen"))}</button></form>')
+    return (f'<div class="pbox" id="pb{i["id"]}"><div class="ptot">{" · ".join(e(x) for x in tot)}<span class="sp"></span>'
+            f'<button type="button" class="btn sm" data-tgl="pe{i["id"]}" data-tgl2="po{i["id"]}">✏️ {e(t("Platten bearbeiten"))}</button></div>'
+            f'{_stock_hint(store, i)}<div class="pscroll">{table}</div>{edit}</div>')
+
+
+def _part_input(store: Store, item: dict[str, Any], p: dict[str, Any]) -> str:
+    return ""
+
+
+def _stock_hint(store: Store, item: dict[str, Any]) -> str:
+    return ""
+
 ORDER_JS = r"""
-document.querySelectorAll('[data-tgl]').forEach(b=>b.onclick=()=>{const el=document.getElementById(b.dataset.tgl);el.hidden=!el.hidden});
+document.querySelectorAll('[data-tgl]').forEach(b=>b.onclick=()=>{const el=document.getElementById(b.dataset.tgl);el.hidden=!el.hidden;
+ const o=b.dataset.tgl2&&document.getElementById(b.dataset.tgl2);if(o)o.hidden=el.hidden});
 document.querySelectorAll('form.odel').forEach(f=>f.addEventListener('submit',ev=>{if(!confirm(f.dataset.q))ev.preventDefault()}));
 """
 
@@ -1103,4 +1284,28 @@ CSS = """
  .oboard{grid-template-columns:1fr}.ocol{display:none;padding:6px}.ocol.on{display:block}.ocol>h3{display:none}
  .okp{grid-template-columns:repeat(2,minmax(0,1fr))}.oform{grid-template-columns:1fr}.ocand{grid-template-columns:38px minmax(0,1fr) auto}.ocand select{grid-column:2}
  .corow{grid-template-columns:minmax(0,1fr) auto}.corow .obar,.corow>span:nth-child(3){display:none}}
+
+.pbox{margin:-4px 0 12px 62px;border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:color-mix(in srgb,var(--fg) 2%,var(--card))}
+.ptot{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:13px;margin-bottom:6px}
+.pscroll{overflow-x:auto}.pm{width:100%;border-collapse:separate;border-spacing:0 5px;font-size:13.5px}
+.pm th{font-size:11.5px;color:var(--muted);font-weight:600;text-align:left;padding:0 6px;text-transform:uppercase;letter-spacing:.03em;white-space:nowrap}
+.pm th.c,.pm td.c{text-align:center}.pm td{padding:6px;background:color-mix(in srgb,var(--fg) 4%,transparent)}
+.pm td:first-child{border-radius:9px 0 0 9px;min-width:180px}.pm td:last-child{border-radius:0 9px 9px 0}
+.pm td.pr{white-space:nowrap;font-variant-numeric:tabular-nums;font-size:13px}.pm td.pr .bad{color:var(--bad)}
+.pl{display:flex;gap:9px;align-items:center}.pl small{display:block;color:var(--muted);font-size:12px}
+.pnr{display:inline-grid;place-items:center;min-width:26px;height:26px;border-radius:7px;background:color-mix(in srgb,var(--accent) 18%,transparent);color:var(--accent);font-weight:700;font-size:12.5px}
+.ptag{font-size:11.5px;border:1px solid var(--line);border-radius:999px;padding:1px 7px;margin-left:4px;white-space:nowrap}
+.osw{display:inline-block;width:10px;height:10px;border-radius:50%;border:1px solid var(--line);vertical-align:-1px;margin-left:2px}
+.pgrp td{background:none!important;padding:8px 6px 0;font-size:12px;color:var(--muted);font-weight:600}
+.pc{display:inline-flex;gap:4px;align-items:center;padding:4px 10px;border-radius:999px;font-size:12.5px;font-weight:600;border:1px solid transparent;
+white-space:nowrap;background:none;color:var(--fg);cursor:pointer;font-family:inherit;text-decoration:none}
+.pc small{font-weight:500;opacity:.8}.pc.done{background:color-mix(in srgb,var(--ok) 18%,transparent);color:var(--ok)}
+.pc.running{background:color-mix(in srgb,var(--run) 18%,transparent);color:var(--run)}.pc.open{border-color:var(--line)}
+.pc.stock{background:color-mix(in srgb,#b07cf0 20%,transparent);color:#b07cf0}.pc.skip{color:var(--muted);opacity:.6}
+button.pc:hover{border-color:var(--accent)}
+.opon{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:-4px 0 12px 62px;font-size:13px}.opon .num{width:70px}
+.pedit{margin-top:8px;display:grid;gap:6px}.pedit[hidden],.poff[hidden]{display:none}.perow{display:flex;gap:8px;align-items:center}.perow input{flex:1}
+.perow input{min-width:0;width:100%}.pedit .pn{display:flex;gap:8px;align-items:center;font-size:13px}.pedit .pn .num{width:70px}.poff{margin-top:4px}
+.psug{display:flex;gap:8px;align-items:center;flex-wrap:wrap;border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin:4px 0 6px;font-size:13px}
+@media (max-width:700px){.pbox,.opon{margin-left:0}.pm td:first-child{min-width:130px}.perow{grid-template-columns:26px minmax(0,1fr)}.perow input{grid-column:2}}
 """

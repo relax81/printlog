@@ -197,6 +197,26 @@ CREATE TABLE IF NOT EXISTS order_items (
     created_at  REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items(order_id);
+-- Platten eines Modells (bzw. einer Freitext-Position): Name, Auswahlgruppe, gemeinsames Teil, siehe app/plates.py
+CREATE TABLE IF NOT EXISTS plate_info (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    model_id      INTEGER,                -- Platte eines Modells …
+    item_id       INTEGER,                -- … oder einer Freitext-Position (noch ohne Modell)
+    plate         INTEGER NOT NULL,       -- Plattennummer aus der Druckdatei (plate_N)
+    name          TEXT,
+    grp           TEXT,                   -- Auswahlgruppe (z. B. „Design“): pro Satz wird eine Platte daraus gedruckt
+    part_model_id INTEGER,                -- gemeinsames Teil: Platte entspricht diesem Modell (Vorrat wird geteilt)
+    created_at    REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_plate_info_model ON plate_info(model_id);
+-- Abweichungen pro Satz und Platte (Standard: drucken bzw. in Auswahlgruppen die erste Platte)
+CREATE TABLE IF NOT EXISTS plate_cells (
+    item_id INTEGER NOT NULL,
+    set_no  INTEGER NOT NULL,
+    plate   INTEGER NOT NULL,
+    state   TEXT NOT NULL,                -- print | stock | skip
+    PRIMARY KEY (item_id, set_no, plate)
+);
 CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT
@@ -360,6 +380,11 @@ class Store:
         if "code" not in have:
             # feste Kennung für Links/QR-Codes, angezeigt als A-XXXX
             self._conn.execute("ALTER TABLE accessories ADD COLUMN code TEXT")
+        have = {r["name"] for r in self._conn.execute("PRAGMA table_info(order_items)")}
+        if "by_plate" not in have:
+            self._conn.execute("ALTER TABLE order_items ADD COLUMN by_plate INTEGER")  # 1 = pro Platte verfolgen (Sätze)
+        if "n_plates" not in have:
+            self._conn.execute("ALTER TABLE order_items ADD COLUMN n_plates INTEGER")  # Anzahl Platten (Freitext, sonst gelernt)
         have = {r["name"] for r in self._conn.execute("PRAGMA table_info(models)")}
         if "fav" not in have:
             self._conn.execute("ALTER TABLE models ADD COLUMN fav INTEGER")  # 1 = Favorit (★)
@@ -1703,7 +1728,7 @@ class Store:
     # ---- Datensicherung: Einspielen und Zurücksetzen ------------------------
 
     HISTORY_TABLES = ("jobs", "photos", "handovers", "payments", "trash", "job_extras", "models", "model_aliases", "model_rejects",
-                      "orders", "order_items")
+                      "orders", "order_items", "plate_info", "plate_cells")
     SETTINGS_TABLES = ("customers", "printer_rates", "material_prices", "settings", "accessories", "locations")
     # Bleiben beim Zurücksetzen/Einspielen erhalten: Sprache der Oberfläche und der
     # Zeitpunkt der letzten HA-Verbindung (sonst holt printlog alte Drucke aus dem Verlauf nach).

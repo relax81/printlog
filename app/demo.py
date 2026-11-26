@@ -258,7 +258,7 @@ def _project(store: Store, jobs: list[dict[str, Any]], cust_ids: list[int], skip
         j["obj"], j["qty"] = o, qty
         store.update(j["id"], task_name=L(o[:2]), quantity=qty, gift=None, project_url=None, project_title=None, local_path=None)
         cover(image_dir / f"job_{j['id']}.png", o[2], [_render_color(m["color"]) for m in j["materials"]], qty, j["id"])
-    return store.create_project([j["id"] for j in best], name=L(("Werkstatt-Wand", "Workshop wall")), customer_id=cust_ids[1])
+    return store.create_project([j["id"] for j in best], name=L(("Garage-Lochwand", "Garage pegboard")), customer_id=cust_ids[1])
 
 
 def _split(store: Store, jobs: list[dict[str, Any]], cust_ids: list[int], skip: set[int], now: float, L: Any,
@@ -438,6 +438,9 @@ def _orders(store: Store, cust_ids: list[int], pid: int | None, now: float, L: A
             est = od.estimate(o)
             if est["price"]:
                 od.save_order(store, oid, agreed_price=float(math.ceil(est["price"])))
+    # 5) Pro Platte: ein MakerWorld-Set mit 5 Platten, zwei Designs zur Auswahl, Clips aus dem Vorrat
+    if len(billing) > 5:
+        _plate_order(store, billing[5], now, L)
     # 4) Archiv: das Beispielprojekt war ein Auftrag
     if pid:
         kids = [k for k in store.children([pid]).get(pid, []) if not k.get("kind")]
@@ -456,6 +459,58 @@ def _orders(store: Store, cust_ids: list[int], pid: int | None, now: float, L: A
             conn.execute("UPDATE orders SET billed_job = ?, created_at = ?, done_at = ? WHERE id = ?",
                          (pid, (proj.get("start_ts") or now) - 3 * 86400, proj.get("end_ts") or now, oid))
 
+
+
+def _plate_order(store: Store, cid: int, now: float, L: Any) -> None:
+    """Demo für Platten pro Satz (app/plates.py): gelernte Platten, Auswahlgruppe, Vorrat, Fortschritt."""
+    from . import orders as od
+    from . import plates as pl
+
+    conn = store._conn  # noqa: SLF001
+    imgs = [r[0] for r in conn.execute("SELECT DISTINCT image FROM jobs WHERE kind IS NULL AND image IS NOT NULL LIMIT 6")]
+    base = conn.execute("SELECT * FROM jobs WHERE kind IS NULL AND state = 'done' AND cost_total IS NOT NULL "
+                        "ORDER BY start_ts DESC LIMIT 1").fetchone()
+    if not base or not imgs:
+        return
+    name = L(("Lochwand-Set (MakerWorld)", "Pegboard set (MakerWorld)"))
+    from . import models as mdl
+    mid = mdl.create_model(store, name)
+    plates = [  # Platte, Name, Gruppe, Stück, Minuten, Gramm
+        (1, ("Grundplatte", "Base plate"), None, 1, 130, 85),
+        (2, ("Haken klein", "Small hooks"), None, 8, 65, 32),
+        (3, ("Design A: Blume", "Design A: flower"), ("Design", "Design"), 1, 90, 40),
+        (4, ("Design B: Stern", "Design B: star"), ("Design", "Design"), 1, 85, 38),
+        (5, ("Schrauben-Clips", "Screw clips"), None, 2, 40, 12),
+    ]
+    fields = {k: base[k] for k in base.keys() if k not in ("id", "code", "order_item_id", "order_state", "order_cands",
+                                                          "project_id", "split", "customer_id", "model_hint", "model_cands")}
+
+    def job(plate: tuple[Any, ...], start: float, qty: int | None = None, cust: int | None = None) -> int:
+        f = dict(fields)
+        f.update(task_name=name, model_id=mid, model_state="auto", gcode_plate=plate[0], quantity=qty or plate[3],
+                 start_ts=start, end_ts=start + plate[4] * 60, filament_g=plate[5], weight_g=plate[5],
+                 cost_total=round(plate[5] * 0.025 + plate[4] / 60 * 0.12, 2), cost_work=0.0,
+                 image=imgs[plate[0] % len(imgs)], customer_id=cust, created_at=start)
+        return store.insert(**f)
+
+    day = 86400
+    for k, p in enumerate(plates):  # früher schon einmal gedruckt: daraus lernt printlog die Platten
+        job(p, now - (40 - k) * day)
+    clips = job(plates[4], now - 30 * day, qty=6, cust=cid)  # 6 Clips, 2 bekam der Kunde, 4 liegen im Vorrat
+    store.set_split(clips, [{"sid": None, "customer_id": cid, "qty": 2}])
+    job(plates[4], now - 29 * day)  # zuletzt 2 Clips pro Platte
+    for p in plates:
+        grp = L(p[2]) if p[2] else None
+        pl.save_plates(store, {"id": 0, "model_id": mid}, [{"plate": p[0], "name": L(p[1]), "grp": grp}])
+    oid = od.create_order(store, cid, L(("Garage-Lochwand", "Garage pegboard")), datetime.fromtimestamp(now + 9 * day).date().isoformat(),
+                          None, None)
+    iid = od.add_item(store, oid, mid, None, 2)
+    item = od.order(store, oid)["items"][0]
+    pl.set_cell(store, item, 2, 4)  # Satz 2 bekommt Design B
+    for s in (1, 2):
+        pl.set_cell(store, item, s, 5, "stock")  # Clips aus dem Vorrat
+    for k, p in enumerate((plates[0], plates[0], plates[1], plates[2])):
+        od.link(store, job(p, now - (3 - k * 0.5) * day), iid)
 
 def seed(store: Store, image_dir: Path, lang: str, now: float | None = None) -> int:
     """Löscht die Demo-Datenbank und legt neue Beispieldaten an. Gibt die Zahl der Drucke zurück."""

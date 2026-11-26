@@ -110,8 +110,18 @@ const hdr = { 'Accept-Language': lang };
   await shot('models', 'models', { h: 860 });
   // Aufträge: Übersicht und ein Auftrag in Arbeit
   await shot('orders', 'orders', { h: 820 });
-  const ord = await p.evaluate(() => (document.querySelector('.ocard.running') || document.querySelector('.ocard')).getAttribute('href'));
+  const ord = await p.evaluate(() => { const cs = [...document.querySelectorAll('.ocard')].filter(a => !a.querySelector('.opos small'));
+    return (cs.find(a => a.classList.contains('running')) || cs[0]).getAttribute('href'); });
+  const pord = await p.evaluate(() => { const c = [...document.querySelectorAll('.ocard')].find(a => a.querySelector('.opos small')); return c && c.getAttribute('href'); });
   await shot('order-detail', ord, { h: 980 });
+  if (pord) {
+    // Platten pro Satz: Position mit Tabelle
+    await p.setViewportSize({ width: 1440, height: 900 });
+    await p.goto(base + pord); await p.waitForLoadState('networkidle'); await p.waitForTimeout(600);
+    const r = await p.evaluate(() => { const a = document.querySelector('.pbox').previousElementSibling.getBoundingClientRect(), b = document.querySelector('.pbox').getBoundingClientRect();
+      return { y: a.top + scrollY - 12, h: b.bottom - a.top + 24 }; });
+    await p.screenshot({ path: `${out}/order-plates.png`, fullPage: true, clip: { x: 0, y: r.y, width: 1440, height: r.h } });
+  }
   // phone
   const ph = await b.newContext({ ...devices['iPhone 13'], locale: lang, colorScheme: scheme, extraHTTPHeaders: hdr });
   await ph.addInitScript(init);
