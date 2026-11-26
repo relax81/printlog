@@ -1350,4 +1350,15 @@ EN: dict[str, str] = {
     'nicht nötig': 'not needed',
     '{p}: {n} Stk. nicht im Vorrat': '{p}: {n} pcs not in stock',
     'Auftrag: {p}': 'Order: {p}',
+    # Gemeinsame Teile
+    'Gemeinsames Teil (optional)': 'Shared part (optional)',
+    'Gemeinsames Teil': 'Shared part',
+    'Für {n} Satz aus dem Vorrat nehmen?': 'Take it from stock for {n} set?',
+    'Für {n} Sätze aus dem Vorrat nehmen?': 'Take it from stock for {n} sets?',
+    'liegt nur in anderer Farbe im Vorrat ({n}×).': 'is in stock only in another colour ({n}×).',
+    'liegt {n}× im Vorrat.': 'is in stock {n}×.',
+    'Ja, {n} nehmen': 'Yes, take {n}',
+    'gemeinsam': 'shared',
+    'Dazu {n}× in anderer Farbe': 'Plus {n}× in another colour',
+    'Trotzdem {n} nehmen': 'Take {n} anyway',
 }

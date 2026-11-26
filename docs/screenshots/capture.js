@@ -112,7 +112,8 @@ const hdr = { 'Accept-Language': lang };
   await shot('orders', 'orders', { h: 820 });
   const ord = await p.evaluate(() => { const cs = [...document.querySelectorAll('.ocard')].filter(a => !a.querySelector('.opos small'));
     return (cs.find(a => a.classList.contains('running')) || cs[0]).getAttribute('href'); });
-  const pord = await p.evaluate(() => { const c = [...document.querySelectorAll('.ocard')].find(a => a.querySelector('.opos small')); return c && c.getAttribute('href'); });
+  const pord = await p.evaluate(() => { const c = [...document.querySelectorAll('.ocard')].find(a => a.querySelector('.opos small') && !/Brick/.test(a.textContent)); return c && c.getAttribute('href'); });
+  const sord = await p.evaluate(() => { const c = [...document.querySelectorAll('.ocard')].find(a => /Brick/.test(a.textContent)); return c && c.getAttribute('href'); });
   await shot('order-detail', ord, { h: 980 });
   if (pord) {
     // Platten pro Satz: Position mit Tabelle
@@ -121,6 +122,14 @@ const hdr = { 'Accept-Language': lang };
     const r = await p.evaluate(() => { const a = document.querySelector('.pbox').previousElementSibling.getBoundingClientRect(), b = document.querySelector('.pbox').getBoundingClientRect();
       return { y: a.top + scrollY - 12, h: b.bottom - a.top + 24 }; });
     await p.screenshot({ path: `${out}/order-plates.png`, fullPage: true, clip: { x: 0, y: r.y, width: 1440, height: r.h } });
+  }
+  if (sord) {
+    // Gemeinsames Teil: Vorschlag aus dem Vorrat, Platten bearbeiten offen
+    await p.goto(base + sord); await p.waitForLoadState('networkidle'); await p.waitForTimeout(600);
+    await p.click('[data-tgl^="pe"]'); await p.waitForTimeout(300);
+    const r = await p.evaluate(() => { const a = document.querySelector('.pbox').previousElementSibling.getBoundingClientRect(), b = document.querySelector('.pbox').getBoundingClientRect();
+      return { y: a.top + scrollY - 12, h: b.bottom - a.top + 24 }; });
+    await p.screenshot({ path: `${out}/order-shared.png`, fullPage: true, clip: { x: 0, y: r.y, width: 1440, height: r.h } });
   }
   // phone
   const ph = await b.newContext({ ...devices['iPhone 13'], locale: lang, colorScheme: scheme, extraHTTPHeaders: hdr });

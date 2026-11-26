@@ -101,8 +101,20 @@ def plates_of(store: Store, item: dict[str, Any]) -> list[dict[str, Any]]:
     if item.get("n_plates"):
         nums |= set(range(1, int(item["n_plates"]) + 1))
     out = []
+    part_stats: dict[int, dict[str, Any]] = {}
     for p in sorted(n for n in nums if 0 < n <= 999)[:MAX_PLATES]:
         i, s = info.get(p, {}), stats.get(p, {})
+        if not s and i.get("part_model_id"):  # gemeinsames Teil, an diesem Modell noch nie gedruckt: Werte vom Teil
+            pid = i["part_model_id"]
+            if pid not in part_stats:
+                ps = plate_stats(store, pid)
+                ps0 = ps[min(ps)] if ps else {}
+                n = ps0.get("pieces") or 1  # Werte pro Stück: ein Satz braucht ein Teil
+                part_stats[pid] = {**ps0, "pieces": 1, "min": ps0["min"] / n if ps0.get("min") else None,
+                                   "g": ps0["g"] / n if ps0.get("g") else None,
+                                   "cost": ps0["cost"] / n if ps0.get("cost") is not None else None,
+                                   "work": (ps0.get("work") or 0) / n} if ps0 else {}
+            s = {**part_stats[pid], "n": 0}
         out.append({"plate": p, "name": i.get("name") or t("Platte {n}", n=p), "named": bool(i.get("name")),
                     "grp": (i.get("grp") or "").strip() or None, "part_model_id": i.get("part_model_id"),
                     "min": s.get("min"), "g": s.get("g"), "pieces": s.get("pieces") or 1, "cost": s.get("cost"),
@@ -292,6 +304,15 @@ def _sources(store: Store, model_id: int | None, plate: dict[str, Any]) -> list[
     return src
 
 
+def part_colors(store: Store, part_model_id: int | None) -> list[str]:
+    """Farben des letzten guten Drucks eines gemeinsamen Teils (für den Farbabgleich im Vorrat)."""
+    if not part_model_id:
+        return []
+    r = store._conn.execute(f"SELECT materials FROM jobs WHERE model_id = ? AND kind IS NULL AND state = 'done' AND NOT {Store.SCRAP_SQL} "
+                            "ORDER BY start_ts DESC LIMIT 1", (part_model_id,)).fetchone()
+    return _colors(r["materials"]) if r else []
+
+
 def stock_for(store: Store, model_id: int | None, plate: dict[str, Any], want_colors: list[str] | None = None) -> dict[str, Any]:
     """Vorrat für eine Platte: Stück gesamt, davon in passender Farbe, und die Quellen (aufgeteilte Drucke)."""
     src = _sources(store, model_id, plate)
@@ -308,7 +329,7 @@ def stock_for(store: Store, model_id: int | None, plate: dict[str, Any], want_co
     rows = [dict(r) for r in store._conn.execute(
         f"SELECT jobs.*, {Store.SCRAP_SQL} AS is_scrap FROM jobs WHERE split = 1 AND kind IS NULL AND ({' OR '.join(conds)}) "
         "ORDER BY start_ts", args)]
-    want = set(want_colors or plate.get("colors") or [])
+    want = set(want_colors or plate.get("colors") or part_colors(store, plate.get("part_model_id")))
     out, pieces, match = [], 0, 0
     for r in rows:
         units = store.stock(r)["units"]
@@ -368,8 +389,9 @@ def suggestions(store: Store, item: dict[str, Any], sm: dict[str, Any] | None = 
         if k <= 0 and free_all // per <= 0:
             continue
         other = sorted({c for par in st["parents"] if not par["same"] for c in par["colors"]})
+        same_cols = sorted({c for par in st["parents"] if par["same"] for c in par["colors"]})
         out.append({"plate": p["plate"], "name": p["name"], "sets": sorted(open_sets)[:max(k, 0)], "n_sets": k,
-                    "n_open": len(open_sets), "pieces": free_all, "match": free_same, "other_colors": other, "per": per,
+                    "n_open": len(open_sets), "pieces": free_all, "match": free_same, "other_colors": other, "colors": same_cols, "per": per,
                     "shared": bool(p.get("part_model_id"))})
     return out
 
@@ -382,7 +404,7 @@ def use_stock(store: Store, item: dict[str, Any], plate: int, n: int | None = No
     sug = next((x for x in suggestions(store, item, sm) if x["plate"] == plate), None)
     if not sug:
         return 0
-    k = sug["n_sets"] if n is None else min(n, sug["n_open"], sug["pieces"] // sug["per"])
+    k = sug["n_sets"] if n is None else max(0, min(n, sug["n_open"], sug["pieces"] // sug["per"]))
     sets = sorted(s for (s, pl) in sm["grid"]["open"] if pl == plate)[:k]
     with store._lock, store._conn:
         for s in sets:

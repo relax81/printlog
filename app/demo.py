@@ -441,6 +441,7 @@ def _orders(store: Store, cust_ids: list[int], pid: int | None, now: float, L: A
     # 5) Pro Platte: ein MakerWorld-Set mit 5 Platten, zwei Designs zur Auswahl, Clips aus dem Vorrat
     if len(billing) > 5:
         _plate_order(store, billing[5], now, L)
+        _shared_parts(store, billing[2], billing[5], now, L)
     # 4) Archiv: das Beispielprojekt war ein Auftrag
     if pid:
         kids = [k for k in store.children([pid]).get(pid, []) if not k.get("kind")]
@@ -511,6 +512,53 @@ def _plate_order(store: Store, cid: int, now: float, L: Any) -> None:
         pl.set_cell(store, item, s, 5, "stock")  # Clips aus dem Vorrat
     for k, p in enumerate((plates[0], plates[0], plates[1], plates[2])):
         od.link(store, job(p, now - (3 - k * 0.5) * day), iid)
+
+
+def _shared_parts(store: Store, cid: int, other: int, now: float, L: Any) -> None:
+    """Demo für gemeinsame Teile: „Kopf + Hände“ liegt im Vorrat (auch in anderer Farbe), eine neue Figur nutzt es."""
+    from . import models as mdl
+    from . import orders as od
+    from . import plates as pl
+
+    conn = store._conn  # noqa: SLF001
+    base = conn.execute("SELECT * FROM jobs WHERE kind IS NULL AND state = 'done' AND cost_total IS NOT NULL "
+                        "ORDER BY start_ts DESC LIMIT 1").fetchone()
+    imgs = [r[0] for r in conn.execute("SELECT DISTINCT image FROM jobs WHERE kind IS NULL AND image IS NOT NULL LIMIT 8")]
+    if not base or not imgs:
+        return
+    fields = {k: base[k] for k in base.keys() if k not in ("id", "code", "order_item_id", "order_state", "order_cands",
+                                                          "project_id", "split", "customer_id", "model_hint", "model_cands")}
+    skin = '[{"slot":1,"name":"PLA Basic","type":"PLA","color":"#F1C27D","grams":14}]'
+    yellow = '[{"slot":1,"name":"PLA Basic","type":"PLA","color":"#FFD21F","grams":14}]'
+    red = '[{"slot":1,"name":"PLA Basic","type":"PLA","color":"#D7263D","grams":30},{"slot":2,"name":"PLA Basic","type":"PLA","color":"#FFFFFF","grams":6}]'
+
+    def job(name: str, mid: int, plate: int, qty: int, start: float, mats: str, cust: int | None = None, img: int = 0) -> int:
+        f = dict(fields)
+        f.update(task_name=name, model_id=mid, model_state="auto", gcode_plate=plate, quantity=qty, start_ts=start,
+                 end_ts=start + 50 * 60, filament_g=14.0 * qty, weight_g=14.0 * qty, cost_total=round(0.35 * qty + 0.1, 2),
+                 cost_work=0.0, materials=mats, image=imgs[img % len(imgs)], customer_id=cust, created_at=start)
+        return store.insert(**f)
+
+    day = 86400
+    head = L(("Kopf + Hände", "Head + hands"))
+    fig_a, fig_b = L(("Brick-Figur Blau-Gelb", "Brick figure blue-yellow")), L(("Brick-Figur Rot-Weiß", "Brick figure red-white"))
+    k = mdl.create_model(store, head)
+    a = mdl.create_model(store, fig_a)
+    b = mdl.create_model(store, fig_b)
+    p = job(head, k, 1, 6, now - 25 * day, skin, other, img=3)  # 6 Köpfe gedruckt, 1 abgegeben → 5 im Vorrat
+    store.set_split(p, [{"sid": None, "customer_id": other, "qty": 1}])
+    y = job(fig_a, a, 1, 3, now - 22 * day, yellow, other, img=3)  # gelbe Köpfe der Blau-Gelb-Figur, 2 übrig
+    store.set_split(y, [{"sid": None, "customer_id": other, "qty": 1}])
+    job(fig_a, a, 2, 1, now - 22 * day, red, img=4)
+    pl.save_plates(store, {"id": 0, "model_id": a}, [{"plate": 1, "name": head, "part_model_id": k},
+                                                     {"plate": 2, "name": L(("Körper + Trikot", "Body + jersey"))}])
+    pl.save_plates(store, {"id": 0, "model_id": b}, [{"plate": 1, "name": head, "part_model_id": k},
+                                                     {"plate": 2, "name": L(("Körper + Trikot Rot-Weiß", "Body + jersey red-white"))},
+                                                     {"plate": 3, "name": L(("Beine + Schuhe", "Legs + shoes"))}])
+    oid = od.create_order(store, cid, L(("Vereinsfiguren", "Club figures")), datetime.fromtimestamp(now + 12 * day).date().isoformat(),
+                          None, None)
+    iid = od.add_item(store, oid, b, None, 3)
+    od.link(store, job(fig_b, b, 2, 1, now - 1 * day, red, img=4), iid)
 
 def seed(store: Store, image_dir: Path, lang: str, now: float | None = None) -> int:
     """Löscht die Demo-Datenbank und legt neue Beispieldaten an. Gibt die Zahl der Drucke zurück."""
