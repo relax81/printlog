@@ -283,6 +283,56 @@ document.addEventListener('mousemove',ev=>{const t=ev.target.closest('[data-tip]
  const x=Math.min(ev.clientX+14,innerWidth-tip.offsetWidth-8);tip.style.left=x+'px';tip.style.top=(ev.clientY+14)+'px'});
 """
 
+# Eigene Auswahlliste für Eingabefelder mit <datalist>: Die Liste des Browsers zeigt nur wenige Einträge und lässt
+# sich nicht vergrößern. Diese nutzt den Platz bis zum Fensterrand (öffnet nach oben, wenn unten zu wenig ist),
+# filtert beim Tippen und geht mit Pfeiltasten, Enter und Esc. Freitext bleibt möglich.
+COMBO_JS = """
+(()=>{let box=null,cur=null,act=-1;
+const hide=()=>{if(box){box.remove();box=null}cur=null;act=-1};
+const opts=inp=>{const dl=document.getElementById(inp.dataset.list);return dl?[...dl.options].map(o=>({v:o.value,h:(o.label&&o.label!==o.value?o.label:o.textContent||'').trim()})):[]};
+const mark=()=>{if(!box)return;[...box.children].forEach((li,i)=>li.classList.toggle('on',i===act));const li=box.children[act];if(li)li.scrollIntoView({block:'nearest'})};
+const pick=v=>{const i=cur;hide();i.value=v;i.dispatchEvent(new Event('input',{bubbles:true}));i.dispatchEvent(new Event('change',{bubbles:true}));i.dataset.cbxSkip='1';i.focus()};
+const place=()=>{if(!box||!cur)return;const r=cur.getBoundingClientRect(),below=innerHeight-r.bottom-12,above=r.top-12;
+ const up=below<200&&above>below,room=Math.max(120,up?above:below);box.style.maxHeight=Math.min(room,520)+'px';
+ box.style.left=Math.max(8,Math.min(r.left,innerWidth-Math.max(r.width,220)-8))+'px';box.style.minWidth=r.width+'px';
+ box.style.top=up?'':(r.bottom+4)+'px';box.style.bottom=up?(innerHeight-r.top+4)+'px':''};
+const show=(inp,all)=>{const q=all?'':inp.value.trim().toLowerCase();
+ const list=opts(inp).filter(o=>!q||o.v.toLowerCase().includes(q));
+ if(!list.length||(list.length===1&&list[0].v===inp.value)){hide();return}
+ if(!box||cur!==inp){hide();box=document.createElement('ul');box.className='cbx';box.setAttribute('role','listbox');
+  (inp.closest('dialog')||document.body).appendChild(box);cur=inp;
+  box.addEventListener('mousedown',ev=>{ev.preventDefault();const li=ev.target.closest('li');if(li)pick(li.dataset.v)})}
+ box.innerHTML='';act=-1;
+ for(const o of list){const li=document.createElement('li');li.dataset.v=o.v;li.setAttribute('role','option');li.textContent=o.v;
+  if(o.h){const s=document.createElement('small');s.textContent=o.h;li.appendChild(s)}box.appendChild(li)}
+ place()};
+const init=inp=>{if(inp.dataset.list)return;inp.dataset.list=inp.getAttribute('list');inp.removeAttribute('list');inp.classList.add('cbxi');
+ inp.setAttribute('autocomplete','off');inp.setAttribute('role','combobox');
+ inp.addEventListener('focus',()=>{if(inp.dataset.cbxSkip){delete inp.dataset.cbxSkip;return}show(inp,true)});
+ inp.addEventListener('click',()=>{if(!box||cur!==inp)show(inp,true)});
+ inp.addEventListener('input',()=>{if(cur===inp||document.activeElement===inp)show(inp,false)});
+ inp.addEventListener('blur',()=>setTimeout(()=>{if(cur===inp&&document.activeElement!==inp)hide()},120));
+ inp.addEventListener('keydown',ev=>{if(ev.key==='ArrowDown'&&!box){show(inp,true);ev.preventDefault();return}
+  if(!box||cur!==inp)return;const n=box.children.length;
+  if(ev.key==='ArrowDown'){act=(act+1)%n;mark();ev.preventDefault()}
+  else if(ev.key==='ArrowUp'){act=(act-1+n)%n;mark();ev.preventDefault()}
+  else if(ev.key==='Enter'&&act>=0){pick(box.children[act].dataset.v);ev.preventDefault()}
+  else if(ev.key==='Escape'){hide();ev.preventDefault();ev.stopPropagation()}})};
+document.querySelectorAll('input[list]').forEach(init);
+new MutationObserver(()=>document.querySelectorAll('input[list]').forEach(init)).observe(document.body,{childList:true,subtree:true});
+addEventListener('resize',place);addEventListener('scroll',ev=>{if(box&&!box.contains(ev.target))place()},true);})();
+"""
+BASE_JS += COMBO_JS
+CSS += """
+.cbx{position:fixed;z-index:60;margin:0;padding:4px;list-style:none;overflow-y:auto;background:var(--card);color:var(--fg);
+border:1px solid var(--line);border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.25);max-width:min(480px,calc(100vw - 16px))}
+.cbx li{padding:8px 12px;border-radius:8px;cursor:pointer;display:flex;gap:8px;justify-content:space-between;align-items:center;font-size:14px}
+.cbx li small{color:var(--muted);font-size:12px}.cbx li:hover,.cbx li.on{background:color-mix(in srgb,var(--accent) 16%,transparent)}
+input.cbxi{padding-right:30px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0h10L5 6z' fill='%23888'/%3E%3C/svg%3E");
+background-repeat:no-repeat;background-position:right 12px center}
+input.ico.cbxi{padding-right:6px;background-image:none}
+"""
+
 
 def demo_bar() -> tuple[str, str]:
     """Im Demo-Modus: kleines „Demo“-Schild am Logo und ein Hinweisbalken (ausblendbar, für Screenshots)."""
