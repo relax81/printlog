@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 import time
 from datetime import date, datetime
@@ -24,6 +25,8 @@ from . import extras as _extras
 from .db import Store, code_label
 from .i18n import N_, t, tn
 from .ui import e, fmt_date, fmt_hours, fmt_input, fmt_num, layout
+
+log = logging.getLogger(__name__)
 
 STATES = {"open": N_("Offen"), "running": N_("In Arbeit"), "done": N_("Fertig · abrechnen"), "billed": N_("Abgerechnet"),
           "archived": N_("Archiv")}
@@ -93,14 +96,17 @@ def linked_jobs(store: Store, item_ids: list[int]) -> dict[int, list[dict[str, A
     return out
 
 
-def _settled(store: Store, job: dict[str, Any]) -> bool:
-    """Abgerechneter Druck/Projekt bezahlt und übergeben (oder keine Abrechnung nötig)?"""
+def _settled(store: Store, job: dict[str, Any], customer_id: int | None = None) -> bool:
+    """Abgerechneter Druck/Projekt bezahlt und übergeben (oder keine Abrechnung nötig)? Bei aufgeteilten
+    Drucken zählt der Anteil des Auftragskunden (der Rest liegt im Vorrat)."""
     from .pages import amount_due, has_billing
 
     if job.get("project_id"):
         job = store.get(job["project_id"]) or job
     if job.get("split"):
-        return False
+        mine = [x for x in store.shares([job["id"]]).get(job["id"], [])
+                if customer_id and x.get("customer_id") == customer_id and x.get("share_kind") != "out"]
+        return bool(mine) and all(_settled(store, x) for x in mine)
     if not has_billing(job):
         return True
     due = amount_due(job)
@@ -115,7 +121,7 @@ def _state(store: Store, o: dict[str, Any]) -> str:
         bj = store.get(o["billed_job"])
         if bj:
             o["billed"] = bj
-            return "archived" if _settled(store, bj) else "billed"
+            return "archived" if _settled(store, bj, o.get("customer_id")) else "billed"
     its = o["items"]
     if its and all(i["done"] >= i["qty"] for i in its):
         return "done"
@@ -300,7 +306,7 @@ def delete_order(store: Store, oid: int) -> None:
         store._conn.execute("DELETE FROM orders WHERE id = ?", (oid,))
 
 
-def link(store: Store, job_id: int, item_id: int | None) -> bool:
+def link(store: Store, job_id: int, item_id: int | None, state: str = "confirmed") -> bool:
     """Druck einer Position zuordnen (None = lösen). Der Druck bekommt den Kunden des Auftrags."""
     job = store._conn.execute("SELECT id, kind FROM jobs WHERE id = ?", (job_id,)).fetchone()
     if not job or job["kind"]:
@@ -313,10 +319,36 @@ def link(store: Store, job_id: int, item_id: int | None) -> bool:
             return False
         cid = r[0]
     with store._lock, store._conn:
-        store._conn.execute("UPDATE jobs SET order_item_id = ? WHERE id = ?", (item_id, job_id))
+        store._conn.execute("UPDATE jobs SET order_item_id = ?, order_state = ?, order_cands = NULL WHERE id = ?",
+                            (item_id, state if item_id is not None else "none", job_id))
     if cid:
         store.assign_customer([job_id], cid)
+    if item_id is not None:
+        _prefill(store, job_id, item_id)
+        adopt_models(store)
     return True
+
+
+def _prefill(store: Store, job_id: int, item_id: int) -> None:
+    """Stück pro Platte vorbelegen, wenn am Druck noch keine Stückzahl steht."""
+    j = store._conn.execute("SELECT quantity, model_id FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    it = store._conn.execute("SELECT model_id, per_plate FROM order_items WHERE id = ?", (item_id,)).fetchone()
+    if not j or j["quantity"] is not None:
+        return
+    mid = j["model_id"] or (it["model_id"] if it else None)
+    pp = (model_stats(store, [mid]).get(mid) or {}).get("per_plate") if mid else (it["per_plate"] if it else None)
+    if pp and pp > 1:
+        store.update(job_id, quantity=int(pp))
+
+
+def adopt_models(store: Store) -> None:
+    """Freitext-Position bekommt das Modell, sobald ihr erster Druck einem Modell zugeordnet ist."""
+    with store._lock, store._conn:
+        store._conn.execute(
+            "UPDATE order_items SET model_id = (SELECT j.model_id FROM jobs j WHERE j.order_item_id = order_items.id "
+            "AND j.model_id IS NOT NULL AND j.kind IS NULL ORDER BY j.start_ts LIMIT 1) "
+            "WHERE model_id IS NULL AND EXISTS (SELECT 1 FROM jobs j WHERE j.order_item_id = order_items.id "
+            "AND j.model_id IS NOT NULL AND j.kind IS NULL AND j.model_state IN ('auto', 'confirmed', 'new'))")
 
 
 def candidates(store: Store, o: dict[str, Any], limit: int = 12) -> list[dict[str, Any]]:
@@ -332,9 +364,19 @@ def candidates(store: Store, o: dict[str, Any], limit: int = 12) -> list[dict[st
     return [dict(r) for r in rows]
 
 
-def bill(store: Store, oid: int) -> tuple[int | None, str | None]:
+def surplus(o: dict[str, Any]) -> int:
+    """Mehr gedruckt als bestellt (nur Aufträge mit einer Position und Kunde): so viele Stück gehen in den Vorrat."""
+    if len(o["items"]) != 1 or not o.get("customer_id"):
+        return 0
+    i = o["items"][0]
+    printed = sum((j.get("quantity") or 1) for j in i["jobs"] if j["state"] == "done" and not j["is_scrap"])
+    return max(0, printed - i["qty"])
+
+
+def bill(store: Store, oid: int, stock: bool = False) -> tuple[int | None, str | None]:
     """„Zur Abrechnung“: Drucke zum Projekt zusammenfassen (ein einzelner Druck bleibt einzeln), vereinbarter
-    Preis wird Endpreis. Gibt (Projekt-/Druck-ID, Fehlermeldung) zurück."""
+    Preis wird Endpreis. Mit ``stock`` geht der Überschuss in den Vorrat: Der Kunde bekommt einen Anteil mit der
+    bestellten Stückzahl. Gibt (Projekt-/Druck-ID, Fehlermeldung) zurück."""
     o = order(store, oid)
     if not o:
         return None, None
@@ -357,6 +399,14 @@ def bill(store: Store, oid: int) -> tuple[int | None, str | None]:
         store.assign_customer([target], o["customer_id"])
     if o.get("agreed_price") is not None:
         store.update(target, final_price=o["agreed_price"])
+    extra = surplus(o) if stock else 0
+    if extra:
+        tj = store.get(target) or {}
+        if tj.get("kind") == "project":
+            store.update(target, quantity=o["items"][0]["qty"] + extra)
+        err = store.set_split(target, [{"sid": None, "customer_id": o["customer_id"], "qty": o["items"][0]["qty"]}])
+        if err:
+            log.warning("Überschuss in den Vorrat: %s", err)
     with store._lock, store._conn:
         store._conn.execute("UPDATE orders SET billed_job = ?, done_at = COALESCE(done_at, ?) WHERE id = ?", (target, time.time(), oid))
     return target, None
@@ -378,6 +428,155 @@ def again(store: Store, model_id: int, customer_id: int | None, qty: int, into: 
         oid = create_order(store, customer_id, m["name"] if m else None, due)
     add_item(store, oid, model_id, None, qty)
     return oid
+
+
+# ---- Automatik: Druckstart/-ende einem Auftrag zuordnen --------------------------------
+#
+# Läuft im Sweeper (jede Minute). Ein Druck ohne Auftrag wird mit den offenen Positionen verglichen: gleiches Modell
+# (beim Start über Name, Druckdatei und Platte, nach dem Ende über die Modell-Erkennung) oder bei Freitext ein gleicher
+# bzw. ähnlicher Name. Passt genau eine Position, ordnet printlog den Druck zu („auto“); passen mehrere oder ist
+# „immer fragen“ eingestellt, fragt die Glocke. Nur Drucke ab dem Einschalten der Funktion (``orders_since``).
+
+AUTO_MODES = {"auto": N_("Automatisch, bei Zweifel fragen"), "ask": N_("Immer fragen"), "off": N_("Aus (nur von Hand)")}
+
+
+def auto_mode(store: Store) -> str:
+    m = store.settings().get("order_auto") or "auto"
+    return m if m in AUTO_MODES else "auto"
+
+
+def _open_items(store: Store) -> list[dict[str, Any]]:
+    out = []
+    for o in all_orders(store):
+        if o["state"] not in ("open", "running"):
+            continue
+        for i in o["items"]:
+            if i["done"] + sum((j.get("quantity") or 1) for j in i["running"]) < i["qty"]:
+                out.append({**i, "order": o})
+    return out
+
+
+def matches(store: Store, job: dict[str, Any], items: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+    """Offene Positionen, zu denen der Druck passt (fällig zuerst)."""
+    from . import models as mdl
+
+    items = _open_items(store) if items is None else items
+    if not items:
+        return []
+    mid = job.get("model_id") if job.get("model_state") in ("auto", "confirmed", "tentative", "new") else None
+    if not mid:
+        cands = mdl.candidates(store, job)
+        if cands and cands[0][1] >= mdl.TENTATIVE:
+            mid = cands[0][0]
+    name = mdl.normalize(job.get("task_name"))
+    out = []
+    for i in items:
+        if i["model_id"] and i["model_id"] == mid:
+            out.append(i)
+        elif not i["model_id"] and name and (mdl.normalize(i["name"]) == name or mdl.similar(mdl.normalize(i["name"]), name)):
+            out.append(i)
+    out.sort(key=lambda i: (i["order"].get("due") is None, i["order"].get("due") or "", i["order"]["created_at"]))
+    return out
+
+
+def match_pending(store: Store) -> list[str]:
+    """Neue Drucke zuordnen oder nachfragen. Gibt Hinweistexte für neue Fragen zurück."""
+    mode = auto_mode(store)
+    if mode == "off":
+        return []
+    cfg = store.settings()
+    if not cfg.get("orders_since"):
+        store.set_setting("orders_since", f"{time.time():.0f}")
+        return []
+    rows = [dict(r) for r in store._conn.execute(
+        f"SELECT jobs.*, {Store.SCRAP_SQL} AS is_scrap FROM jobs WHERE kind IS NULL AND order_item_id IS NULL "
+        "AND order_state IS NULL AND start_ts >= ? ORDER BY start_ts", (float(cfg["orders_since"]),))]
+    if not rows:
+        return []
+    items = _open_items(store)
+    hints = []
+    for j in rows:
+        if j["state"] == "done" and j["is_scrap"]:
+            store.update(j["id"], order_state="none")
+            continue
+        found = matches(store, j, items)
+        if not found:
+            if j["state"] == "done" and j.get("model_state"):  # nach der Modell-Erkennung: endgültig nichts
+                store.update(j["id"], order_state="none")
+            continue
+        if len(found) == 1 and mode == "auto":
+            link(store, j["id"], found[0]["id"], state="auto")
+            items = _open_items(store)
+            continue
+        store.update(j["id"], order_state="ask", order_cands=json.dumps([i["id"] for i in found[:4]]))
+        hints.append(t("„{job}“ – für welchen Auftrag?", job=j.get("task_name") or "?"))
+    adopt_models(store)
+    return hints
+
+
+def answer(store: Store, job_id: int, item_id: int | None) -> None:
+    """Antwort auf die Frage der Glocke: Position oder kein Auftrag."""
+    if item_id:
+        link(store, job_id, item_id)
+    else:
+        with store._lock, store._conn:
+            store._conn.execute("UPDATE jobs SET order_state = 'none', order_cands = NULL WHERE id = ?", (job_id,))
+
+
+def item_exists(store: Store, item_id: int) -> bool:
+    return store._conn.execute("SELECT 1 FROM order_items WHERE id = ?", (item_id,)).fetchone() is not None
+
+
+def open_questions(store: Store) -> list[dict[str, Any]]:
+    return [dict(r) for r in store._conn.execute(
+        "SELECT * FROM jobs WHERE kind IS NULL AND order_state = 'ask' AND order_item_id IS NULL ORDER BY start_ts DESC")]
+
+
+def question_count(store: Store) -> int:
+    return int(store._conn.execute(
+        "SELECT COUNT(*) FROM jobs WHERE kind IS NULL AND order_state = 'ask' AND order_item_id IS NULL").fetchone()[0])
+
+
+def hint_cards(store: Store, back: str = "hints") -> str:
+    """Karten für die Seite „Hinweise“: „Druck gestartet – für welchen Auftrag?“."""
+    from .ui import printer_names
+
+    names = printer_names(store)
+    out = ""
+    for j in open_questions(store):
+        try:
+            ids = [int(x) for x in json.loads(j.get("order_cands") or "[]")]
+        except (ValueError, TypeError):
+            ids = []
+        its = []
+        for iid in ids:
+            r = store._conn.execute(
+                "SELECT i.id, i.qty, i.order_id, COALESCE(m.name, i.name) AS label, o.title, c.name AS customer FROM order_items i "
+                "JOIN orders o ON o.id = i.order_id LEFT JOIN models m ON m.id = i.model_id LEFT JOIN customers c ON c.id = o.customer_id "
+                "WHERE i.id = ?", (iid,)).fetchone()
+            if r:
+                its.append(dict(r))
+        prog = {i["id"]: i for o in all_orders(store) for i in o["items"]}
+        opts = ""
+        for k, i in enumerate(its):
+            p = prog.get(i["id"])
+            done = f'{p["done"]}/{p["qty"]}' if p else str(i["qty"])
+            opts += (f'<form method="post" action="orders/answer"><input type="hidden" name="job" value="{j["id"]}">'
+                     f'<input type="hidden" name="item" value="{i["id"]}"><input type="hidden" name="back" value="{e(back)}">'
+                     f'<button class="btn{" primary" if k == 0 else ""}">{e(i.get("customer") or t("ohne Kunde"))} · {e(i.get("title") or i["label"])} <i>{done}</i></button>'
+                     f'{"<small>" + e(t("fällig zuerst")) + "</small>" if k == 0 and len(its) > 1 else ""}</form>')
+        opts += (f'<form method="post" action="orders/answer"><input type="hidden" name="job" value="{j["id"]}">'
+                 f'<input type="hidden" name="back" value="{e(back)}"><button class="btn">{e(t("Kein Auftrag (Vorrat / eigen)"))}</button></form>')
+        img = f'<img src="images/{e(j["image"])}" alt="" loading="lazy">' if j.get("image") else '<span class="ph"></span>'
+        running = j["state"] != "done"
+        sub = (t("gestartet {d}", d=fmt_date(j.get("start_ts"), "dm_hm")) if running else fmt_date(j.get("start_ts"), "dm_hm"))
+        sub += " · " + names.get(j["printer"], j.get("printer_name") or j["printer"])
+        if j.get("quantity"):
+            sub += " · " + t("{n} Stk.", n=j["quantity"])
+        q = t("Druck gestartet – für welchen Auftrag?") if running else t("Für welchen Auftrag war dieser Druck?")
+        out += (f'<div class="mhint ord"><a class="mhj" href="job?id={j["id"]}">{img}<span><b>{e(j.get("task_name") or t("Druck"))}</b>'
+                f'<small>{e(sub)}</small></span></a><div class="mhq"><b>📋 {e(q)}</b><div class="mhopts">{opts}</div></div></div>')
+    return out
 
 
 # ---- Anzeige: Bausteine ------------------------------------------------------------
@@ -681,9 +880,14 @@ def page_order(store: Store, o: dict[str, Any], saved: str | None = None, show_l
                if ready else t("Sind alle Positionen gedruckt, rückt der Auftrag in „Fertig · abrechnen“. Abrechnen geht auch vorher."))
         if o.get("agreed_price") is not None:
             txt += " " + t("Der vereinbarte Preis {p} wird Endpreis.", p=fmt_num(o["agreed_price"], 2, "€"))
+        n_extra = surplus(o)
+        extra = (f'<label class="ostock"><input type="checkbox" name="stock" value="1" checked> '
+                 f'{e(t("{n} Stück mehr gedruckt – in den Vorrat", n=n_extra))}</label>'
+                 if n_extra else "")
         fin = (f'<div class="ofin{" ok" if ready else ""}"><span class="ic">🧾</span><div>{e(txt)}</div><span class="sp"></span>'
                f'<form method="post" action="{act}"><input type="hidden" name="do" value="close"><button class="btn">{e(t("Ohne Abrechnung erledigt"))}</button></form>'
-               f'<form method="post" action="{act}"><input type="hidden" name="do" value="bill"><button class="btn{" primary" if ready else ""}">💶 {e(t("Zur Abrechnung"))}</button></form></div>')
+               f'<form method="post" action="{act}" class="obill"><input type="hidden" name="do" value="bill">{extra}'
+               f'<button class="btn{" primary" if ready else ""}">💶 {e(t("Zur Abrechnung"))}</button></form></div>')
     note = f'<p class="onote">📝 {e(o["note"])}</p>' if o.get("note") else ""
     danger = (f'<form method="post" action="{act}" class="odel odanger" data-q="{e(t("Auftrag löschen? Die Drucke bleiben erhalten."))}">'
               f'<input type="hidden" name="do" value="delete"><button class="btn lnk">🗑 {e(t("Auftrag löschen"))}</button></form>')
@@ -737,9 +941,11 @@ def often_card(store: Store, cid: int) -> str:
 def job_chip(store: Store, job: dict[str, Any]) -> str:
     it = item_of_job(store, job)
     if not it:
+        if job.get("order_state") == "ask":
+            return f'<a class="bdg" href="hints" title="{e(t("Passt zu mehreren Aufträgen"))}">📋 {e(t("Auftrag?"))}</a>'
         return ""
     return (f'<a class="bdg" href="order?id={it["order_id"]}" title="{e(t("Gehört zu diesem Auftrag"))}">'
-            f'📋 {e(it.get("title") or t("Auftrag"))}</a>')
+            f'📋 {e(it.get("title") or t("Auftrag"))}{" · " + e(t("automatisch")) if job.get("order_state") == "auto" else ""}</a>')
 
 
 # ---- „Wieder drucken für …“ (Dialog auf Modelle- und Kundenseite) --------------------
@@ -835,6 +1041,7 @@ CSS = """
 .odue.soon{background:color-mix(in srgb,var(--warn) 22%,var(--card));color:var(--warn)}.odue.late{background:color-mix(in srgb,var(--bad) 20%,var(--card));color:var(--bad)}
 .ost{font-size:12px;font-weight:700;border-radius:999px;padding:2px 9px;white-space:nowrap;background:var(--line);color:var(--fg)}
 .ost.running{background:color-mix(in srgb,var(--run) 20%,var(--card));color:var(--run)}
+.obill{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.ostock{font-size:13px;display:flex;gap:6px;align-items:center}
 .ost.done{background:color-mix(in srgb,var(--ok) 18%,var(--card));color:var(--ok)}.ost.billed{background:color-mix(in srgb,#b07cf0 20%,var(--card));color:#b07cf0}
 .ost.archived{color:var(--muted)}.ost.bad{background:color-mix(in srgb,var(--bad) 18%,var(--card));color:var(--bad)}
 .oadd{display:block;border:1px dashed var(--line);border-radius:12px;padding:9px;text-align:center;color:var(--muted);font-weight:600;font-size:14px;text-decoration:none}

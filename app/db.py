@@ -284,6 +284,8 @@ class Store:
         "img_hash": "TEXT",
         "location_id": "INTEGER",     # Lagerort (Tabelle locations)
         "order_item_id": "INTEGER",   # Auftragsposition, für die dieser Druck gedruckt wurde (app/orders.py)
+        "order_state": "TEXT",        # Zuordnung zum Auftrag: auto | ask (Hinweis offen) | confirmed | none, leer = noch nicht geprüft
+        "order_cands": "TEXT",        # JSON [Positions-ID, …]: passende Positionen für den Hinweis
     }
 
     # Echter Druck (keine Projekt-Zeile): nur diese zählen in Statistik, Kosten-Kacheln, Kalender.

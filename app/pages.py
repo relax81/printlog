@@ -2968,6 +2968,8 @@ def page_settings(store: Store, saved: str | None, logo: str | None = None,
 <span class="ig"><input class="num" id="trash_days" name="trash_days" inputmode="numeric" value="{e(cfg.get("trash_days") or "30")}"><i>{t("Tage")}</i></span>
 <a class="btn sm" href="trash">{t("Papierkorb öffnen ({n})", n=store.trash_count())}</a></span>
 <small class="fhint muted">{t("Gelöschte Drucke landen erst im Papierkorb und lassen sich dort wiederherstellen. Nach dieser Zeit werden sie samt Fotos endgültig gelöscht.")}</small></div>
+<div class="frow"><label class="flbl" for="s_oauto">📋 {t("Aufträge: Druck zuordnen")}</label><select id="s_oauto" name="order_auto">{"".join(opt(k, t(v), _orders.auto_mode(store)) for k, v in _orders.AUTO_MODES.items())}</select>
+<small class="fhint muted">{t("Startet ein Druck, der zu einem offenen Auftrag passt (gleiches Modell oder gleicher Name), ordnet printlog ihn zu. Passen mehrere Aufträge, fragt die Glocke. „Immer fragen“ ordnet nie selbst zu.")}</small></div>
 <div class="frow"><label class="flbl" for="s_hn">🔔 {t("Hinweise an Home Assistant")}</label><span class="fctl">
 <input id="s_hn" name="hint_notify" value="{e(cfg.get("hint_notify") or "")}" placeholder="notify.mobile_app_… / persistent_notification" maxlength="120">
 <a class="btn sm" href="hints">{t("Hinweise öffnen")}</a> <a class="btn sm" href="models">🧩 {t("Modelle")}</a></span>
