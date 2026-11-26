@@ -606,7 +606,7 @@ def settings_section(store: Store) -> str:
     cfg = store.settings()
     wr, dr = cfg.get("work_rate") or "", cfg.get("design_rate") or ""
     return f"""<h2 style="margin-top:0">{t("Arbeitszeit")}</h2>
-<p class="muted">{t("Stundensätze für den Kasten „Arbeit & Zubehör“ in der Übersicht eines Drucks. Leer = Zeit wird nur notiert, nicht berechnet. Ob eine Marge auch auf die Arbeitszeit kommt, stellst du pro Marge (Tab „Margen“) und pro Kunde ein. Standard: nein, der Stundensatz ist schon dein Preis.")}</p>
+<p class="muted">{t("Stundensätze für den Kasten „Arbeit & Zubehör“ in der Übersicht eines Drucks. Leer = Zeit wird nur notiert, nicht berechnet. Ob die Marge auch auf die Arbeitszeit kommt, stellst du im Tab „Margen“ ein (Standard: ja), abweichend pro Marge oder pro Kunde.")}</p>
 <div class="zrates"><label>⏱ {t("Arbeit (Vorbereitung, Nachbearbeitung)")}<span><input class="num" name="work_rate" value="{e(fmt_input(parse_num(wr)))}" inputmode="decimal" placeholder="20"> €/h</span></label>
 <label>✏️ {t("Design")}<span><input class="num" name="design_rate" value="{e(fmt_input(parse_num(dr)))}" inputmode="decimal" placeholder="30"> €/h</span></label></div>
 <p class="muted">{t("Das Zubehör-Inventar (Ringe, Magnete …) steht jetzt oben unter „Lager“.")} <a href="storage">{t("Zum Lager")} →</a></p>"""

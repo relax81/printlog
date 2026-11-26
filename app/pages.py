@@ -113,14 +113,20 @@ class Margin(tuple):
         return m
 
 
+def work_default(store: Store) -> bool:
+    """Standard „Marge auch auf Arbeitszeit“ (Einstellung work_margin_default, ohne Wert = an)."""
+    return store.settings().get("work_margin_default") != "0"
+
+
 def margins(store: Store) -> list[Margin]:
     """Allgemeine Margen aus den Einstellungen, z. B. [("Privat", 30.0), ("Gewerbe", 60.0)]."""
     cfg = store.settings()
+    wd = "0" if cfg.get("work_margin_default") == "0" else "1"
     out = []
     for i in (1, 2):
         pct = parse_num(cfg.get(f"margin{i}_pct"))
         if pct is not None:
-            out.append(Margin(cfg.get(f"margin{i}_name") or t("Marge {i}", i=i), pct, cfg.get(f"margin{i}_work") == "1"))
+            out.append(Margin(cfg.get(f"margin{i}_name") or t("Marge {i}", i=i), pct, (cfg.get(f"margin{i}_work") or wd) == "1"))
     return out
 
 
@@ -2607,6 +2613,7 @@ def gift_period(period: str | None, von: str | None, bis: str | None) -> tuple[f
 def page_customers(store: Store, saved: str | None, show: str | None = None,
                    period: str | None = None, von: str | None = None, bis: str | None = None) -> str:
     all_customers = store.customers()
+    wdef = work_default(store)
     period = period if period in GIFT_PERIODS else ""
     since, until, month = gift_period(period, von, bis)
     gifts = store.gifts_by_customer(since, until)
@@ -2634,7 +2641,7 @@ def page_customers(store: Store, saved: str | None, show: str | None = None,
                 f'<td class="n" data-l="{e(t("Letzter Druck"))}" title="{fmt_ts(c["last_ts"]) if c["last_ts"] else ""}">{fmt_date(c["last_ts"], "date_s") if c["last_ts"] else "–"}</td>'
                 f'<td class="cact"><a class="btn sm" href="./?customer={c["id"]}">{t("Drucke")}</a>'
                 f'<button type="button" class="btn sm" data-edit="{c["id"]}" aria-expanded="false">{t("Bearbeiten")}</button></td></tr>'
-                f'<tr class="ced" id="ced{c["id"]}" hidden><td colspan="8">{_customer_form(c)}'
+                f'<tr class="ced" id="ced{c["id"]}" hidden><td colspan="8">{_customer_form(c, wdef)}'
                 f'<form method="post" action="customers/{c["id"]}/delete" class="d" id="cdel{c["id"]}"></form></td></tr>')
 
     rows = "".join(row(c) for c in customers) or ('<tr><td colspan="8" class="muted">' + (t("Im Zeitraum nichts verschenkt.") if show == "verschenkt" else
@@ -2667,7 +2674,7 @@ def page_customers(store: Store, saved: str | None, show: str | None = None,
 .gper{{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0}}.gper select,.gper input{{width:auto}}td .otag{{margin:2px 0 2px 4px}}{CUSTOMERS_CSS}</style>
 {banner}<div class="chead"><h2>{t("Kunden")}</h2>
 <button type="button" class="btn primary" id="newc" aria-expanded="{"true" if not all_customers else "false"}">+ {t("Neuer Kunde")}</button></div>
-<div class="cnew box"{"" if not all_customers else " hidden"}><h3>{t("Neuer Kunde")}</h3>{_customer_form(None)}</div>
+<div class="cnew box"{"" if not all_customers else " hidden"}><h3>{t("Neuer Kunde")}</h3>{_customer_form(None, wdef)}</div>
 {summary}
 <div class="wrap"><table class="stack ctab"><thead><tr><th>{t("Name · Kontakt · Notiz")}</th><th class="n">{t("Drucke")}</th><th class="n">{t("Offen")}</th><th class="n">{t("Bezahlt")}</th><th class="n">{t("Verschenkt")}</th>
 <th class="n calc">{t("Kosten")}</th><th class="n">{t("Letzter Druck")}</th><th></th></tr></thead><tbody>{rows}</tbody></table></div>
@@ -2725,7 +2732,7 @@ document.querySelectorAll('[data-cancel]').forEach(b=>b.onclick=()=>{const r=b.c
 """
 
 
-def _customer_form(c: dict[str, Any] | None) -> str:
+def _customer_form(c: dict[str, Any] | None, wdef: bool = True) -> str:
     """Formular für neuen oder bestehenden Kunden (gleiche Felder, beschriftet)."""
     c = c or {}
     hid = f'<input type="hidden" name="id" value="{c["id"]}">' if c.get("id") else ""
@@ -2741,7 +2748,7 @@ def _customer_form(c: dict[str, Any] | None) -> str:
             f'<label class="lf m calc" title="{e(t("Eigene Marge in %, hat Vorrang"))}">{t("Marge %")}'
             f'<input name="margin_pct" inputmode="decimal" value="{fmt_input(c.get("margin_pct"))}"{opt_ph}></label>'
             f'<label class="lf m calc" title="{e(t("Marge auch auf Arbeitszeit und Design"))}">{t("Marge auf Arbeit")}'
-            f'<select name="work_margin">{opt("", t("Standard (nein)"), wm)}{opt("1", t("ja"), wm)}{opt("0", t("nein"), wm)}</select></label>'
+            f'<select name="work_margin">{opt("", t("Standard (ja)") if wdef else t("Standard (nein)"), wm)}{opt("1", t("ja"), wm)}{opt("0", t("nein"), wm)}</select></label>'
             f'<div class="cbar">{_nobill_box(c.get("no_billing"))}<span class="sp"></span>{btns}</div></form>')
 
 
@@ -2863,13 +2870,14 @@ def page_settings(store: Store, saved: str | None, logo: str | None = None,
 
     banner = f'<div class="banner">{t("Gespeichert. {n} Drucke wurden neu berechnet.", n=e(saved))}</div>' if saved else ""
     cfg = store.settings()
+    wdflt = "0" if cfg.get("work_margin_default") == "0" else "1"
     margin_rows = "".join(
         f'<div class="frow"><span class="flbl">{t("Marge {i}", i=i)}</span><span class="fctl">'
         f'<input name="margin{i}_name" value="{e(cfg.get(f"margin{i}_name") or "")}" placeholder="{ph}" aria-label="{e(t("Name"))}" class="mname">'
         f'<span class="ig"><input class="num" name="margin{i}_pct" value="{e(cfg.get(f"margin{i}_pct") or "")}" inputmode="decimal" '
         f'placeholder="0" aria-label="{e(t("Aufschlag %"))}"><i>%</i></span>'
         f'<label class="mwork" title="{e(t("Aufschlag auch auf Arbeit und Design (sonst kommen sie zum Stundensatz dazu)"))}">'
-        f'<input type="checkbox" name="margin{i}_work" value="1"{" checked" if cfg.get(f"margin{i}_work") == "1" else ""}> {t("auch auf Arbeitszeit")}</label></span></div>'
+        f'<input type="checkbox" name="margin{i}_work" value="1"{" checked" if (cfg.get(f"margin{i}_work") or wdflt) == "1" else ""}> {t("auch auf Arbeitszeit")}</label></span></div>'
         for i, ph in ((1, t("z. B. Privat")), (2, t("z. B. Gewerbe")))
     )
     from datetime import datetime
@@ -2949,8 +2957,11 @@ def page_settings(store: Store, saved: str | None, logo: str | None = None,
         pane("arbeit", t("Arbeitszeit"), _extras.settings_section(store)),
         pane("margen", t("Margen"), f"""<h2 style="margin-top:0">{t("Margen")}</h2>
 <p class="muted">{t("Bis zu zwei allgemeine Aufschläge auf die Gesamtkosten. Jede Marge bekommt in der Tabelle eine eigene Spalte mit Verkaufspreis (und Preis pro Stück). Eine Marge pro Kunde stellst du unter „Kunden“ ein.")}</p>
-<div class="fbox">{margin_rows}</div>
-<p class="muted">{t("„Auch auf Arbeitszeit“: Ist dein Stundensatz schon dein Preis, bleibt es aus (Arbeit kommt nach der Marge dazu). Rechnest du den Stundensatz als Kosten (z. B. bei Gewerbekunden), schalte es ein. Pro Kunde unter „Kunden“ einstellbar.")}</p>
+<div class="fbox">{margin_rows}
+<div class="frow"><span class="flbl">{t("Standard")}</span><span class="fctl"><label class="mwork" style="margin-left:0">
+<input type="checkbox" name="work_margin_default" value="1"{" checked" if wdflt == "1" else ""}> {t("Marge auch auf Arbeitszeit")}</label></span>
+<small class="fhint muted">{t("Gilt für alle Kunden mit „Standard“ und für neue Margen. Abweichungen stellst du pro Marge oder pro Kunde ein.")}</small></div></div>
+<p class="muted">{t("„Auch auf Arbeitszeit“: Die Marge kommt auch auf Arbeit und Design. Ist dein Stundensatz schon dein Endpreis, schalte es aus, dann kommt die Arbeit erst nach der Marge dazu.")}</p>
 <h2>{t("Vorrat")}</h2>
 <div class="fbox"><div class="frow"><label class="flbl" for="s_stock">{t("Preis beim Abgeben aus dem Vorrat")}</label>
 <select id="s_stock" name="stock_price">{"".join(opt(k, t(v), cfg.get("stock_price") or "cost") for k, v in _split.STOCK_PRICE.items())}</select>
