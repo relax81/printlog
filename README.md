@@ -78,7 +78,8 @@ in a **light and a dark** colour scheme (Settings → View → Colour scheme, or
   automatically; 60–84 it assigns it tentatively and asks; 35–59 it only suggests one; below that it creates a new model.
   If two models fit almost equally well, it always asks. Your answers are remembered: a confirmed name becomes an alias,
   a rejected pair is never suggested again. The **Models** page (top menu) lists every model with its prints and lets you rename,
-  merge and remove aliases. On the first start the existing history is sorted into models silently, without questions.
+  merge (pick the target in a searchable list) and remove aliases; design time is set per model with a switch
+  **Once / Spread** (over N prints). On the first start the existing history is sorted into models silently, without questions.
 - **Notices** – a 🔔 bell at the top counts open questions (prints to check, accessories to restock). The **Notices** page
   answers them in one tap (*Yes, model X* / *Other model …* / *New model*); the list shows a coloured dot on such prints
   and the print page a banner. Optionally printlog also sends a Home Assistant notification (*Settings → View*).
@@ -475,7 +476,8 @@ in **hell und dunkel** (Einstellungen → Ansicht → Farbschema, oder automatis
   ordnet es automatisch zu, bei 60–84 vorläufig mit Nachfrage, bei 35–59 macht es nur einen Vorschlag, darunter legt es ein
   neues Modell an. Passen zwei Modelle fast gleich gut, fragt es immer. Deine Antworten merkt es sich: ein bestätigter Name
   wird Alias, ein abgelehntes Paar wird nie wieder vorgeschlagen. Die Seite **Modelle** (Menü oben) zeigt alle Modelle mit ihren Drucken;
-  dort lassen sie sich umbenennen, zusammenlegen und Aliase entfernen. Beim ersten Start sortiert printlog die vorhandene
+  dort lassen sie sich umbenennen, zusammenlegen (Ziel in einer Liste mit Suchfeld wählen) und Aliase entfernen; die
+  Designzeit stellst du pro Modell mit dem Umschalter **Einmalig / Verteilt** (auf N Drucke) ein. Beim ersten Start sortiert printlog die vorhandene
   Historie still in Modelle ein, ohne Rückfragen.
 - **Hinweise** – eine 🔔 Glocke oben zählt offene Fragen (Drucke prüfen, Zubehör nachkaufen). Auf der Seite **Hinweise**
   beantwortest du sie mit einem Tipp (*Ja, Modell X* / *Anderes Modell …* / *Neues Modell*); die Liste zeigt bei solchen
