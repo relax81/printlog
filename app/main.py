@@ -16,7 +16,7 @@ from .db import Store
 from .demo import create_demo_app
 from .ha import HomeAssistant
 from .logic import Processor
-from . import models
+from . import models, orders
 from .recovery import Recovery
 from .web import purge_expired, setup_routes
 
@@ -99,6 +99,10 @@ async def _start_background(app: web.Application) -> None:
                     log.exception("Sweeper-Fehler")
                 try:
                     hints = models.recognize_pending(store, IMAGE_DIR)
+                    try:
+                        hints += orders.match_pending(store)
+                    except Exception:  # noqa: BLE001
+                        log.exception("Auftrags-Zuordnung fehlgeschlagen")
                     target = (store.settings().get("hint_notify") or "").strip()
                     if hints and target and ha.connected:
                         if target == "persistent_notification":

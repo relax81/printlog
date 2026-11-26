@@ -351,6 +351,8 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
         if "hint_notify" in form:
             hn = str(form.get("hint_notify") or "").strip()
             store.set_setting("hint_notify", hn if re.fullmatch(r"[a-z_]+(\.[a-z0-9_]+)?", hn) else None)
+        if form.get("order_auto") in od.AUTO_MODES:
+            store.set_setting("order_auto", str(form["order_auto"]))
         if "theme" in form:
             store.set_setting("theme", str(form["theme"]) if form.get("theme") in THEMES else "auto")
         for key in ("backup_interval", "backup_weekday", "backup_hour"):
@@ -822,6 +824,22 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
             od.add_item(store, oid, mid, name, int(parse_num(form.get("qty")) or 1))
         raise web.HTTPSeeOther(f"order?id={oid}")
 
+    @routes.post("/orders/answer")
+    async def order_answer(request: web.Request) -> web.Response:
+        """Antwort auf „Für welchen Auftrag?“ (Glocke): item = Position, leer = kein Auftrag."""
+        form = await request.post()
+        job = str(form.get("job") or "")
+        if not job.isdigit() or not store.get(int(job)):
+            raise web.HTTPBadRequest()
+        item = str(form.get("item") or "")
+        if item and not (item.isdigit() and od.item_exists(store, int(item))):
+            raise web.HTTPBadRequest()
+        od.answer(store, int(job), int(item) if item else None)
+        back = str(form.get("back") or "")
+        if not re.fullmatch(r"(hints|job\?id=\d+)", back):
+            back = "hints"
+        raise web.HTTPSeeOther("../" + back)
+
     @routes.post("/orders/again")
     async def order_again(request: web.Request) -> web.Response:
         form = await request.post()
@@ -866,7 +884,7 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
                 od.link(store, job, None)
             extra = "#od"
         elif do == "bill":
-            target, err = od.bill(store, oid)
+            target, err = od.bill(store, oid, stock=str(form.get("stock") or "") == "1")
             if err:
                 saved = err
         elif do == "close":

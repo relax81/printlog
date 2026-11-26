@@ -134,3 +134,75 @@ def test_favoriten_wieder_drucken_und_seiten() -> None:
     mdl.delete_model(store, m2)
     it = od.order(store, oid)["items"][0]
     assert it["model_id"] is None and it["label"] == "Halter 2"
+
+
+def test_automatik_start_frage_und_vorrat() -> None:
+    store = _store()
+    cid = store.save_customer(None, "Café", None, None, 0)
+    cid2 = store.save_customer(None, "Verein", None, None, 0)
+    mid = mdl.create_model(store, "Untersetzer")
+    _job(store, "Untersetzer", 8, mid, ago=10 * 86400)  # Vorlage: 8 Stück pro Platte
+    assert od.match_pending(store) == []  # erster Lauf merkt sich nur den Start, alte Drucke bleiben
+    assert store.settings().get("orders_since")
+    store.set_setting("orders_since", str(time.time() - 60))
+
+    oid = od.create_order(store, cid, "Untersetzer", None, None, None)
+    it = od.add_item(store, oid, mid, None, 10)
+    run = _job(store, "Untersetzer", None, None, state="running", ago=30)
+    assert od.match_pending(store) == []
+    j = store.get(run)
+    assert j["order_item_id"] == it and j["order_state"] == "auto"
+    assert j["quantity"] == 8 and j["customer_id"] == cid  # Stück pro Platte vorbelegt, Kunde vom Auftrag
+    assert "automatisch" in od.job_chip(store, j)
+
+    # zweiter Auftrag mit gleichem Modell → Glocke fragt
+    oid2 = od.create_order(store, cid2, "Vereinsfest", None, None, None)
+    it2 = od.add_item(store, oid2, mid, None, 20)
+    store.update(run, state="done", status="fertig", end_ts=time.time())
+    run2 = _job(store, "Untersetzer", 8, None, state="running", ago=20)
+    hints = od.match_pending(store)
+    assert len(hints) == 1 and store.get(run2)["order_state"] == "ask"
+    assert od.question_count(store) == 1 and mdl.hint_count(store) >= 1
+    assert "Vereinsfest" in od.hint_cards(store) and "Auftrag?" in od.job_chip(store, store.get(run2))
+    assert od.match_pending(store) == []  # nicht noch einmal fragen
+    od.answer(store, run2, it2)
+    assert store.get(run2)["order_item_id"] == it2 and od.question_count(store) == 0
+    assert "Vereinsfest" not in od.hint_cards(store)
+
+    # „Immer fragen“: auch bei genau einem Treffer nachfragen; „Kein Auftrag“
+    store.update(run2, state="done", status="fertig", end_ts=time.time())
+    store.set_setting("order_auto", "ask")
+    run3 = _job(store, "Untersetzer", 8, None, state="running", ago=10)
+    assert len(od.match_pending(store)) == 1
+    od.answer(store, run3, None)
+    assert store.get(run3)["order_state"] == "none" and store.get(run3)["order_item_id"] is None
+    store.set_setting("order_auto", "off")
+    run4 = _job(store, "Untersetzer", 8, None, state="running", ago=5)
+    od.match_pending(store)
+    assert store.get(run4)["order_state"] is None
+
+    # Überschuss: 16 gedruckt, 10 bestellt → 6 in den Vorrat, Kunde bekommt Anteil mit 10
+    od.link(store, run4, it)
+    store.update(run4, state="done", status="fertig", end_ts=time.time())
+    o = od.order(store, oid)
+    assert o["state"] == "done" and od.surplus(o) == 6
+    target, err = od.bill(store, oid, stock=True)
+    assert err is None and store.get(target)["split"]
+    mine = [s for s in store.shares([target])[target] if s["customer_id"] == cid]
+    assert len(mine) == 1 and mine[0]["quantity"] == 10
+    assert store.get(target)["quantity"] == 16
+    assert od.order(store, oid)["state"] == "billed"
+
+
+def test_freitext_bekommt_modell() -> None:
+    store = _store()
+    store.set_setting("orders_since", str(time.time() - 3600))
+    oid = od.create_order(store, None, "Kleinkram", None, None, None)
+    it = od.add_item(store, oid, None, "Halter Akkuschrauber", 1)
+    run = _job(store, "Halter Akkuschrauber", 1, None, state="running", ago=60)
+    od.match_pending(store)
+    assert store.get(run)["order_item_id"] == it
+    mid = mdl.create_model(store, "Halter Akkuschrauber")
+    store.update(run, state="done", status="fertig", end_ts=time.time(), model_id=mid, model_state="new")
+    od.adopt_models(store)
+    assert od.order(store, oid)["items"][0]["model_id"] == mid

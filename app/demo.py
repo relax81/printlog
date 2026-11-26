@@ -397,17 +397,27 @@ def _orders(store: Store, cust_ids: list[int], pid: int | None, now: float, L: A
             od.add_item(store, oid, others[0], None, 6)
             used.add(others[0])
     # 2) Offen: drei Aufträge mit Termin, einer mit Freitext
+    open_first: list[tuple[int, int]] = []  # (Position, Modell) des ersten Eintrags je offenem Auftrag
     for k, (cid, title, due, qty) in enumerate(zip(billing[1:4], (("Dezember-Bestellung", "December order"), ("Geschenke", "Gifts"),
                                                                      ("Kleinkram", "Bits and pieces")), (3, 12, None), (6, 10, 2))):
         oid = od.create_order(store, cid, L(title), day(due) if due is not None else None, None, None)
         ms = fav_of(cid, used)
         if ms:
-            od.add_item(store, oid, ms[0], None, qty)
+            open_first.append((od.add_item(store, oid, ms[0], None, qty), ms[0]))
             used.add(ms[0])
+        if k == 1 and open_first:  # gleiches Modell wie in der Dezember-Bestellung: daraus wird eine Frage der Glocke
+            open_first.append((od.add_item(store, oid, open_first[0][1], None, 4), open_first[0][1]))
         if k == 0 and len(ms) > 1:
             od.add_item(store, oid, ms[1], None, 1)
         if k == 2:
             od.add_item(store, oid, None, L(("Halter Akkuschrauber (Modell suchen)", "Drill holder (find a model)")), 2)
+    # Glocke: ein fertiger Druck passt zu zwei offenen Aufträgen
+    same = [i for i, m in open_first if open_first and m == open_first[0][1]]
+    if len(same) > 1:
+        js = free_done(open_first[0][1], 1)
+        if js:
+            store.update(js[0]["id"], order_state="ask", order_cands=json.dumps(same))
+    store.set_setting("orders_since", f"{now:.0f}")
     # 3) Fertig: zwei gedruckte Positionen, vereinbarter Preis
     if len(billing) > 4:
         cid = billing[4]

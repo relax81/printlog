@@ -210,11 +210,22 @@ def recognize(store: Store, job_id: int, image_dir: Path, silent: bool = False) 
     if model_id:
         _adopt_design(store, model_id, job)
         apply_design(store, model_id)
+        if state == "auto" and not silent and job.get("quantity") is None:
+            _prefill_qty(store, job_id, model_id)
     if fields["model_hint"]:
         m = model(store, best[0]) if best else None
         hint = t("„{job}“ – Modell „{m}“? ({p} %)", job=job.get("task_name") or "?", m=(m or {}).get("name") or "?",
                  p=best[1] if best else 0)
     return hint
+
+
+def _prefill_qty(store: Store, job_id: int, model_id: int) -> None:
+    """Stück pro Platte wie beim letzten guten Druck des Modells vorbelegen (nur wenn mehr als 1)."""
+    from . import orders
+
+    pp = (orders.model_stats(store, [model_id]).get(model_id) or {}).get("per_plate")
+    if pp and pp > 1:
+        store.update(job_id, quantity=int(pp))
 
 
 def recognize_pending(store: Store, image_dir: Path) -> list[str]:
@@ -485,8 +496,10 @@ def open_hints(store: Store) -> list[dict[str, Any]]:
 def hint_count(store: Store) -> int:
     from . import extras
 
+    from . import orders
+
     n = store._conn.execute("SELECT COUNT(*) FROM jobs WHERE kind IS NULL AND model_hint = 1").fetchone()[0]
-    return int(n) + len(extras.low_stock(store))
+    return int(n) + len(extras.low_stock(store)) + orders.question_count(store)
 
 
 def names(store: Store) -> dict[int, str]:
@@ -561,8 +574,11 @@ def page_hints(store: Store) -> str:
     from . import extras
     from .ui import layout
 
+    from . import orders
+
     allm = names(store)
     cards = "".join(hint_card(store, j, "hints", allm, with_job=True) for j in open_hints(store))
+    ocards = orders.hint_cards(store)
     low = extras.low_stock(store)
     stock = ""
     if low:
@@ -574,10 +590,11 @@ def page_hints(store: Store) -> str:
             rows += (f'<li><span>{e(a.get("icon") or "🔹")} <b>{e(a["name"])}</b></span>'
                      f'<span class="muted">{e(t("{n} frei", n=fmt_input(round(free, 2))))}</span>{buy}</li>')
         stock = f'<h2>🧰 {e(t("Zubehör bald nachkaufen"))}</h2><ul class="lowl">{rows}</ul><p><a href="storage">{e(t("Zum Lager"))} →</a></p>'
-    empty = "" if cards or stock else f'<p class="muted">✓ {e(t("Keine offenen Hinweise."))}</p>'
+    empty = "" if cards or stock or ocards else f'<p class="muted">✓ {e(t("Keine offenen Hinweise."))}</p>'
     intro = (f'<p class="muted">{e(t("printlog ordnet jeden fertigen Druck einem Modell (Design) zu. Ist es nicht sicher, fragt es hier nach. Deine Antwort merkt es sich."))}'
              f' <a href="models">{e(t("Alle Modelle"))} →</a></p>')
     body = (f'<h2 style="margin-top:4px">🔔 {e(t("Hinweise"))}</h2>{intro}'
+            f'{"<h2>📋 " + e(t("Auftrag zuordnen")) + "</h2>" if ocards else ""}<div class="mhl">{ocards}</div>'
             f'{"<h2>🧩 " + e(t("Modell prüfen")) + "</h2>" if cards else ""}<div class="mhl">{cards}</div>{stock}{empty}')
     return layout(t("Hinweise"), "", f'<style>{CSS}</style>{body}')
 
@@ -736,7 +753,7 @@ CSS = """
 .mchip.y{border-color:#e3b505}.mchip.o{border-color:#e8873a}.mchip.r{border-color:var(--bad)}
 .mhint{display:flex;gap:14px;align-items:flex-start;border:1px solid var(--line);border-left:5px solid #e3b505;border-radius:14px;padding:12px 16px;
  background:var(--card);margin-bottom:14px}
-.mhint.o{border-left-color:#e8873a}.mhint.r{border-left-color:var(--bad)}
+.mhint.o{border-left-color:#e8873a}.mhint.ord{border-left-color:var(--accent)}.mhint.r{border-left-color:var(--bad)}
 .mhq{flex:1;min-width:0}.mhq>b{display:block;margin-bottom:8px}
 .mhopts{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start}
 .mhopts form{display:flex;flex-direction:column;gap:3px;margin:0}.mhopts small{color:var(--muted);font-size:11.5px;max-width:260px}
