@@ -77,8 +77,8 @@ in a **light and a dark** colour scheme (Settings → View → Colour scheme, or
   image +25, same print file +10, same plate +5, weight per piece within ±15 % +5. From 85 points it assigns the model
   automatically; 60–84 it assigns it tentatively and asks; 35–59 it only suggests one; below that it creates a new model.
   If two models fit almost equally well, it always asks. Your answers are remembered: a confirmed name becomes an alias,
-  a rejected pair is never suggested again. The **Models** page (top menu) lists every model with its prints and lets you rename,
-  merge (pick the target in a searchable list) and remove aliases; design time is set per model with a switch
+  a rejected pair is never suggested again. The **Models** page (top menu) lists every model with its prints and lets you rename (the old name stays as an alias, so
+  new prints with the old file name are still recognised), merge (pick the target in a searchable list) and remove aliases; design time is set per model with a switch
   **Once / Spread** (over N prints). On the first start the existing history is sorted into models silently, without questions.
   Mark models you print a lot with a **★ favourite**; filter chips show favourites, models printed often (5+), models not
   printed for a while, or the models of one customer. Each model shows who it is mostly printed for and how many pieces fit
@@ -496,7 +496,8 @@ in **hell und dunkel** (Einstellungen → Ansicht → Farbschema, oder automatis
   ordnet es automatisch zu, bei 60–84 vorläufig mit Nachfrage, bei 35–59 macht es nur einen Vorschlag, darunter legt es ein
   neues Modell an. Passen zwei Modelle fast gleich gut, fragt es immer. Deine Antworten merkt es sich: ein bestätigter Name
   wird Alias, ein abgelehntes Paar wird nie wieder vorgeschlagen. Die Seite **Modelle** (Menü oben) zeigt alle Modelle mit ihren Drucken;
-  dort lassen sie sich umbenennen, zusammenlegen (Ziel in einer Liste mit Suchfeld wählen) und Aliase entfernen; die
+  dort lassen sie sich umbenennen (der alte Name bleibt als Alias, neue Drucke mit
+  dem alten Dateinamen werden weiter erkannt), zusammenlegen (Ziel in einer Liste mit Suchfeld wählen) und Aliase entfernen; die
   Designzeit stellst du pro Modell mit dem Umschalter **Einmalig / Verteilt** (auf N Drucke) ein. Beim ersten Start sortiert printlog die vorhandene
   Historie still in Modelle ein, ohne Rückfragen.
   Modelle, die du oft druckst, markierst du mit einem **★ Favoriten**; Filter-Chips zeigen Favoriten, oft gedruckte (5+),
