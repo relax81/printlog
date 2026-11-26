@@ -2126,6 +2126,7 @@ def page_job(store: Store, job: dict[str, Any], saved: str | None) -> str:
                    f'title="{e(t("Projekt-ID: tippe sie in die Suche, um den Druck wiederzufinden. Klick kopiert."))}">'
                    f'# {e(code_label(job["code"]))}</button>')
     badges += _models.chip(store, job)
+    badges += _orders.job_chip(store, job)
     if not parent and job.get("kind") != "share":
         badges += _storage.loc_chip(job)
     if job.get("is_scrap"):
@@ -3372,3 +3373,4 @@ from . import split as _split  # noqa: E402  (nutzt Helfer aus diesem Modul)
 from . import extras as _extras  # noqa: E402
 from . import models as _models  # noqa: E402
 from . import storage as _storage  # noqa: E402
+from . import orders as _orders  # noqa: E402

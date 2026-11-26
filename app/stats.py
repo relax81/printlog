@@ -276,7 +276,7 @@ def _revenue_card(keys: list[str], labels: list[str], rv: dict[str, Any]) -> str
         series = series[:2]
     rows = "".join(
         f'<tr><td><a href="customer?id={c["id"]}">{e(c["name"])}</a></td>'
-        f'<td class="n" data-l="{e(t("Aufträge"))}">{c["n"]}</td>'
+        f'<td class="n" data-l="{e(t("Drucke"))}">{c["n"]}</td>'
         f'<td class="n" data-l="{e(t("Umsatz"))}">{fmt_num(c["revenue"], 2, "€")}</td>'
         f'<td class="n" data-l="{e(t("Bezahlt"))}">{fmt_num(c["paid"], 2, "€")}</td>'
         f'<td class="n" data-l="{e(t("Offen"))}">{fmt_num(c["open"], 2, "€") if c["open"] >= 0.005 else "–"}</td>'
@@ -287,7 +287,7 @@ def _revenue_card(keys: list[str], labels: list[str], rv: dict[str, Any]) -> str
             f'<div class="grid2"><div class="card"><h3>{t("Umsatz = Selbstkosten + Gewinn")}</h3>'
             f'{bar_chart(keys, labels, series, rv["buckets"], _fmt_eur)}</div>'
             f'<div class="card"><h3>{t("Kunden im Zeitraum")}</h3><div class="wrap" style="border:0"><table class="stack rvt">'
-            f'<thead><tr><th>{t("Kunde")}</th><th class="n">{t("Aufträge")}</th><th class="n">{t("Umsatz")}</th><th class="n">{t("Bezahlt")}</th>'
+            f'<thead><tr><th>{t("Kunde")}</th><th class="n">{t("Drucke")}</th><th class="n">{t("Umsatz")}</th><th class="n">{t("Bezahlt")}</th>'
             f'<th class="n">{t("Offen")}</th><th class="n">{t("Gewinn")}</th><th class="n">{t("Verschenkt")}</th></tr></thead><tbody>{rows}</tbody></table></div></div></div>'
             f'<p class="muted" style="font-size:13px;margin:8px 0 0">{t("Nach Druckstart. Preis = Endpreis oder Kosten + Kundenmarge; wurde mehr bezahlt, zählt das Gezahlte. Ohne Kunden mit „Keine Abrechnung“ und ohne Fehldrucke, die nicht berechnet werden.")}</p>')
 

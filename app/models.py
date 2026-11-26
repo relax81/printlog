@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from .db import Store, code_label
-from .i18n import t
+from .i18n import N_, t, tn
 from .ui import e, fmt_date, fmt_input, fmt_num
 
 log = logging.getLogger("printlog.models")
@@ -343,16 +343,20 @@ def _drop_if_empty(store: Store, model_id: int | None, keep: int | None = None) 
         return
     m = model(store, model_id)
     used = store._conn.execute("SELECT 1 FROM jobs WHERE model_id = ? LIMIT 1", (model_id,)).fetchone()
-    if m and not used and not m.get("design_min"):
+    used = used or store._conn.execute("SELECT 1 FROM order_items WHERE model_id = ? LIMIT 1", (model_id,)).fetchone()
+    if m and not used and not m.get("design_min") and not m.get("fav"):
         delete_model(store, model_id)
 
 
 def delete_model(store: Store, model_id: int) -> None:
     with store._lock, store._conn:
+        store._conn.execute("UPDATE order_items SET name = COALESCE(name, (SELECT name FROM models WHERE id = ?)) WHERE model_id = ?",
+                            (model_id, model_id))
         store._conn.execute("DELETE FROM models WHERE id = ?", (model_id,))
         store._conn.execute("DELETE FROM model_aliases WHERE model_id = ?", (model_id,))
         store._conn.execute("DELETE FROM model_rejects WHERE model_id = ?", (model_id,))
         store._conn.execute("UPDATE jobs SET model_id = NULL, model_state = NULL WHERE model_id = ?", (model_id,))
+        store._conn.execute("UPDATE order_items SET model_id = NULL WHERE model_id = ?", (model_id,))  # bleibt als Freitext
 
 
 def merge(store: Store, src: int, dst: int) -> None:
@@ -367,6 +371,9 @@ def merge(store: Store, src: int, dst: int) -> None:
         store._conn.execute("INSERT OR IGNORE INTO model_aliases (model_id, alias) SELECT ?, alias FROM model_aliases WHERE model_id = ?",
                             (dst, src))
         store._conn.execute("INSERT OR IGNORE INTO model_aliases (model_id, alias) VALUES (?, ?)", (dst, normalize(a["name"])))
+        store._conn.execute("UPDATE order_items SET model_id = ? WHERE model_id = ?", (dst, src))
+        if a.get("fav") and not b.get("fav"):
+            store._conn.execute("UPDATE models SET fav = 1 WHERE id = ?", (dst,))
         if not b.get("design_min") and a.get("design_min"):
             store._conn.execute("UPDATE models SET design_min = ?, design_mode = ?, spread_n = ? WHERE id = ?",
                                 (a["design_min"], a.get("design_mode"), a.get("spread_n"), dst))
@@ -377,7 +384,7 @@ def merge(store: Store, src: int, dst: int) -> None:
 
 
 def save_model(store: Store, model_id: int, **f: Any) -> None:
-    allowed = {k: v for k, v in f.items() if k in ("name", "design_min", "design_mode", "spread_n", "note")}
+    allowed = {k: v for k, v in f.items() if k in ("name", "design_min", "design_mode", "spread_n", "note", "fav")}
     if not allowed:
         return
     sets = ", ".join(f"{k} = ?" for k in allowed)
@@ -575,7 +582,13 @@ def page_hints(store: Store) -> str:
     return layout(t("Hinweise"), "", f'<style>{CSS}</style>{body}')
 
 
-def page_models(store: Store, q: str | None = None) -> str:
+FILTERS = {"": N_("Alle"), "fav": N_("★ Favoriten"), "often": N_("Oft gedruckt (5+)"), "old": N_("Lange nicht gedruckt")}
+OFTEN_N = 5
+OLD_DAYS = 90
+
+
+def page_models(store: Store, q: str | None = None, flt: str | None = None, cid: int | None = None) -> str:
+    from . import orders as od
     from .ui import layout
 
     rows = [dict(r) for r in store._conn.execute(
@@ -588,13 +601,46 @@ def page_models(store: Store, q: str | None = None) -> str:
     for r in store._conn.execute("SELECT * FROM model_aliases ORDER BY alias"):
         aliases.setdefault(r["model_id"], []).append(r["alias"])
     all_rows = sorted(rows, key=lambda r: r["name"].casefold())
+    total = len(rows)
+    n_fav = sum(1 for r in rows if r.get("fav"))
+    flt = flt if flt in FILTERS else ""
     if q:
         qn = normalize(q)
         rows = [r for r in rows if qn in normalize(r["name"]) or any(qn in a for a in aliases.get(r["id"], []))]
+    if cid:
+        mine = {r[0]: r[1] for r in store._conn.execute(
+            "SELECT model_id, COUNT(*) FROM jobs WHERE kind IS NULL AND customer_id = ? AND model_id IS NOT NULL GROUP BY model_id", (cid,))}
+        rows = sorted((r for r in rows if r["id"] in mine), key=lambda r: -mine[r["id"]])
+    if flt == "fav":
+        rows = [r for r in rows if r.get("fav")]
+    elif flt == "often":
+        rows = sorted((r for r in rows if r["n"] >= OFTEN_N), key=lambda r: -r["n"])
+    elif flt == "old":
+        rows = sorted((r for r in rows if r.get("last") and r["last"] < time.time() - OLD_DAYS * 86400), key=lambda r: r["last"])
+    elif not cid:
+        rows = sorted(rows, key=lambda r: not r.get("fav"))  # Favoriten zuerst, sonst wie bisher (zuletzt gedruckt)
+    tops = od.top_customers(store)
+    plates = {r["model_id"]: r["quantity"] for r in store._conn.execute(
+        f"SELECT model_id, quantity FROM jobs WHERE kind IS NULL AND model_id IS NOT NULL AND state = 'done' AND NOT {Store.SCRAP_SQL} "
+        "ORDER BY start_ts")}
+    here = "models" + ("?" + "&".join(p for p in (f"f={flt}" if flt else "", f"c={cid}" if cid else "", ) if p) if flt or cid else "")
+    favs = ""
     items = ""
     for r in rows:
         mid = r["id"]
         act = f"api/models/{mid}"
+        fav = bool(r.get("fav"))
+        favs += (f'<form id="fav{mid}" method="post" action="{act}" hidden><input type="hidden" name="fav" value="{"0" if fav else "1"}">'
+                 f'<input type="hidden" name="back" value="{e(here)}"></form>')
+        top = tops.get(mid)
+        meta = []
+        if top:
+            meta.append(t("meist für {c} ({n}×)", c=top[1], n=top[2]))
+        if plates.get(mid):
+            meta.append(tn(plates[mid], "zuletzt {n} Stk. pro Platte", "zuletzt {n} Stk. pro Platte"))
+        meta_html = f'<span class="mfor">{e(" · ".join(meta))}</span>' if meta else ""
+        star = (f'<button form="fav{mid}" class="mstar{" on" if fav else ""}" title="{e(t("Favorit entfernen") if fav else t("Als Favorit markieren"))}" '
+                f'aria-pressed="{"true" if fav else "false"}">{"★" if fav else "☆"}</button>')
         al = "".join(f'<form method="post" action="{act}" class="al"><input type="hidden" name="unalias" value="{e(a)}">'
                      f'<span>{e(a)}</span><button title="{e(t("Alias entfernen"))}">×</button></form>' for a in aliases.get(mid, []))
         spread = r.get("design_mode") == "spread"
@@ -602,9 +648,9 @@ def page_models(store: Store, q: str | None = None) -> str:
         dm = fmt_input(r.get("design_min")) if r.get("design_min") else ""
         items += (
             f'<div class="mdrow" id="m{mid}" data-n="{e(r["name"].casefold())}"><div class="mimg">{_img(r)}</div>'
-            f'<form method="post" action="{act}" class="mdf"><div class="mdname"><input name="name" value="{e(r["name"])}" maxlength="120" aria-label="{e(t("Name"))}">'
+            f'<form method="post" action="{act}" class="mdf"><div class="mdname"><div class="mnl">{star}<input name="name" value="{e(r["name"])}" maxlength="120" aria-label="{e(t("Name"))}"></div>'
             f'<small class="muted">{dot_.strip()}<a href="./?model={mid}">{e(t("{n} Drucke", n=r["n"]))}</a>'
-            + (f' · {e(t("zuletzt {d}", d=fmt_date(r["last"])))}' if r.get("last") else "") + f'</small>'
+            + (f' · {e(t("zuletzt {d}", d=fmt_date(r["last"])))}' if r.get("last") else "") + f'</small>{meta_html}'
             f'<div class="als">{al}</div></div>'
             f'<div class="mdbox"><label class="mdes"><span class="lb">✏️ {e(t("Design"))}</span>'
             f'<span class="mv"><input class="num" name="design_min" value="{dm}" inputmode="decimal" placeholder="0"> min</span></label>'
@@ -613,11 +659,20 @@ def page_models(store: Store, q: str | None = None) -> str:
             f'<label><input type="radio" name="design_mode" value="spread"{" checked" if spread else ""}><span>{e(t("Verteilt"))}</span></label></div>'
             f'<span class="spn"{"" if spread else " hidden"}>{e(t("auf"))} <input class="num" name="spread_n" value="{r.get("spread_n") or 3}" inputmode="numeric"> {e(t("Drucke"))}</span></div></div>'
             f'<div class="mact"><button class="btn msave">{e(t("Speichern"))}</button>'
+            f'<button type="button" class="btn oagain" data-model="{mid}">↻ {e(t("Wieder drucken …"))}</button>'
             f'<button type="button" class="btn mmb" data-id="{mid}" data-name="{e(r["name"])}">⇢ {e(t("Zusammenlegen …"))}</button></div></form></div>')
     data = json.dumps([{"id": r["id"], "name": r["name"], "n": r["n"], "img": r.get("image") or ""} for r in all_rows],
                       ensure_ascii=False).replace("</", "<\\/")
     if not items:
-        items = f'<p class="muted">{e(t("Noch keine Modelle. Sie entstehen automatisch, sobald ein Druck fertig ist."))}</p>'
+        items = (f'<p class="muted">{e(t("Keine Modelle für diesen Filter."))}</p>' if total else
+                 f'<p class="muted">{e(t("Noch keine Modelle. Sie entstehen automatisch, sobald ein Druck fertig ist."))}</p>')
+    custs = [c for c in store.customers() if c.get("id")]
+    copt = "".join(f'<option value="{c["id"]}"{" selected" if c["id"] == cid else ""}>{e(c["name"])}</option>' for c in custs)
+    qs = lambda f_: "models" + ("?" + "&".join(x for x in (f"f={f_}" if f_ else "", f"c={cid}" if cid else "") if x) if f_ or cid else "")  # noqa: E731
+    chips = "".join(f'<a href="{qs(k)}" class="{"on" if k == flt else ""}">{e(t(v))}'
+                    f'{"<i>" + str(total) + "</i>" if k == "" else "<i>" + str(n_fav) + "</i>" if k == "fav" else ""}</a>' for k, v in FILTERS.items())
+    chips += (f'<form method="get" class="mcf">{f"<input type=hidden name=f value={flt}>" if flt else ""}'
+              f'<select name="c" onchange="this.form.submit()" aria-label="{e(t("Kunde"))}"><option value="">{e(t("Kunde: alle"))}</option>{copt}</select></form>')
     intro = e(t("Ein Modell ist ein Design, das du öfter druckst, egal auf welchem Drucker oder welcher Platte. printlog erkennt es am Namen, am Vorschaubild und an der Druckdatei. Die Designzeit wird einmal beim ersten berechneten Druck berechnet oder auf mehrere verteilt."))
     search = (f'<form class="msrch" method="get"><input type="search" name="q" value="{e(q or "")}" placeholder="{e(t("Modell suchen …"))}"></form>')
     js = MODELS_JS.replace("%Q%", json.dumps(t("„{a}“ mit „{b}“ zusammenlegen? Drucke und Namen wandern in „{b}“.")))
@@ -626,8 +681,8 @@ def page_models(store: Store, q: str | None = None) -> str:
                  f'<label class="srch">🔍<input type="search" autocomplete="off" placeholder="{e(t("Modell suchen …"))}"></label>'
                  f'<div class="lst"></div><form method="post" class="mmf"><input type="hidden" name="merge"></form></div><div id="mmbg" class="mmbg" hidden></div>')
     body = (f'<h2 style="margin-top:4px">🧩 {e(t("Modelle"))}</h2><p class="muted">{intro} <a href="hints">🔔 {e(t("Hinweise"))}</a></p>'
-            f'{search}<div class="ml">{items}</div>{merge_dlg}')
-    return layout(t("Modelle"), "models", f'<style>{CSS}</style>{body}', js)
+            f'{search}<div class="mchips">{chips}</div><div class="ml">{items}</div>{favs}{merge_dlg}{od.again_dialog(store)}')
+    return layout(t("Modelle"), "models", f'<style>{CSS}{od.CSS}</style>{body}', js + od.AGAIN_JS)
 
 
 MODELS_JS = r"""
@@ -691,14 +746,20 @@ CSS = """
 .mhj b{display:block;font-size:14.5px;overflow-wrap:anywhere}.mhj small{color:var(--muted);font-size:12px}
 .mhl{display:flex;flex-direction:column}.lowl{list-style:none;padding:0;margin:0 0 8px}
 .lowl li{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line);flex-wrap:wrap}
-.msrch input{width:100%;max-width:420px;margin:4px 0 14px}
+.msrch input{width:100%;max-width:420px;margin:4px 0 10px}
 .ml{display:flex;flex-direction:column;gap:10px}
 .mdrow{display:grid;grid-template-columns:64px minmax(0,1fr);gap:14px;align-items:center;background:var(--card);border:1px solid var(--line);
  border-radius:14px;padding:12px 14px}
 .mdrow.mdhl{box-shadow:0 0 0 2px var(--accent)}
 .mimg img,.mimg .ph{width:64px;height:64px;border-radius:10px;object-fit:cover;display:block;background:var(--bg)}
 .mdf{display:grid;grid-template-columns:minmax(0,1fr) 270px auto;gap:16px;align-items:center;margin:0}
-.mdname input{font-weight:700;width:100%;box-sizing:border-box}.mdname small{display:block;margin-top:5px}
+.mdname input{font-weight:700;width:100%;box-sizing:border-box}.mnl{display:flex;align-items:center;gap:6px}
+.mstar{border:0;background:none;font-size:22px;line-height:1;cursor:pointer;color:var(--muted);padding:2px 4px;min-height:0}.mstar.on{color:#e3b505}
+.mfor{display:block;font-size:12.5px;color:var(--muted);margin-top:3px}
+.mchips{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 12px}
+.mchips a{border:1px solid var(--line);border-radius:999px;padding:5px 12px;font-size:13.5px;font-weight:600;color:var(--muted);text-decoration:none;background:var(--card)}
+.mchips a.on{background:color-mix(in srgb,var(--accent) 20%,var(--card));color:var(--fg);border-color:color-mix(in srgb,var(--accent) 55%,var(--line))}
+.mchips a i{font-style:normal;opacity:.7;margin-left:5px}.mcf{margin:0}.mcf select{min-height:34px;border-radius:999px;padding:0 10px;width:auto;max-width:240px}.mdname small{display:block;margin-top:5px}
 .als{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}.als:empty{display:none}
 .al{display:inline-flex;align-items:center;gap:2px;border:1px solid var(--line);border-radius:999px;padding:0 2px 0 9px;font-size:12px;color:var(--muted);margin:0}
 .al button{border:0;background:none;color:var(--muted);cursor:pointer;padding:2px 6px;min-height:0}

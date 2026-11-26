@@ -80,6 +80,17 @@ in a **light and a dark** colour scheme (Settings → View → Colour scheme, or
   a rejected pair is never suggested again. The **Models** page (top menu) lists every model with its prints and lets you rename,
   merge (pick the target in a searchable list) and remove aliases; design time is set per model with a switch
   **Once / Spread** (over N prints). On the first start the existing history is sorted into models silently, without questions.
+  Mark models you print a lot with a **★ favourite**; filter chips show favourites, models printed often (5+), models not
+  printed for a while, or the models of one customer. Each model shows who it is mostly printed for and how many pieces fit
+  on a plate, and **Print again …** puts it straight into an order (see below).
+- **Orders** – what a customer ordered, from the request to the bill. An order has a customer, a title, an optional due
+  date and an **agreed price**, and one or more items: a known model or **free text** for something you have never printed.
+  The **Orders** page is a board *Open / In progress / Done · to bill* (tabs on the phone). Assign prints to an item and
+  printlog counts the pieces (failed prints do not count), shows a running print live, sets the order's customer on the
+  print and estimates what is left from the model's recent prints: plates, print time and a price with the customer margin.
+  **To billing** groups the prints into a project (a single print stays single) and the agreed price becomes its final price;
+  payment and hand-over then work as usual, and once both are done the order moves to the archive. **Print again …** on the
+  Models and customer pages suggests the customer, the last quantity and an open order of that customer.
 - **Notices** – a 🔔 bell at the top counts open questions (prints to check, accessories to restock). The **Notices** page
   answers them in one tap (*Yes, model X* / *Other model …* / *New model*); the list shows a coloured dot on such prints
   and the print page a banner. Optionally printlog also sends a Home Assistant notification (*Settings → View*).
@@ -134,9 +145,9 @@ in a **light and a dark** colour scheme (Settings → View → Colour scheme, or
 - **Customers** – partial payments and partial hand-overs, gifts, open amounts per customer. Tick **No billing** for
   a customer you only use for your own prints (e.g. models you upload): costs and statistics still count, but there are
   never open amounts, unpaid or not-handed-over badges, no "Billing" tab and no payment status on receipt or PDF.
-  Click a name for the **customer page**: orders, revenue, paid/open, own costs, profit and gifts (all time, this year or
+  Click a name for the **customer page**: prints, revenue, paid/open, own costs, profit and gifts (all time, this year or
   last 12 months), revenue per month, print hours, filament, average days until paid, oldest open amount, failed prints,
-  hand-overs, recent orders, filament used and models printed more than once.
+  hand-overs, recent prints, filament used, the customer's **orders** and what they **order often** (with **Again** to reorder).
   The customer list stays compact: **Edit** opens the fields right in the row, **+ New customer** sits top right.
 - **Sharing** – a receipt-style PNG for the customer (WhatsApp etc.), an internal version with the full calculation,
   and an A4 PDF cost sheet, in the language of the interface.
@@ -159,7 +170,8 @@ in a **light and a dark** colour scheme (Settings → View → Colour scheme, or
 | <a href="docs/screenshots/en/split-detail.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/split-detail.png"><img src="docs/screenshots/en/split-detail.png" alt="Split: each customer with price, payment and hand-over, rest in stock"></picture></a><br>**Split: each customer with price, payment and hand-over, rest in stock** | <a href="docs/screenshots/en/split-dialog.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/split-dialog.png"><img src="docs/screenshots/en/split-dialog.png" alt="Split window: pieces per customer, stock is calculated"></picture></a><br>**Split window: pieces per customer, stock is calculated** |
 | <a href="docs/screenshots/en/stock.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/stock.png"><img src="docs/screenshots/en/stock.png" alt="Stock: what is left on the shelf and its value"></picture></a><br>**Stock: what is left on the shelf and its value** | <a href="docs/screenshots/en/work-accessories.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/work-accessories.png"><img src="docs/screenshots/en/work-accessories.png" alt="Labour & accessories on the print page"></picture></a><br>**Labour & accessories on the print page** |
 | <a href="docs/screenshots/en/accessory-picker.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/accessory-picker.png"><img src="docs/screenshots/en/accessory-picker.png" alt="Pick accessories from the inventory"></picture></a><br>**Pick accessories from the inventory** | <a href="docs/screenshots/en/accessory-inventory.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/accessory-inventory.png"><img src="docs/screenshots/en/accessory-inventory.png" alt="Storage: accessory inventory with location and buy link"></picture></a><br>**Storage: accessory inventory with location and buy link** |
-| <a href="docs/screenshots/en/hints.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/hints.png"><img src="docs/screenshots/en/hints.png" alt="Notices: check models with one tap"></picture></a><br>**Notices: check models with one tap** | <a href="docs/screenshots/en/models.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/models.png"><img src="docs/screenshots/en/models.png" alt="Models: rename, design time, merge"></picture></a><br>**Models: rename, design time, merge** |
+| <a href="docs/screenshots/en/orders.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/orders.png"><img src="docs/screenshots/en/orders.png" alt="Orders: open, in progress, done"></picture></a><br>**Orders: open, in progress, done** | <a href="docs/screenshots/en/order-detail.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/order-detail.png"><img src="docs/screenshots/en/order-detail.png" alt="An order: items, assigned prints, billing"></picture></a><br>**An order: items, assigned prints, billing** |
+| <a href="docs/screenshots/en/hints.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/hints.png"><img src="docs/screenshots/en/hints.png" alt="Notices: check models with one tap"></picture></a><br>**Notices: check models with one tap** | <a href="docs/screenshots/en/models.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/models.png"><img src="docs/screenshots/en/models.png" alt="Models: favourites, design time, print again"></picture></a><br>**Models: favourites, design time, print again** |
 | <a href="docs/screenshots/en/locations.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/locations.png"><img src="docs/screenshots/en/locations.png" alt="Storage: locations for accessories and prints"></picture></a><br>**Storage: locations for accessories and prints** | <a href="docs/screenshots/en/location.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/location.png"><img src="docs/screenshots/en/location.png" alt="A location with its fixed ID and contents"></picture></a><br>**A location with its fixed ID and contents** |
 
 | Phone: prints | Phone: print detail | Phone: open items | Phone: stock |
@@ -479,6 +491,18 @@ in **hell und dunkel** (Einstellungen → Ansicht → Farbschema, oder automatis
   dort lassen sie sich umbenennen, zusammenlegen (Ziel in einer Liste mit Suchfeld wählen) und Aliase entfernen; die
   Designzeit stellst du pro Modell mit dem Umschalter **Einmalig / Verteilt** (auf N Drucke) ein. Beim ersten Start sortiert printlog die vorhandene
   Historie still in Modelle ein, ohne Rückfragen.
+  Modelle, die du oft druckst, markierst du mit einem **★ Favoriten**; Filter-Chips zeigen Favoriten, oft gedruckte (5+),
+  lange nicht gedruckte oder die Modelle eines Kunden. Jedes Modell zeigt, für wen es meist gedruckt wird und wie viele Stück
+  auf eine Platte passen, und **Wieder drucken …** legt es direkt in einen Auftrag (siehe unten).
+- **Aufträge** – was ein Kunde bestellt hat, von der Anfrage bis zur Abrechnung. Ein Auftrag hat Kunde, Titel, optional
+  „bis“ (Datum) und einen **vereinbarten Preis** sowie eine oder mehrere Positionen: ein bekanntes Modell oder **Freitext** für
+  etwas, das du noch nie gedruckt hast. Die Seite **Aufträge** ist ein Board *Offen / In Arbeit / Fertig · abrechnen* (am Handy
+  als Reiter). Ordnest du Drucke einer Position zu, zählt printlog die Stück mit (Fehldrucke zählen nicht), zeigt einen
+  laufenden Druck live, trägt den Kunden des Auftrags am Druck ein und schätzt aus den letzten Drucken des Modells, was noch
+  fehlt: Platten, Druckzeit und einen Preis mit Kundenmarge. **Zur Abrechnung** fasst die Drucke zum Projekt zusammen (ein
+  einzelner Druck bleibt einzeln), der vereinbarte Preis wird Endpreis; Zahlung und Übergabe laufen dann wie gewohnt, danach
+  wandert der Auftrag ins Archiv. **Wieder drucken …** auf der Modell- und der Kundenseite schlägt Kunde, letzte Stückzahl und
+  einen offenen Auftrag dieses Kunden vor.
 - **Hinweise** – eine 🔔 Glocke oben zählt offene Fragen (Drucke prüfen, Zubehör nachkaufen). Auf der Seite **Hinweise**
   beantwortest du sie mit einem Tipp (*Ja, Modell X* / *Anderes Modell …* / *Neues Modell*); die Liste zeigt bei solchen
   Drucken einen farbigen Punkt, die Druckseite ein Banner. Optional schickt printlog zusätzlich eine Home-Assistant-Nachricht
@@ -536,9 +560,10 @@ in **hell und dunkel** (Einstellungen → Ansicht → Farbschema, oder automatis
 - **Kunden** – Teilzahlungen und Teilübergaben, Verschenktes, offene Beträge pro Kunde. Mit dem Häkchen **Keine Abrechnung**
   wird ein Kunde zum reinen Sammelplatz für Eigenbedarf (z. B. Modelle für eigene Uploads): Kosten und Statistik zählen
   weiter, aber es gibt nie Offenes, keine Badges „nicht bezahlt/nicht übergeben“, keinen Tab „Abrechnung“ und keinen Zahlungsstand auf Bon und PDF.
-  Ein Klick auf den Namen öffnet die **Kundenseite**: Aufträge, Umsatz, bezahlt/offen, Selbstkosten, Gewinn und Verschenktes
+  Ein Klick auf den Namen öffnet die **Kundenseite**: Drucke, Umsatz, bezahlt/offen, Selbstkosten, Gewinn und Verschenktes
   (gesamt, dieses Jahr oder letzte 12 Monate), Umsatz pro Monat, Druckstunden, Filament, Ø Tage bis Zahlung, ältester offener
-  Betrag, Fehldrucke, Übergaben, letzte Aufträge, verwendetes Filament und öfter gedruckte Modelle.
+  Betrag, Fehldrucke, Übergaben, letzte Drucke, verwendetes Filament, die **Aufträge** des Kunden und was er **oft bestellt**
+  (mit **Nochmal** zum Nachbestellen).
   Die Kundenliste bleibt kompakt: **Bearbeiten** klappt die Felder direkt in der Zeile auf, **+ Neuer Kunde** steht oben rechts.
 - **Teilen** – ein PNG im Kassenbon-Stil für Kunden (WhatsApp usw.), eine interne Variante mit voller Kalkulation und
   eine A4-PDF-Kostenaufstellung, jeweils in der Sprache der Oberfläche.
@@ -561,7 +586,8 @@ in **hell und dunkel** (Einstellungen → Ansicht → Farbschema, oder automatis
 | <a href="docs/screenshots/de/split-detail.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/split-detail.png"><img src="docs/screenshots/de/split-detail.png" alt="Aufteilung: jeder Kunde mit Preis, Zahlung und Übergabe, Rest im Vorrat"></picture></a><br>**Aufteilung: jeder Kunde mit Preis, Zahlung und Übergabe, Rest im Vorrat** | <a href="docs/screenshots/de/split-dialog.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/split-dialog.png"><img src="docs/screenshots/de/split-dialog.png" alt="Fenster Aufteilen: Stück pro Kunde, der Vorrat rechnet sich aus"></picture></a><br>**Fenster „Aufteilen“: Stück pro Kunde, der Vorrat rechnet sich aus** |
 | <a href="docs/screenshots/de/stock.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/stock.png"><img src="docs/screenshots/de/stock.png" alt="Vorrat: was im Regal liegt und was es wert ist"></picture></a><br>**Vorrat: was im Regal liegt und was es wert ist** | <a href="docs/screenshots/de/work-accessories.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/work-accessories.png"><img src="docs/screenshots/de/work-accessories.png" alt="Arbeit &amp; Zubehör in der Übersicht"></picture></a><br>**Arbeit & Zubehör in der Übersicht** |
 | <a href="docs/screenshots/de/accessory-picker.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/accessory-picker.png"><img src="docs/screenshots/de/accessory-picker.png" alt="Zubehör aus dem Inventar wählen"></picture></a><br>**Zubehör aus dem Inventar wählen** | <a href="docs/screenshots/de/accessory-inventory.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/accessory-inventory.png"><img src="docs/screenshots/de/accessory-inventory.png" alt="Lager: Zubehör-Inventar mit Lagerort und Kauflink"></picture></a><br>**Lager: Zubehör-Inventar mit Lagerort und Kauflink** |
-| <a href="docs/screenshots/de/hints.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/hints.png"><img src="docs/screenshots/de/hints.png" alt="Hinweise: Modelle mit einem Tipp prüfen"></picture></a><br>**Hinweise: Modelle mit einem Tipp prüfen** | <a href="docs/screenshots/de/models.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/models.png"><img src="docs/screenshots/de/models.png" alt="Modelle: umbenennen, Designzeit, zusammenlegen"></picture></a><br>**Modelle: umbenennen, Designzeit, zusammenlegen** |
+| <a href="docs/screenshots/de/orders.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/orders.png"><img src="docs/screenshots/de/orders.png" alt="Aufträge: offen, in Arbeit, fertig"></picture></a><br>**Aufträge: offen, in Arbeit, fertig** | <a href="docs/screenshots/de/order-detail.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/order-detail.png"><img src="docs/screenshots/de/order-detail.png" alt="Ein Auftrag: Positionen, Drucke, Abrechnung"></picture></a><br>**Ein Auftrag: Positionen, Drucke, Abrechnung** |
+| <a href="docs/screenshots/de/hints.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/hints.png"><img src="docs/screenshots/de/hints.png" alt="Hinweise: Modelle mit einem Tipp prüfen"></picture></a><br>**Hinweise: Modelle mit einem Tipp prüfen** | <a href="docs/screenshots/de/models.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/models.png"><img src="docs/screenshots/de/models.png" alt="Modelle: Favoriten, Designzeit, wieder drucken"></picture></a><br>**Modelle: Favoriten, Designzeit, wieder drucken** |
 | <a href="docs/screenshots/de/locations.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/locations.png"><img src="docs/screenshots/de/locations.png" alt="Lager: Lagerorte für Zubehör und Drucke"></picture></a><br>**Lager: Lagerorte für Zubehör und Drucke** | <a href="docs/screenshots/de/location.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/location.png"><img src="docs/screenshots/de/location.png" alt="Ein Lagerort mit fester Kennung und Inhalt"></picture></a><br>**Ein Lagerort mit fester Kennung und Inhalt** |
 
 | Handy: Drucke | Handy: Druckdetails | Handy: Offen | Handy: Vorrat |

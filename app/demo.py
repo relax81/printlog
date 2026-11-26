@@ -352,6 +352,101 @@ def _models(store: Store, image_dir: Path, L: Any) -> None:
                  model_cands=json.dumps([[b["model_id"], 45, ["similar", "plate", "gpp"]]]))
 
 
+def _orders(store: Store, cust_ids: list[int], pid: int | None, now: float, L: Any) -> None:
+    """Aufträge: einer in Arbeit (mit laufendem Druck), drei offene, einer fertig zum Abrechnen, einer im Archiv.
+    Dazu Favoriten auf den meistgedruckten Modellen."""
+    from . import orders as od
+
+    conn = store._conn  # noqa: SLF001
+    top = conn.execute("SELECT model_id, COUNT(*) n FROM jobs WHERE kind IS NULL AND model_id IS NOT NULL "
+                       "GROUP BY model_id ORDER BY n DESC LIMIT 5").fetchall()
+    with store._lock, conn:  # noqa: SLF001
+        for r in top:
+            conn.execute("UPDATE models SET fav = 1 WHERE id = ?", (r["model_id"],))
+    day = lambda d: datetime.fromtimestamp(now + d * 86400).date().isoformat()  # noqa: E731
+    used: set[int] = set()
+
+    def fav_of(cid: int, skip: set[int]) -> list[int]:
+        return [r[0] for r in conn.execute(
+            "SELECT model_id FROM jobs WHERE kind IS NULL AND customer_id = ? AND model_id IS NOT NULL GROUP BY model_id "
+            "ORDER BY COUNT(*) DESC", (cid,)) if r[0] not in skip]
+
+    def free_done(mid: int, n: int) -> list[dict[str, Any]]:
+        """Fertige, gute Drucke eines Modells, die noch nicht abgerechnet sind (kein Projekt, keine Zahlung)."""
+        rows = conn.execute(
+            f"SELECT id, quantity FROM jobs WHERE kind IS NULL AND model_id = ? AND state = 'done' AND NOT {Store.SCRAP_SQL} "
+            "AND project_id IS NULL AND COALESCE(split, 0) = 0 AND order_item_id IS NULL AND COALESCE(gift, 0) = 0 "
+            "AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.job_id = jobs.id) "
+            "AND NOT EXISTS (SELECT 1 FROM handovers h WHERE h.job_id = jobs.id) ORDER BY start_ts DESC LIMIT ?", (mid, n)).fetchall()
+        return [dict(r) for r in rows]
+
+    billing = [c for c in cust_ids if not (store.customer(c) or {}).get("no_billing")]
+    # 1) In Arbeit: der laufende Druck gehört zu einer Nachbestellung
+    run = conn.execute("SELECT id, task_name, quantity FROM jobs WHERE kind IS NULL AND state = 'running' ORDER BY start_ts LIMIT 1").fetchone()
+    if run and billing:
+        cid = billing[0]
+        mid = od.model_by_name(store, run["task_name"] or "")
+        oid = od.create_order(store, cid, L(("Nachbestellung", "Reorder")), day(6), None, None)
+        per = run["quantity"] or 1
+        it = od.add_item(store, oid, mid, run["task_name"], per * 4)
+        od.link(store, run["id"], it)
+        for j in free_done(mid, 2) if mid else []:
+            od.link(store, j["id"], it)
+        others = fav_of(cid, {mid} if mid else set())
+        if others:
+            od.add_item(store, oid, others[0], None, 6)
+            used.add(others[0])
+    # 2) Offen: drei Aufträge mit Termin, einer mit Freitext
+    for k, (cid, title, due, qty) in enumerate(zip(billing[1:4], (("Dezember-Bestellung", "December order"), ("Geschenke", "Gifts"),
+                                                                     ("Kleinkram", "Bits and pieces")), (3, 12, None), (6, 10, 2))):
+        oid = od.create_order(store, cid, L(title), day(due) if due is not None else None, None, None)
+        ms = fav_of(cid, used)
+        if ms:
+            od.add_item(store, oid, ms[0], None, qty)
+            used.add(ms[0])
+        if k == 0 and len(ms) > 1:
+            od.add_item(store, oid, ms[1], None, 1)
+        if k == 2:
+            od.add_item(store, oid, None, L(("Halter Akkuschrauber (Modell suchen)", "Drill holder (find a model)")), 2)
+    # 3) Fertig: zwei gedruckte Positionen, vereinbarter Preis
+    if len(billing) > 4:
+        cid = billing[4]
+        oid = od.create_order(store, cid, L(("Für den Schreibtisch", "For the desk")), None, None, None)
+        got = 0
+        for mid in fav_of(cid, used) + [r["model_id"] for r in top]:
+            js = free_done(mid, 1)
+            if not js or mid in used:
+                continue
+            it = od.add_item(store, oid, mid, None, js[0]["quantity"] or 1)
+            od.link(store, js[0]["id"], it)
+            used.add(mid)
+            got += 1
+            if got == 2:
+                break
+        o = od.order(store, oid)
+        if o and o["items"]:
+            est = od.estimate(o)
+            if est["price"]:
+                od.save_order(store, oid, agreed_price=float(math.ceil(est["price"])))
+    # 4) Archiv: das Beispielprojekt war ein Auftrag
+    if pid:
+        kids = [k for k in store.children([pid]).get(pid, []) if not k.get("kind")]
+        proj = store.get(pid) or {}
+        oid = od.create_order(store, proj.get("customer_id"), proj.get("task_name"), None, None, None)
+        sums: dict[Any, list[dict[str, Any]]] = {}
+        for k in kids:
+            sums.setdefault(k.get("model_id") or k.get("task_name"), []).append(k)
+        for key, ks in sums.items():
+            mid = ks[0].get("model_id")
+            it = od.add_item(store, oid, mid, ks[0].get("task_name"), max(1, sum(k.get("quantity") or 1 for k in ks if not k.get("is_scrap"))))
+            with store._lock, conn:  # noqa: SLF001
+                for k in ks:
+                    conn.execute("UPDATE jobs SET order_item_id = ? WHERE id = ?", (it, k["id"]))
+        with store._lock, conn:  # noqa: SLF001
+            conn.execute("UPDATE orders SET billed_job = ?, created_at = ?, done_at = ? WHERE id = ?",
+                         (pid, (proj.get("start_ts") or now) - 3 * 86400, proj.get("end_ts") or now, oid))
+
+
 def seed(store: Store, image_dir: Path, lang: str, now: float | None = None) -> int:
     """Löscht die Demo-Datenbank und legt neue Beispieldaten an. Gibt die Zahl der Drucke zurück."""
     en = lang == "en"
@@ -633,6 +728,7 @@ def seed(store: Store, image_dir: Path, lang: str, now: float | None = None) -> 
 
     _models(store, image_dir, L)
     _locations(store, L)
+    _orders(store, cust_ids, pid, now, L)
 
     store.set_setting("demo_lang", lang)
     store.set_setting("demo_ts", f"{now:.0f}")

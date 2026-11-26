@@ -171,6 +171,32 @@ CREATE TABLE IF NOT EXISTS locations (
     used_at     REAL,                     -- zuletzt zugewiesen (für „Zuletzt“ in der Auswahl)
     created_at  REAL NOT NULL
 );
+-- Aufträge: was ein Kunde bestellt hat, mit Positionen (Modell oder Freitext) und Stückzahl, siehe app/orders.py
+CREATE TABLE IF NOT EXISTS orders (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_id  INTEGER,
+    title        TEXT,
+    due          TEXT,                    -- fällig bis (YYYY-MM-DD), leer = ohne Termin
+    agreed_price REAL,                    -- vereinbarter Preis, wird bei „Zur Abrechnung“ zum Endpreis
+    note         TEXT,
+    billed_job   INTEGER,                 -- Projekt bzw. Druck, über den abgerechnet wird
+    closed       INTEGER,                 -- 1 = von Hand erledigt (ins Archiv)
+    created_at   REAL NOT NULL,
+    done_at      REAL                     -- alle Positionen gedruckt bzw. abgerechnet
+);
+CREATE TABLE IF NOT EXISTS order_items (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id    INTEGER NOT NULL,
+    model_id    INTEGER,                  -- NULL = Freitext (noch nie gedruckt)
+    name        TEXT,
+    qty         INTEGER NOT NULL DEFAULT 1,
+    adjust      INTEGER NOT NULL DEFAULT 0, -- von Hand korrigierte Stück (+/−)
+    est_min     REAL,                     -- Schätzung Druckzeit pro Platte (Freitext)
+    est_g       REAL,                     -- Schätzung Gramm pro Platte (Freitext)
+    per_plate   INTEGER,                  -- Stück pro Platte (Freitext)
+    created_at  REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items(order_id);
 CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT
@@ -256,7 +282,8 @@ class Store:
         "gcode_plate": "INTEGER",     # Plattennummer aus gcode_filename (plate_N)
         "gcode_file": "TEXT",         # Datei aus gcode_file_downloaded
         "img_hash": "TEXT",
-        "location_id": "INTEGER",     # Lagerort (Tabelle locations)           # Bild-Hash des Covers (dHash, hex)
+        "location_id": "INTEGER",     # Lagerort (Tabelle locations)
+        "order_item_id": "INTEGER",   # Auftragsposition, für die dieser Druck gedruckt wurde (app/orders.py)
     }
 
     # Echter Druck (keine Projekt-Zeile): nur diese zählen in Statistik, Kosten-Kacheln, Kalender.
@@ -328,9 +355,13 @@ class Store:
         if "code" not in have:
             # feste Kennung für Links/QR-Codes, angezeigt als A-XXXX
             self._conn.execute("ALTER TABLE accessories ADD COLUMN code TEXT")
+        have = {r["name"] for r in self._conn.execute("PRAGMA table_info(models)")}
+        if "fav" not in have:
+            self._conn.execute("ALTER TABLE models ADD COLUMN fav INTEGER")  # 1 = Favorit (★)
         self._conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_jobs_code ON jobs(code)")
         self._conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_project ON jobs(project_id)")
         self._conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_share ON jobs(share_of)")
+        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_order_item ON jobs(order_item_id)")
         self._conn.commit()
         self.ensure_codes()
 
@@ -1403,6 +1434,7 @@ class Store:
     def delete_customer(self, customer_id: int) -> None:
         with self._lock, self._conn:
             self._conn.execute("UPDATE jobs SET customer_id = NULL WHERE customer_id = ?", (customer_id,))
+            self._conn.execute("UPDATE orders SET customer_id = NULL WHERE customer_id = ?", (customer_id,))
             self._conn.execute("DELETE FROM customers WHERE id = ?", (customer_id,))
 
     # ---- Eigene Fotos ---------------------------------------------------------
@@ -1649,7 +1681,8 @@ class Store:
 
     # ---- Datensicherung: Einspielen und Zurücksetzen ------------------------
 
-    HISTORY_TABLES = ("jobs", "photos", "handovers", "payments", "trash", "job_extras", "models", "model_aliases", "model_rejects")
+    HISTORY_TABLES = ("jobs", "photos", "handovers", "payments", "trash", "job_extras", "models", "model_aliases", "model_rejects",
+                      "orders", "order_items")
     SETTINGS_TABLES = ("customers", "printer_rates", "material_prices", "settings", "accessories", "locations")
     # Bleiben beim Zurücksetzen/Einspielen erhalten: Sprache der Oberfläche und der
     # Zeitpunkt der letzten HA-Verbindung (sonst holt printlog alte Drucke aus dem Verlauf nach).

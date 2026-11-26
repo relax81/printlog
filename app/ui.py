@@ -24,6 +24,7 @@ HINTS: contextvars.ContextVar[int | None] = contextvars.ContextVar("printlog_hin
 
 NAV = [
     ("./", N_("Drucke"), "jobs"),
+    ("orders", N_("Aufträge"), "orders"),
     ("stats", N_("Statistik"), "stats"),
     ("calendar", N_("Kalender"), "calendar"),
     ("customers", N_("Kunden"), "customers"),
