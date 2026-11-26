@@ -119,13 +119,16 @@ def work_default(store: Store) -> bool:
 
 
 def margins(store: Store) -> list[Margin]:
-    """Allgemeine Margen aus den Einstellungen, z. B. [("Privat", 30.0), ("Gewerbe", 60.0)]."""
+    """Aktive allgemeine Margen aus den Einstellungen, z. B. [("Privat", 30.0), ("Gewerbe", 60.0)].
+
+    Eine Marge mit Häkchen „aktiv“ aus (margin{i}_on = "0") fehlt hier und damit überall
+    (Druckliste, Detail, Bon, PDF, CSV); Name und Prozent bleiben gespeichert."""
     cfg = store.settings()
     wd = "0" if cfg.get("work_margin_default") == "0" else "1"
     out = []
     for i in (1, 2):
         pct = parse_num(cfg.get(f"margin{i}_pct"))
-        if pct is not None:
+        if pct is not None and cfg.get(f"margin{i}_on") != "0":  # abgeschaltet: keine Spalte, kein Preis
             out.append(Margin(cfg.get(f"margin{i}_name") or t("Marge {i}", i=i), pct, (cfg.get(f"margin{i}_work") or wd) == "1"))
     return out
 
@@ -2872,7 +2875,9 @@ def page_settings(store: Store, saved: str | None, logo: str | None = None,
     cfg = store.settings()
     wdflt = "0" if cfg.get("work_margin_default") == "0" else "1"
     margin_rows = "".join(
-        f'<div class="frow"><span class="flbl">{t("Marge {i}", i=i)}</span><span class="fctl">'
+        f'<div class="frow mrow{" off" if cfg.get(f"margin{i}_on") == "0" else ""}"><label class="flbl mon" title="{e(t("Aus: keine Spalte und kein Verkaufspreis mit dieser Marge"))}">'
+        f'<input type="checkbox" name="margin{i}_on" value="1"{"" if cfg.get(f"margin{i}_on") == "0" else " checked"} '
+        f'onchange="this.closest(\'.frow\').classList.toggle(\'off\',!this.checked)"> {t("Marge {i}", i=i)}</label><span class="fctl">'
         f'<input name="margin{i}_name" value="{e(cfg.get(f"margin{i}_name") or "")}" placeholder="{ph}" aria-label="{e(t("Name"))}" class="mname">'
         f'<span class="ig"><input class="num" name="margin{i}_pct" value="{e(cfg.get(f"margin{i}_pct") or "")}" inputmode="decimal" '
         f'placeholder="0" aria-label="{e(t("Aufschlag %"))}"><i>%</i></span>'
@@ -2956,7 +2961,7 @@ def page_settings(store: Store, saved: str | None, logo: str | None = None,
 {f'<div class="fgrid wide">{name_rows}</div>' if name_rows else f'<p class="muted">{t("Erscheint, sobald Drucke mit Materialangaben erfasst sind.")}</p>'}"""),
         pane("arbeit", t("Arbeitszeit"), _extras.settings_section(store)),
         pane("margen", t("Margen"), f"""<h2 style="margin-top:0">{t("Margen")}</h2>
-<p class="muted">{t("Bis zu zwei allgemeine Aufschläge auf die Gesamtkosten. Jede Marge bekommt in der Tabelle eine eigene Spalte mit Verkaufspreis (und Preis pro Stück). Eine Marge pro Kunde stellst du unter „Kunden“ ein.")}</p>
+<p class="muted">{t("Bis zu zwei allgemeine Aufschläge auf die Gesamtkosten. Jede Marge bekommt in der Tabelle eine eigene Spalte mit Verkaufspreis (und Preis pro Stück). Eine Marge pro Kunde stellst du unter „Kunden“ ein. Mit dem Häkchen vor dem Namen schaltest du eine Marge ab: Ihre Spalte verschwindet überall, Name und Prozent bleiben gespeichert.")}</p>
 <div class="fbox">{margin_rows}
 <div class="frow"><span class="flbl">{t("Standard")}</span><span class="fctl"><label class="mwork" style="margin-left:0">
 <input type="checkbox" name="work_margin_default" value="1"{" checked" if wdflt == "1" else ""}> {t("Marge auch auf Arbeitszeit")}</label></span>
@@ -3044,6 +3049,8 @@ SETTINGS_CSS = """
 .frow .flbl{font-weight:600}
 .frow .fhint{grid-column:2;font-size:12px;line-height:1.4}
 .frow select{width:100%;max-width:340px}
+.mon{display:inline-flex;align-items:center;gap:8px;cursor:pointer}
+.mrow.off .fctl{opacity:.4}
 .mwork{display:inline-flex;align-items:center;gap:6px;font-size:13.5px;font-weight:600;color:var(--muted);margin-left:12px;white-space:nowrap}
 .fctl{display:flex;gap:8px;align-items:center;flex-wrap:wrap;min-width:0}
 .fctl .mname{flex:1 1 160px;min-width:0;max-width:260px}

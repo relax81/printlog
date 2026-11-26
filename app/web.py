@@ -339,6 +339,7 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
             pct = parse_num(form.get(f"margin{i}_pct"))
             store.set_setting(f"margin{i}_pct", None if pct is None else f"{pct:g}")
             if f"margin{i}_name" in form:
+                store.set_setting(f"margin{i}_on", None if form.get(f"margin{i}_on") else "0")  # ohne Wert = aktiv
                 w = "1" if form.get(f"margin{i}_work") else "0"
                 store.set_setting(f"margin{i}_work", None if w == wdflt else w)  # wie Standard: folgt ihm
         zk.save_settings(store, form)

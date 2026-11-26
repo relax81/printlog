@@ -394,6 +394,8 @@ EN: dict[str, str] = {
     'Überschreibt den Typpreis für eine bestimmte Sorte, z. B. „Bambu PLA Matte“. Leer lassen = Typpreis.': 'Overrides the type price for a specific product, e.g. "Bambu PLA Matte". Leave empty = type price.',
     'Sorte': 'Product',
     'Bis zu zwei allgemeine Aufschläge auf die Gesamtkosten. Jede Marge bekommt in der Tabelle eine eigene Spalte mit Verkaufspreis (und Preis pro Stück). Eine Marge pro Kunde stellst du unter „Kunden“ ein.': 'Up to two general markups on the total costs. Each margin gets its own selling price (and price per piece) in the list. Set a margin per customer under "Customers".',
+    'Bis zu zwei allgemeine Aufschläge auf die Gesamtkosten. Jede Marge bekommt in der Tabelle eine eigene Spalte mit Verkaufspreis (und Preis pro Stück). Eine Marge pro Kunde stellst du unter „Kunden“ ein. Mit dem Häkchen vor dem Namen schaltest du eine Marge ab: Ihre Spalte verschwindet überall, Name und Prozent bleiben gespeichert.': 'Up to two general markups on the total costs. Each margin gets its own selling price (and price per piece) in the list. Set a margin per customer under "Customers". Untick the box in front of a margin to switch it off: its column disappears everywhere, name and percentage stay saved.',
+    'Aus: keine Spalte und kein Verkaufspreis mit dieser Marge': 'Off: no column and no selling price with this margin',
     'Aufschlag %': 'Markup %',
     'Sprache': 'Language',
     'Sprache der Oberfläche, von Bon, PDF und CSV-Export. „Automatisch“ richtet sich nach der Sprache des Browsers.': 'Language of the interface, receipt, PDF and CSV export. "Automatic" follows the browser language.',
