@@ -925,7 +925,8 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
         elif do == "use_stock" and item:
             it = next(i for i in o["items"] if i["id"] == item)
             if str(form.get("plate") or "").isdigit():
-                pl.use_stock(store, it, int(str(form["plate"])))
+                n = parse_num(form.get("n"))
+                pl.use_stock(store, it, int(str(form["plate"])), int(n) if n else None)
             extra = f"#pb{item}"
         elif do == "bill":
             target, err = od.bill(store, oid, stock=str(form.get("stock") or "") == "1")

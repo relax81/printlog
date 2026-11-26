@@ -1069,11 +1069,39 @@ def _plate_box(store: Store, o: dict[str, Any], i: dict[str, Any], act: str) -> 
 
 
 def _part_input(store: Store, item: dict[str, Any], p: dict[str, Any]) -> str:
-    return ""
+    """Gemeinsames Teil: Die Platte entspricht einem eigenen Modell (z. B. „Kopf + Hände“), dessen Vorrat alle nutzen."""
+    name = ""
+    if p.get("part_model_id"):
+        r = store._conn.execute("SELECT name FROM models WHERE id = ?", (p["part_model_id"],)).fetchone()
+        name = r["name"] if r else ""
+    return (f'<input name="ppart_{p["plate"]}" maxlength="120" value="{e(name)}" list="modellist" '
+            f'placeholder="🔗 {e(t("Gemeinsames Teil (optional)"))}" aria-label="{e(t("Gemeinsames Teil"))}">')
 
 
 def _stock_hint(store: Store, item: dict[str, Any]) -> str:
-    return ""
+    """Vorschlag „aus Vorrat“ für Platten mit offenen Feldern, deren Teile schon im Vorrat liegen."""
+    out = ""
+    act = f"orders/{item['order_id']}"
+    for sg in _plates.suggestions(store, item, item.get("pl")):
+        hid = (f'<input type="hidden" name="do" value="use_stock"><input type="hidden" name="item" value="{item["id"]}">'
+               f'<input type="hidden" name="plate" value="{sg["plate"]}">')
+        per = sg["per"]
+        good, all_ = sg["match"] // per, sg["pieces"] // per
+        what = f'<b>{e(sg["name"])}</b>' + (f' <span class="ptag">🔗 {e(t("gemeinsam"))}</span>' if sg["shared"] else "")
+        if sg["n_sets"]:
+            txt = t("liegt {n}× im Vorrat.", n=good) + " " + tn(sg["n_sets"], "Für {n} Satz aus dem Vorrat nehmen?",
+                                                                  "Für {n} Sätze aus dem Vorrat nehmen?")
+            btn = f'<button class="btn sm">📦 {e(t("Ja, {n} nehmen", n=sg["n_sets"]))}</button>'
+            other = (f' <span class="muted">{e(t("Dazu {n}× in anderer Farbe", n=all_ - good))} {_swatches(sg["other_colors"])}</span>'
+                     if all_ > good else "")
+            out += f'<form method="post" action="{act}" class="psug">{hid}💡 {what} {_swatches(sg["colors"])} {e(txt)}{other}{btn}</form>'
+        elif all_:
+            k = min(all_, sg["n_open"])
+            txt = t("liegt nur in anderer Farbe im Vorrat ({n}×).", n=all_)
+            btn = (f'<input type="hidden" name="n" value="{k}"><button class="btn sm">📦 '
+                   f'{e(t("Trotzdem {n} nehmen", n=k))}</button>')
+            out += f'<form method="post" action="{act}" class="psug">{hid}🎨 {what} {e(txt)} {_swatches(sg["other_colors"])}{btn}</form>'
+    return out
 
 ORDER_JS = r"""
 document.querySelectorAll('[data-tgl]').forEach(b=>b.onclick=()=>{const el=document.getElementById(b.dataset.tgl);el.hidden=!el.hidden;

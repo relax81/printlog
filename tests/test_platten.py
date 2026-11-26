@@ -129,3 +129,59 @@ def test_vorrat_ausbuchen_und_freitext() -> None:
     assert it["model_id"] == m2 and it["pl"]["plates"][1]["name"] == "Flügel"
     od.delete_order(store, oid2)
     assert not store._conn.execute("SELECT 1 FROM plate_cells WHERE item_id = ?", (iid,)).fetchone()
+
+
+def test_gemeinsame_teile_und_farbe() -> None:
+    store = _store()
+    cid = store.save_customer(None, "Verein", None, None, 0)
+    other = store.save_customer(None, "Andere", None, None, 0)
+    kopf = mdl.create_model(store, "Kopf + Hände")
+    blau = mdl.create_model(store, "Figur Blau")
+    rot = mdl.create_model(store, "Figur Rot")
+    haut = '[{"slot":1,"type":"PLA","color":"#F1C27D","grams":10}]'
+    gelb = '[{"slot":1,"type":"PLA","color":"#FFE000","grams":10}]'
+    # 6 Köpfe als eigenes Modell gedruckt, einer verkauft → 5 im Vorrat (hautfarben)
+    k = _job(store, "Kopf + Hände", 1, kopf, qty=6, ago=20 * 86400, customer_id=other, materials=haut)
+    store.set_split(k, [{"sid": None, "customer_id": other, "qty": 1}])
+    # Figur Blau, Platte 1 = gemeinsames Teil; 3 Köpfe in Gelb übrig
+    b1 = _job(store, "Figur Blau", 1, blau, qty=4, ago=15 * 86400, customer_id=other, materials=gelb)
+    store.set_split(b1, [{"sid": None, "customer_id": other, "qty": 1}])
+    _job(store, "Figur Blau", 1, blau, qty=1, ago=14 * 86400, materials=gelb)
+    _job(store, "Figur Blau", 2, blau, ago=14 * 86400)
+    pl.save_plates(store, {"id": 0, "model_id": blau}, [{"plate": 1, "name": "Kopf + Hände", "part_model_id": kopf}])
+    # Figur Rot: noch nie gedruckt, Platten von Hand angelegt
+    pl.save_plates(store, {"id": 0, "model_id": rot}, [{"plate": 1, "name": "Kopf + Hände", "part_model_id": kopf},
+                                                       {"plate": 2, "name": "Trikot Rot"}])
+    assert pl.has_plates(store, rot)
+    oid = od.create_order(store, cid, "Vereinsfiguren", None, None, None)
+    iid = od.add_item(store, oid, rot, None, 3)
+    i = od.order(store, oid)["items"][0]
+    assert i["by_plate"] == 1 and i["pl"]["n_print"] == 6
+    sug = pl.suggestions(store, i)
+    assert len(sug) == 1 and sug[0]["plate"] == 1 and sug[0]["shared"]
+    assert sug[0]["match"] == 5 and sug[0]["pieces"] == 8 and sug[0]["n_sets"] == 3  # Gelb zählt nicht als passend
+    assert sug[0]["other_colors"] == ["#FFE000"]
+    html = od.page_order(store, od.order(store, oid))
+    assert "Kopf + Hände" in html and "anderer Farbe" in html
+    assert pl.use_stock(store, i, 1) == 3
+    i = od.order(store, oid)["items"][0]
+    assert i["pl"]["n_stock"] == 3 and i["pl"]["n_open"] == 3 and not pl.suggestions(store, i)
+    for s in range(3):
+        od.link(store, _job(store, "Figur Rot", 2, rot, ago=100 + s), iid)
+    o = od.order(store, oid)
+    assert o["state"] == "done"
+    target, note = od.bill(store, oid)
+    assert target and note is None
+    left = pl.stock_for(store, rot, od.order(store, oid)["items"][0]["pl"]["plates"][0])
+    assert left["match"] == 2 and left["pieces"] == 5  # hautfarbene zuerst genommen, die gelben bleiben
+
+    # Nur andere Farbe im Vorrat: Vorschlag „trotzdem“
+    oid2 = od.create_order(store, cid, "Noch mehr", None, None, None)
+    od.add_item(store, oid2, rot, None, 4)
+    i2 = od.order(store, oid2)["items"][0]
+    sg = pl.suggestions(store, i2)[0]
+    assert sg["match"] == 2 and sg["n_sets"] == 2
+    assert pl.use_stock(store, i2, 1, 4) == 4  # 2 passende + 2 gelbe
+    # Löschen des gemeinsamen Modells: Verweise werden gelöst
+    mdl.delete_model(store, kopf)
+    assert not store._conn.execute("SELECT 1 FROM plate_info WHERE part_model_id = ?", (kopf,)).fetchone()
