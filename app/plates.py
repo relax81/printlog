@@ -233,8 +233,8 @@ def needs_plate(store: Store, item: dict[str, Any], plate: int | None) -> bool:
 # ---- Ändern ---------------------------------------------------------------------------
 
 def set_cell(store: Store, item: dict[str, Any], set_no: int, plate: int, state: str | None = None) -> None:
-    """Feld umschalten: drucken → aus Vorrat → nicht nötig → drucken. In einer Auswahlgruppe wählt ein Tipp auf eine
-    nicht gewählte Platte diese für den Satz (die anderen der Gruppe werden „nicht nötig“)."""
+    """Feld setzen (print, stock, skip); ohne state wird weitergeschaltet. In einer Auswahlgruppe wählt „print“ die
+    Platte für den Satz (die anderen der Gruppe werden „nicht gewählt“)."""
     plates = plates_of(store, item)
     p = next((x for x in plates if x["plate"] == plate), None)
     if not p or not 1 <= set_no <= int(item["qty"]):
@@ -244,6 +244,10 @@ def set_cell(store: Store, item: dict[str, Any], set_no: int, plate: int, state:
         state = {"print": "stock", "stock": "skip", "skip": "print"}[cur]
     rows = [(set_no, plate, state)]
     if p["grp"] and state == "print":
+        busy = grid(store, item, plates)["cells"]
+        if any(busy[(set_no, o["plate"])]["state"] in ("done", "running") for o in plates
+               if o["grp"] == p["grp"] and o["plate"] != plate):
+            return  # für diesen Satz ist schon eine andere Platte der Auswahl gedruckt
         rows += [(set_no, o["plate"], "skip") for o in plates if o["grp"] == p["grp"] and o["plate"] != plate]
     with store._lock, store._conn:
         for s, pl, st in rows:

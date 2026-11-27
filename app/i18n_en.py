@@ -1341,7 +1341,6 @@ EN: dict[str, str] = {
     'Dieses Modell hat {n} Platte.': 'This model has {n} plate.',
     'Dieses Modell hat {n} Platten.': 'This model has {n} plates.',
     'Satz {n}': 'Set {n}',
-    'Tippen: drucken → aus Vorrat → nicht nötig': 'Tap: print → from stock → not needed',
     '{a} von {b} im Vorrat': '{a} of {b} in stock',
     'noch {n} Platte': '{n} plate to go',
     'noch {n} Platten': '{n} plates to go',
@@ -1361,4 +1360,9 @@ EN: dict[str, str] = {
     'gemeinsam': 'shared',
     'Dazu {n}× in anderer Farbe': 'Plus {n}× in another colour',
     'Trotzdem {n} nehmen': 'Take {n} anyway',
+    'Für Satz {n} wählen': 'Choose for set {n}',
+    'Aus Vorrat nehmen': 'Take from stock',
+    'Nicht nötig': 'Not needed',
+    'Drucken': 'Print',
+    'Ändern': 'Change',
 }
