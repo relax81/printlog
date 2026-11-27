@@ -3,7 +3,7 @@
 // Danach: python3 docs/screenshots/shrink.py <ausgabeordner> docs/screenshots/<en|de>[-dark]
 // PDF vorher in ein Bild umwandeln: pdftoppm -r 90 -png -singlefile <ausgabeordner>/raw-kosten.pdf <ausgabeordner>/raw-cost
 // Druck-ID: ein fertiger Druck mit Kunde, Fotos und mehreren Filamenten (die Demo-Daten sind fest vorgegeben, z. B. 26).
-// Fehldruck-ID: der anteilig berechnete Fehldruck der Demo (Status-Filter „Fehldruck: Einstellungen“, z. B. 226).
+// Fehldruck-ID: der anteilig berechnete Fehldruck der Demo (Status-Filter „Fehldruck: Einstellungen“, z. B. 117).
 // Projekt-ID: das Beispielprojekt „Werkstatt-Wand“ der Demo (z. B. 360).
 // Zubehör-ID: ein Schlüsselanhänger-Druck mit Ring, Kette und Arbeitszeit (z. B. 88).
 const prevMonth = () => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 7); };

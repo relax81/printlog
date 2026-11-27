@@ -1743,6 +1743,7 @@ DETAIL_CSS = """
 .cats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:0}
 .cat{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:9px 4px;min-height:64px;border:1px solid var(--line);
  border-radius:12px;background:var(--card);font-weight:600;font-size:13px;text-align:center;color:var(--muted);cursor:pointer;-webkit-tap-highlight-color:transparent}
+.cat:first-child{grid-column:1/-1;flex-direction:row;gap:8px;min-height:48px}
 .cat i{font-style:normal;font-size:20px;line-height:1.1}.cat:hover{border-color:color-mix(in srgb,var(--bad) 60%,var(--line))}
 .cat.on{border-color:var(--bad);color:var(--fg);background:color-mix(in srgb,var(--bad) 18%,var(--card));box-shadow:0 0 0 1px var(--bad)}
 .bseg{display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;margin:0 0 10px}

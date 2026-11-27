@@ -85,3 +85,10 @@ def test_nachdruck_und_seite() -> None:
     assert f'href="job?id={fd}"' in page_job(store, store.get(neu), None)
     store.set_reprint(fd, None)
     assert store.reprints(fd) == []
+
+
+def test_filament_gebrochen_steht_oben():
+    from app.defects import DEFECTS
+    from app.i18n_en import EN
+    assert next(iter(DEFECTS)) == "filament_break"
+    assert EN[DEFECTS["filament_break"][1]] == "Filament broke"

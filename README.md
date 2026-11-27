@@ -54,7 +54,7 @@ in a **light and a dark** colour scheme (Settings → View → Colour scheme, or
 - **Your own details** – photos (camera upload, auto-resized), notes, filament notes (e.g. the exact colour name),
   MakerWorld / Printables links with their title, a local folder path, and a short project ID per print (e.g. `PL-7K3Q`).
 - **Failed prints** – cancelled prints count as failed automatically, and you can mark any print yourself, e.g. when it
-  finished but the settings were off. Pick a cause (settings, material, adhesion, printer fault, customer changed their mind,
+  finished but the settings were off. Pick a cause (filament broke, settings, material, adhesion, printer fault, customer changed their mind,
   other) and decide what the customer pays: nothing, a share (in % or as an amount) or the full price. A charged failed
   print then shows under **Open**, on the receipt and in the PDF like any other print. Notes and photos document what
   happened, and the reprint can be linked. Statistics show failed prints by cause, what was charged and what you carry yourself.
@@ -487,7 +487,7 @@ in **hell und dunkel** (Einstellungen → Ansicht → Farbschema, oder automatis
 - **Eigene Angaben** – Fotos (direkt mit der Kamera, automatisch verkleinert), Notizen, Filament-Notizen (z. B. der
   genaue Farbname), MakerWorld-/Printables-Links mit Titel, ein lokaler Ordner und eine kurze Projekt-ID pro Druck (z. B. `PL-7K3Q`).
 - **Fehldrucke** – abgebrochene Drucke zählen automatisch als Fehldruck, jeder Druck lässt sich auch selbst markieren,
-  z. B. wenn er fertig ist, aber die Einstellungen nicht gepasst haben. Dazu eine Ursache (Einstellungen, Material, Haftung,
+  z. B. wenn er fertig ist, aber die Einstellungen nicht gepasst haben. Dazu eine Ursache (Filament gebrochen, Einstellungen, Material, Haftung,
   Drucker-Defekt, Kundenwunsch geändert, Sonstiges) und die Wahl, was der Kunde zahlt: nichts, anteilig (in % oder als Betrag)
   oder voll. Ein berechneter Fehldruck steht dann wie jeder andere Druck unter **Offen**, auf dem Bon und im PDF. Notiz und
   Fotos dokumentieren, was passiert ist, der Nachdruck lässt sich verknüpfen. Die Statistik zeigt Fehldrucke nach Ursache,
