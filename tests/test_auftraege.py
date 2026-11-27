@@ -206,3 +206,19 @@ def test_freitext_bekommt_modell() -> None:
     store.update(run, state="done", status="fertig", end_ts=time.time(), model_id=mid, model_state="new")
     od.adopt_models(store)
     assert od.order(store, oid)["items"][0]["model_id"] == mid
+
+
+def test_hint_card_shows_project_and_file_name(tmp_path):
+    from app import models as mdl
+    from app.db import Store
+
+    store = Store(tmp_path / "t.db")
+    j = store.insert(printer="H2S", task_name="ParametricModelMaker_Plate 1", state="done", status="fertig", start_ts=1.0,
+                     model_hint=1, model_state="tentative")
+    html = mdl.hint_card(store, store.get(j), "hints", {}, with_job=True)
+    assert "ParametricModelMaker_Plate 1" in html and "📄" not in html
+    store.update(j, project_title="Parametric Cable Box")
+    assert mdl.hint_names(store, store.get(j)) == ("Parametric Cable Box", "ParametricModelMaker_Plate 1")
+    pid = store.create_project([j], name="Parametric Cable Box v2")
+    html = mdl.hint_card(store, store.get(j), "hints", {}, with_job=True)
+    assert "Parametric Cable Box v2" in html and "📄 ParametricModelMaker_Plate 1" in html and pid

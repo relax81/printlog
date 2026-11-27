@@ -116,7 +116,8 @@ in a **light and a dark** colour scheme (Settings → View → Colour scheme, or
   cannot tell on its own which parts sit on a plate (Bambu only reports project name and plate number), so you mark the
   shared part once under *Edit plates*; the part needs its own plate.
 - **Notices** – a 🔔 bell at the top counts open questions (prints to check, accessories to restock). The **Notices** page
-  answers them in one tap (*Yes, model X* / *Other model …* / *New model*); the list shows a coloured dot on such prints
+  answers them in one tap (*Yes, model X* / *Other model …* / *New model*). Each card shows the print's project or
+  MakerWorld title with the slicer file name below, because model names come from the file name. The list shows a coloured dot on such prints
   and the print page a banner. Optionally printlog also sends a Home Assistant notification (*Settings → View*).
 - **Trash bin** with restore; deleted prints are removed for good only after a configurable number of days.
 - **Robust** – after a restart or a lost connection, printlog replays missed prints from Home Assistant's history (up to 7 days).
@@ -557,7 +558,8 @@ in **hell und dunkel** (Einstellungen → Ansicht → Farbschema, oder automatis
   (Bambu meldet nur Projektname und Plattennummer), deshalb markierst du das gemeinsame Teil einmal unter *Platten
   bearbeiten*; das Teil braucht eine eigene Platte.
 - **Hinweise** – eine 🔔 Glocke oben zählt offene Fragen (Drucke prüfen, Zubehör nachkaufen). Auf der Seite **Hinweise**
-  beantwortest du sie mit einem Tipp (*Ja, Modell X* / *Anderes Modell …* / *Neues Modell*); die Liste zeigt bei solchen
+  beantwortest du sie mit einem Tipp (*Ja, Modell X* / *Anderes Modell …* / *Neues Modell*). Jede Karte zeigt den Projekt-
+  bzw. MakerWorld-Titel des Drucks und darunter den Dateinamen aus dem Slicer, denn danach sind Modelle benannt. Die Liste zeigt bei solchen
   Drucken einen farbigen Punkt, die Druckseite ein Banner. Optional schickt printlog zusätzlich eine Home-Assistant-Nachricht
   (*Einstellungen → Ansicht*).
 - **Papierkorb** mit Wiederherstellen; endgültig gelöscht wird erst nach einstellbaren Tagen.

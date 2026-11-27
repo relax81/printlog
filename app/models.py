@@ -575,11 +575,26 @@ def hint_card(store: Store, job: dict[str, Any], back: str, all_models: dict[int
            f'<button class="btn">＋ {e(t("Neues Modell"))}</button></form>')
     who = ""
     if with_job:
-        who = (f'<a class="mhj" href="job?id={job["id"]}#mh">{_img(job)}<span><b>{e(job.get("task_name") or "–")}</b>'
-               f'<small>{e(code_label(job.get("code")))} · {e(fmt_date(job.get("start_ts")))}'
+        title, sub = hint_names(store, job)
+        who = (f'<a class="mhj" href="job?id={job["id"]}#mh">{_img(job)}<span><b>{e(title)}</b>'
+               + (f'<small class="mhf" title="{e(t("Dateiname im Slicer"))}">📄 {e(sub)}</small>' if sub else "")
+               + f'<small>{e(code_label(job.get("code")))} · {e(fmt_date(job.get("start_ts")))}'
                + (f' · {t("Platte {n}", n=job["gcode_plate"])}' if job.get("gcode_plate") else "") + '</small></span></a>')
     return (f'<div class="mhint {STAGES.get(st, "y")}" id="mh">{who}<div class="mhq"><b>🧩 {e(head)}</b>'
             f'<div class="mhopts">{opts}{pick}{new}</div></div></div>')
+
+
+def hint_names(store: Store, job: dict[str, Any]) -> tuple[str, str]:
+    """(Überschrift, Dateiname) für eine Hinweis-Karte: Projektname bzw. MakerWorld-Titel vor dem Slicer-Namen."""
+    file = (job.get("task_name") or "").strip()
+    title = ""
+    if job.get("project_id"):
+        r = store._conn.execute("SELECT task_name FROM jobs WHERE id = ? AND kind = 'project'", (job["project_id"],)).fetchone()
+        title = (r["task_name"] or "").strip() if r else ""
+    title = title or (job.get("project_title") or "").strip()
+    if not title or title.casefold() == file.casefold():
+        return file or "–", ""
+    return title, file
 
 
 def _img(job: dict[str, Any]) -> str:
@@ -608,7 +623,7 @@ def page_hints(store: Store) -> str:
                      f'<span class="muted">{e(t("{n} frei", n=fmt_input(round(free, 2))))}</span>{buy}</li>')
         stock = f'<h2>🧰 {e(t("Zubehör bald nachkaufen"))}</h2><ul class="lowl">{rows}</ul><p><a href="storage">{e(t("Zum Lager"))} →</a></p>'
     empty = "" if cards or stock or ocards else f'<p class="muted">✓ {e(t("Keine offenen Hinweise."))}</p>'
-    intro = (f'<p class="muted">{e(t("printlog ordnet jeden fertigen Druck einem Modell (Design) zu. Ist es nicht sicher, fragt es hier nach. Deine Antwort merkt es sich."))}'
+    intro = (f'<p class="muted">{e(t("printlog ordnet jeden fertigen Druck einem Modell (Design) zu. Ist es nicht sicher, fragt es hier nach. Deine Antwort merkt es sich. Modellnamen stammen aus dem Dateinamen im Slicer, darüber steht der Projekt- bzw. MakerWorld-Titel des Drucks."))}'
              f' <a href="models">{e(t("Alle Modelle"))} →</a></p>')
     body = (f'<h2 style="margin-top:4px">🔔 {e(t("Hinweise"))}</h2>{intro}'
             f'{"<h2>📋 " + e(t("Auftrag zuordnen")) + "</h2>" if ocards else ""}<div class="mhl">{ocards}</div>'
@@ -777,7 +792,7 @@ CSS = """
 .mhopts .btn i{font-style:normal;opacity:.7;font-size:12px;margin-left:4px}.mhopts select{min-height:38px}
 .mhj{display:flex;gap:10px;align-items:center;text-decoration:none;color:var(--fg);width:250px;flex:none}
 .mhj img,.mhj .ph{width:54px;height:54px;border-radius:10px;object-fit:cover;background:var(--bg);flex:none}
-.mhj b{display:block;font-size:14.5px;overflow-wrap:anywhere}.mhj small{color:var(--muted);font-size:12px}
+.mhj b{display:block;font-size:14.5px;overflow-wrap:anywhere}.mhj small{display:block;color:var(--muted);font-size:12px}.mhj small.mhf{overflow-wrap:anywhere}
 .mhl{display:flex;flex-direction:column}.lowl{list-style:none;padding:0;margin:0 0 8px}
 .lowl li{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line);flex-wrap:wrap}
 .msrch input{width:100%;max-width:420px;margin:4px 0 10px}
