@@ -135,10 +135,10 @@ JOB_NOTES = [("Magnete 6×3 mm eingesetzt", "Inserted 6×3 mm magnets"),
              ("Modell 5 % größer skaliert", "Scaled the model up by 5 %"),
              ("Kunde möchte noch eine zweite Farbe", "Customer wants a second colour too")]
 SCRAP_NOTES = [("Warping an der Ecke", "Warping at one corner"), ("Layer-Shift nach 2 h", "Layer shift after 2 h"),
-               ("Haftung verloren, Spaghetti", "Lost bed adhesion, spaghetti")]
+               ("Filament im AMS gebrochen", "Filament broke in the AMS")]
 # Fehldruck-Ursache passend zur Notiz (eigener Zufall, damit die übrigen Beispieldaten gleich bleiben)
 SCRAP_CAUSE = {"Warping an der Ecke": "adhesion", "Warping at one corner": "adhesion", "Layer-Shift nach 2 h": "printer",
-               "Layer shift after 2 h": "printer", "Haftung verloren, Spaghetti": "adhesion", "Lost bed adhesion, spaghetti": "adhesion"}
+               "Layer shift after 2 h": "printer", "Filament im AMS gebrochen": "filament_break", "Filament broke in the AMS": "filament_break"}
 DEFECT_NOTES = {
     "settings": ("Profil zu schnell (0,28 mm Draft): Oberfläche rau, Naht deutlich sichtbar. Nachdruck mit 0,16 mm.",
                  "Profile too fast (0.28 mm draft): rough surface, seam clearly visible. Reprint at 0.16 mm."),

@@ -22,6 +22,7 @@ from .ui import fmt_input, fmt_num
 
 # Schlüssel → (Symbol, Name). Reihenfolge = Anzeige.
 DEFECTS: dict[str, tuple[str, str]] = {
+    "filament_break": ("💥", N_("Filament gebrochen")),
     "settings": ("⚙️", N_("Einstellungen")),
     "material": ("🧵", N_("Material")),
     "adhesion": ("🧲", N_("Haftung")),

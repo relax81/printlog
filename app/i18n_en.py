@@ -641,6 +641,7 @@ EN: dict[str, str] = {
     # Fehldrucke
     'voll berechnet': 'charged in full',
     'Fehldruck, wird nicht berechnet': 'Failed print, not charged',
+    'Filament gebrochen': 'Filament broke',
     'Haftung': 'Adhesion',
     'Drucker-Defekt': 'Printer fault',
     'Kundenwunsch geändert': 'Customer changed their mind',
