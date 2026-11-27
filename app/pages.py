@@ -592,6 +592,7 @@ document.addEventListener('click',ev=>{lpChip(ev,(d,el)=>stored(d,el.dataset.lna
 sb.querySelector('.lbtn').onclick=ev=>{ev.stopPropagation();const ids=[...picked];if(!ids.length)return;
   const n=ids.length==1?_t("1 Druck"):_t("{n} Drucke").replace('{n}',ids.length);
   LP.open(sb.querySelector('.lbtn'),{ids,title:n,prefix:_t("Lagerort für")+' ',bulk:true,done:d=>{setSel(false);stored(d,n)}})};
+sb.querySelector('.bpbtn').onclick=ev=>{ev.stopPropagation();const ids=[...picked];if(ids.length&&window.BP)BP.open('ids='+ids.join(','))};
 sb.querySelector('.del').onclick=async()=>{const n=picked.size;if(!n)return;
   if(!confirm((n==1?_t("1 Druck in den Papierkorb legen? Du kannst ihn dort wiederherstellen."):_t("{n} Drucke in den Papierkorb legen? Du kannst sie dort wiederherstellen.").replace('{n}',n))))return;
   const fd=new FormData();fd.append('ids',[...picked].join(','));
@@ -878,12 +879,13 @@ def page_jobs(store: Store, f: dict[str, str | None], connected: bool) -> str:
 <button type="button" class="none">{t("Keine")}</button><span class="sp"></span><button type="button" class="cancel" title="{e(t("Abbrechen"))}"><span class="bl">{t("Abbrechen")}</span><span class="bs">✕</span></button>
 <button type="button" class="btn kbtn" disabled title="{e(t("Ausgewählten Drucken einen Kunden zuweisen"))}">👤 <span class="bl">{t("Kunde zuweisen")}</span><span class="bs">{t("Kunde")}</span></button>
 <button type="button" class="btn kbtn lbtn" disabled title="{e(t("Ausgewählten Drucken einen Lagerort zuweisen"))}">📦 <span class="bl">{t("Lagerort")}</span></button>
+<button type="button" class="btn kbtn bpbtn" disabled title="{e(t("Zahlung für die ausgewählten Drucke eines Kunden erfassen"))}">💶 <span class="bl">{t("Zahlung")}</span></button>
 <button type="button" class="btn pjbtn" disabled title="{e(t("Ausgewählte Drucke zu einem Projekt zusammenfassen"))}">📦 <span class="bl">{t("Projekt bilden")}</span></button>
 <button type="button" class="btn danger del" disabled title="{e(t("Löschen"))}">🗑 <span class="bl">{t("Löschen")}</span></button></div>
-{_project_dialog(store, customers)}{customer_picker(customers)}{_storage.picker_data(store)}
+{_project_dialog(store, customers)}{customer_picker(customers)}{_storage.picker_data(store)}{_bulkpay.dialog()}
 <div id="toast" hidden><span></span><button type="button">{t("Rückgängig")}</button></div>"""
-    return layout("Printlog", "jobs", f"<style>{MOS_CSS}{_models.CSS}{JOBS_CSS}{ACT_CSS}{TODO_CSS}{KPICK_CSS}{_split.SPLIT_CSS}{_storage.LOC_CSS}</style>" + body,
-                  ACT_JS + KPICK_JS + _storage.LPICK_JS + JOBS_JS + _split.SPLIT_JS)
+    return layout("Printlog", "jobs", f"<style>{MOS_CSS}{_models.CSS}{JOBS_CSS}{ACT_CSS}{TODO_CSS}{KPICK_CSS}{_split.SPLIT_CSS}{_storage.LOC_CSS}{_bulkpay.CSS}</style>" + body,
+                  ACT_JS + KPICK_JS + _storage.LPICK_JS + JOBS_JS + _split.SPLIT_JS + _bulkpay.BULKPAY_JS)
 
 
 def _project_dialog(store: Store, customers: list[dict[str, Any]]) -> str:
@@ -1001,7 +1003,8 @@ TODO_CSS = """
 .og .sum{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .otg{display:inline-flex;align-items:center;gap:6px;padding:3px 11px;border-radius:999px;font-weight:700;font-size:13px;white-space:nowrap;
  border:1px solid color-mix(in srgb,currentColor 35%,transparent);background:color-mix(in srgb,currentColor 10%,transparent)}
-.otg.warn{color:var(--warn)}.otg.run{color:var(--run)}
+.otg.warn{color:var(--warn)}.otg.run{color:var(--run)}.otg.ok{color:var(--ok)}
+.og .bpay{min-height:32px;padding:0 12px;font-size:13px;font-weight:700;color:var(--warn);border-color:color-mix(in srgb,var(--warn) 45%,transparent)}
 .or{display:grid;grid-template-columns:48px minmax(0,1fr) 220px 170px 236px;gap:14px;align-items:center;padding:11px 16px;border-bottom:1px solid var(--line)}
 .or:last-child{border-bottom:0}
 .or .t,.or .ph{width:48px;height:48px;border-radius:10px;border:1px solid var(--line)}.or .t.mos{box-sizing:border-box}
@@ -1024,7 +1027,7 @@ TODO_CSS = """
 @media (max-width:900px){.or{grid-template-columns:44px minmax(0,1fr) 1fr 1fr}.or .oact{grid-column:1/-1}}
 @media (max-width:700px){
  .okpis{grid-template-columns:1fr 1fr;gap:8px}.okpis .kpi{padding:8px 10px}.okpis .kpi b{font-size:18px}.okpis .kpi small{font-size:12px}
- .og>header{padding:10px 12px}.og .sum{margin-left:0;width:100%}
+ .og>header{padding:10px 12px}.og .sum{margin-left:0;width:100%}.og .bpay{width:100%}
  .or{grid-template-columns:40px minmax(0,1fr);gap:6px 10px;padding:10px 12px}.or .t,.or .ph{width:40px;height:40px}
  .or .prog{grid-column:2}.or .oact{grid-column:1/-1}.or .oact .btn{flex:1}
 }
@@ -1118,6 +1121,9 @@ def _todo_view(store: Store, q: dict[str, Any]) -> str:
         name = items[0].get("customer_name") or "?"
         tags = (f'<span class="otg warn calc">💶 {t("{v} offen", v=fmt_num(m, 2, "€"))}</span>' if m > 0.005 else "") + \
                (f'<span class="otg run">📦 {t("{q} Stück zu übergeben", q=p)}</span>' if p else "")
+        tags += _bulkpay.credit_tag(store, cid)
+        if m > 0.005:
+            tags += _bulkpay.open_button(cid, "btn bpay")
         out.append(f'<section class="og"><header><a class="nm" href="./?customer={cid}" title="{e(t("Alle Drucke von {name}", name=name))}">'
                    f'<span class="av" style="background:var(--s{i % 8 + 1})">{e(name[:1].upper())}</span>{e(name)}</a>'
                    f'<span class="muted" style="font-size:13px">{tn(len(items), "{n} Druck", "{n} Drucke")}</span><span class="sum">{tags}</span></header>'
@@ -3396,3 +3402,4 @@ from . import extras as _extras  # noqa: E402
 from . import models as _models  # noqa: E402
 from . import storage as _storage  # noqa: E402
 from . import orders as _orders  # noqa: E402
+from . import bulkpay as _bulkpay  # noqa: E402

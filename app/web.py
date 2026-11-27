@@ -18,6 +18,7 @@ from urllib.parse import quote, urlencode
 from aiohttp import web
 
 from . import archive
+from . import bulkpay as bp
 from . import extras as zk
 from . import models as mdl
 from . import orders as od
@@ -990,6 +991,39 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
     async def api_payment_delete(request: web.Request) -> web.Response:
         job_id = store.delete_payment(int(request.match_info["pid"]))
         raise web.HTTPSeeOther(f"../../../job?id={job_id}#ab" if job_id else "../../../")
+
+    def _id_list(raw: Any) -> list[int]:
+        return [int(x) for x in str(raw or "").split(",") if x.strip().isdigit()]
+
+    @routes.get("/api/bulkpay")
+    async def api_bulkpay_data(request: web.Request) -> web.Response:
+        """Dialog „Zahlung für mehrere Posten“: Kunde (customer=ID) oder Mehrfachauswahl (ids=1,2,3)."""
+        q = request.query
+        picked = _id_list(q.get("ids")) if "ids" in q else None
+        cid = q.get("customer", "")
+        return web.json_response(bp.dialog_data(store, int(cid) if cid.isdigit() else None, picked))
+
+    @routes.post("/api/bulkpay")
+    async def api_bulkpay(request: web.Request) -> web.Response:
+        form = await request.post()
+        cid = str(form.get("customer") or "")
+        if not cid.isdigit():
+            return web.json_response({"error": t("Kunde nicht gefunden.")})
+        return web.json_response(bp.book(
+            store, int(cid), _id_list(form.get("ids")), parse_num(form.get("amount")) or 0.0, str(form.get("mode") or ""),
+            str(form.get("surplus") or ""), str(form.get("use_credit") or "") == "1", _day_ts(str(form.get("date") or "")),
+            str(form.get("note") or "").strip() or None))
+
+    @routes.post("/api/bulkpay/undo")
+    async def api_bulkpay_undo(request: web.Request) -> web.Response:
+        form = await request.post()
+        bp.undo(store, _id_list(form.get("payments")), _id_list(form.get("credits")))
+        return web.json_response({"ok": True})
+
+    @routes.post("/api/credits/{cid:\\d+}/delete")
+    async def api_credit_delete(request: web.Request) -> web.Response:
+        customer_id = store.delete_credit(int(request.match_info["cid"]))
+        raise web.HTTPSeeOther(f"../../../customer?id={customer_id}#guthaben" if customer_id else "../../../customers")
 
     @routes.post("/api/handovers/{hid:\\d+}/delete")
     async def api_handover_delete(request: web.Request) -> web.Response:
