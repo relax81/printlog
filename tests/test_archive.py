@@ -156,6 +156,14 @@ def test_reset_everything() -> None:
     assert not list(images.iterdir())
 
 
+def test_reset_knows_every_table() -> None:
+    """Neue Tabellen müssen in HISTORY_TABLES oder SETTINGS_TABLES stehen, sonst bleiben sie beim Zurücksetzen stehen."""
+    _, _, store, _ = _setup()
+    tables = {r[0] for r in store._conn.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")}
+    assert tables == set(Store.HISTORY_TABLES) | set(Store.SETTINGS_TABLES)
+
+
 def test_safety_names() -> None:
     data = Path(tempfile.mkdtemp())
     assert archive.safety_path(data, "../printlog.db") is None
