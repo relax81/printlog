@@ -958,8 +958,9 @@ def page_order(store: Store, o: dict[str, Any], saved: str | None = None, show_l
 
 # ---- Platten pro Position (siehe app/plates.py) ------------------------------------------
 
-def _swatches(colors: list[str]) -> str:
-    return "".join(f'<i class="osw" style="background:{e(c)}" title="{e(c)}"></i>' for c in colors[:4])
+def _swatches(colors: list[str], want: bool = False) -> str:
+    cls, tip = ("osw want", t("gewünschte Farbe") + " ") if want else ("osw", "")
+    return "".join(f'<i class="{cls}" style="background:{e(c)}" title="{e(tip + c)}"></i>' for c in colors[:4])
 
 
 def _plate_box(store: Store, o: dict[str, Any], i: dict[str, Any], act: str) -> str:
@@ -1042,7 +1043,7 @@ def _plate_box(store: Store, o: dict[str, Any], i: dict[str, Any], act: str) -> 
             if pm:
                 part = f' <span class="ptag">🔗 {e(pm["name"])}</span>'
         return (f'<tr><td><div class="pl"><span class="pnr">{p["plate"]}</span><div><b>{e(p["name"])}</b>{part}'
-                f'<small>{e(" · ".join(meta))} {_swatches(p["colors"])}</small></div></div></td>{tds}<td class="pr">{right}</td></tr>')
+                f'<small>{e(" · ".join(meta))} {_swatches(p["want"], True) if p["want"] else _swatches(p["colors"])}</small></div></div></td>{tds}<td class="pr">{right}</td></tr>')
 
     for p in order:
         body += row(p)
@@ -1060,25 +1061,37 @@ def _plate_box(store: Store, o: dict[str, Any], i: dict[str, Any], act: str) -> 
              f'<table class="pm"><tr><th>{e(t("Platte"))}</th>{head}<th>{e(t("je Platte"))}</th></tr>{body}</table></form>')
     # Platten bearbeiten
     grps = sorted({p["grp"] for p in plates if p["grp"]})
+    clist = (f'<datalist id="pcl{i["id"]}">' + "".join(f'<option value="{e(c)}">{e(n)}</option>' for c, n in _plates.known_colors(store))
+             + "</datalist>")
     glist = f'<datalist id="pg{i["id"]}">' + "".join(f'<option value="{e(x)}">' for x in grps) + "</datalist>"
     erows = ""
     for p in plates:
         erows += (f'<div class="perow"><span class="pnr">{p["plate"]}</span><input type="hidden" name="plate" value="{p["plate"]}">'
                   f'<input name="pname_{p["plate"]}" maxlength="80" value="{e(p["name"]) if p["named"] else ""}" placeholder="{e(t("Platte {n}", n=p["plate"]))}" aria-label="{e(t("Name"))}">'
                   f'<input name="pgrp_{p["plate"]}" maxlength="40" value="{e(p["grp"] or "")}" list="pg{i["id"]}" placeholder="{e(t("Auswahlgruppe (leer = immer)"))}" aria-label="{e(t("Auswahlgruppe"))}">'
-                  f'{_part_input(store, i, p)}</div>')
+                  f'{_part_input(store, i, p)}{_color_input(p, i["id"])}</div>')
     n_in = ""
     if not i["model_id"] or i.get("n_plates"):
         n_in = (f'<label class="pn">{e(t("Anzahl Platten"))} <input name="n_plates" inputmode="numeric" class="num" value="{i.get("n_plates") or len(plates)}"></label>')
     scope = t("Gilt für alle Aufträge mit diesem Modell.") if i["model_id"] else t("Gilt für diese Position.")
     edit = (f'<form method="post" action="{act}" class="pedit" id="pe{i["id"]}" hidden><input type="hidden" name="do" value="plates">{hid}'
-            f'<p class="muted">{e(t("Platten mit gleicher Auswahlgruppe (z. B. „Design“) stehen zur Wahl: pro Satz wird eine davon gedruckt."))} {e(scope)}</p>'
-            f'{erows}{glist}{n_in}<div class="obtns"><button class="btn primary">{e(t("Speichern"))}</button></div></form>'
+            f'<p class="muted">{e(t("Platten mit gleicher Auswahlgruppe (z. B. „Design“) stehen zur Wahl: pro Satz wird eine davon gedruckt."))} {e(scope)} {e(t("Die Farbe gilt nur für diesen Auftrag."))}</p>'
+            f'{erows}{glist}{clist}{n_in}<div class="obtns"><button class="btn primary">{e(t("Speichern"))}</button></div></form>'
             f'<form method="post" action="{act}" class="poff" id="po{i["id"]}" hidden><input type="hidden" name="do" value="by_plate">{hid}'
             f'<input type="hidden" name="on" value="0"><button class="btn lnk">{e(t("Nicht mehr pro Platte verfolgen"))}</button></form>')
     return (f'<div class="pbox" id="pb{i["id"]}"><div class="ptot">{" · ".join(e(x) for x in tot)}<span class="sp"></span>'
             f'<button type="button" class="btn sm" data-tgl="pe{i["id"]}" data-tgl2="po{i["id"]}">✏️ {e(t("Platten bearbeiten"))}</button></div>'
             f'{_stock_hint(store, i)}<div class="pscroll">{table}</div>{edit}</div>')
+
+
+def _color_input(p: dict[str, Any], iid: int) -> str:
+    """Optionale Wunschfarbe dieser Platte (nur diese Position); leer = Farbe des letzten Drucks."""
+    val = ", ".join(p["want"])
+    first = (p["want"] or p["colors"] or ["#888888"])[0]
+    return (f'<span class="pcol"><input name="pcol_{p["plate"]}" maxlength="40" value="{e(val)}" list="pcl{iid}" '
+            f'placeholder="🎨 {e(t("Farbe (optional)"))}" aria-label="{e(t("Farbe"))}" '
+            f'title="{e(t("Nur für diesen Auftrag. Leer = Farbe des letzten Drucks. Mehrere mit Komma."))}">'
+            f'<input type="color" value="{e(first)}" aria-label="{e(t("Farbe wählen"))}" data-pcol="pcol_{p["plate"]}"></span>')
 
 
 def _part_input(store: Store, item: dict[str, Any], p: dict[str, Any]) -> str:
@@ -1119,6 +1132,8 @@ def _stock_hint(store: Store, item: dict[str, Any]) -> str:
 ORDER_JS = r"""
 document.querySelectorAll('[data-tgl]').forEach(b=>b.onclick=()=>{const el=document.getElementById(b.dataset.tgl);el.hidden=!el.hidden;
  const o=b.dataset.tgl2&&document.getElementById(b.dataset.tgl2);if(o)o.hidden=el.hidden});
+document.querySelectorAll('input[data-pcol]').forEach(c=>{c.addEventListener('input',()=>{const f=c.form.elements[c.dataset.pcol];if(f)f.value=c.value.toUpperCase()});
+const f=c.form.elements[c.dataset.pcol];if(f)f.addEventListener('input',()=>{const m=f.value.match(/#?([0-9a-f]{6})/i);if(m)c.value='#'+m[1].toLowerCase()})});
 document.querySelectorAll('details.pcm').forEach(d=>d.addEventListener('toggle',()=>{if(d.open)document.querySelectorAll('details.pcm[open]').forEach(o=>{if(o!==d)o.open=false})}));
 document.addEventListener('click',ev=>{if(!ev.target.closest('details.pcm'))document.querySelectorAll('details.pcm[open]').forEach(o=>o.open=false)});
 document.querySelectorAll('form.odel').forEach(f=>f.addEventListener('submit',ev=>{if(!confirm(f.dataset.q))ev.preventDefault()}));
@@ -1339,6 +1354,8 @@ CSS = """
 .pnr{display:inline-grid;place-items:center;min-width:26px;height:26px;border-radius:7px;background:color-mix(in srgb,var(--accent) 18%,transparent);color:var(--accent);font-weight:700;font-size:12.5px}
 .ptag{font-size:11.5px;border:1px solid var(--line);border-radius:999px;padding:1px 7px;margin-left:4px;white-space:nowrap}
 .osw{display:inline-block;width:10px;height:10px;border-radius:50%;border:1px solid var(--line);vertical-align:-1px;margin-left:2px}
+.osw.want{box-shadow:0 0 0 2px var(--card),0 0 0 3.5px var(--accent)}
+.pcol{display:flex;gap:4px;align-items:center;flex:.8;min-width:0}.pcol input[type=color]{flex:0 0 34px;width:34px;height:34px;padding:2px;border-radius:8px;border:1px solid var(--line);background:none;cursor:pointer}
 .pgrp td{background:none!important;padding:8px 6px 0;font-size:12px;color:var(--muted);font-weight:600}
 .pc{display:inline-flex;gap:4px;align-items:center;padding:4px 10px;border-radius:999px;font-size:12.5px;font-weight:600;border:1px solid transparent;
 white-space:nowrap;background:none;color:var(--fg);cursor:pointer;font-family:inherit;text-decoration:none}

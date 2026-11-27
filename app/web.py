@@ -916,8 +916,10 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
                     pname = str(form.get(f"ppart_{p}") or "").strip()
                     if pname:
                         part = od.model_by_name(store, pname) or mdl.create_model(store, pname[:120])
-                    rows.append({"plate": int(p), "name": form.get(f"pname_{p}"), "grp": form.get(f"pgrp_{p}"),
-                                 "part_model_id": part})
+                    row = {"plate": int(p), "name": form.get(f"pname_{p}"), "grp": form.get(f"pgrp_{p}"), "part_model_id": part}
+                    if f"pcol_{p}" in form:
+                        row["colors"] = form.get(f"pcol_{p}")
+                    rows.append(row)
             pl.save_plates(store, it, rows, int(n) if n else (0 if "n_plates" in form else None))
             if str(form.get("on")) == "1" or rows:
                 od.set_item(store, item, by_plate=1)

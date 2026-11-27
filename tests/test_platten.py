@@ -204,3 +204,26 @@ def test_feld_explizit_waehlen() -> None:
     pl.set_cell(store, i, 1, 2, "skip")
     i = od.order(store, oid)["items"][0]
     assert i["pl"]["grid"]["want"][(1, 2)] == "skip"
+
+
+def test_wunschfarbe() -> None:
+    store = _store()
+    cid = store.save_customer(None, "Verein", None, None, 0)
+    mid = mdl.create_model(store, "Figur")
+    _job(store, "Figur", 1, mid, ago=20 * 86400)  # rot gedruckt
+    _job(store, "Figur", 2, mid, ago=20 * 86400)
+    yellow = '[{"slot":1,"type":"PLA","color":"#FFD21F","grams":10}]'
+    par = _job(store, "Figur", 1, mid, qty=3, ago=10 * 86400, materials=yellow)
+    store.set_split(par, [{"sid": None, "customer_id": cid, "qty": 1}])  # 2 gelbe im Vorrat
+    _job(store, "Figur", 1, mid, ago=5 * 86400)  # letzter Druck wieder rot
+    oid = od.create_order(store, cid, "Figuren", None, None, None)
+    od.add_item(store, oid, mid, None, 2)
+    i = od.order(store, oid)["items"][0]
+    p = i["pl"]["plates"][0]
+    assert p["want"] == [] and pl.stock_for(store, mid, p)["match"] == 0  # rot gewünscht (letzter Druck)
+    pl.save_plates(store, i, [{"plate": 1, "colors": "ffd21f, #zz"}])
+    i = od.order(store, oid)["items"][0]
+    p = i["pl"]["plates"][0]
+    assert p["want"] == ["#FFD21F"] and pl.stock_for(store, mid, p)["match"] == 2
+    pl.save_plates(store, i, [{"plate": 1, "colors": ""}])  # leer: wieder wie der letzte Druck
+    assert od.order(store, oid)["items"][0]["pl"]["plates"][0]["want"] == []

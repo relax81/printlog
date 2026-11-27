@@ -110,7 +110,9 @@ in a **light and a dark** colour scheme (Settings → View → Colour scheme, or
   **Shared parts:** a plate can be marked as a *shared part* – its own model such as “Head + hands” that several
   figures use. Stock of that part is then shared: when an order needs it and pieces are in stock (split prints of the part
   or of any plate marked as the same part), the order page suggests *take from stock* for the open sets. Colours are
-  compared with the part’s usual colours; stock in another colour is listed separately and can be taken anyway. printlog
+  compared with the colours of the plate’s last print; stock in another colour is listed separately and can be taken
+  anyway. To ask for a different colour, set an optional *colour* per plate under *Edit plates* (this order only, picked
+  from your filament colours or typed as hex); it then decides the colour dot and the stock match. printlog
   cannot tell on its own which parts sit on a plate (Bambu only reports project name and plate number), so you mark the
   shared part once under *Edit plates*; the part needs its own plate.
 - **Notices** – a 🔔 bell at the top counts open questions (prints to check, accessories to restock). The **Notices** page
@@ -548,8 +550,10 @@ in **hell und dunkel** (Einstellungen → Ansicht → Farbschema, oder automatis
   **Gemeinsame Teile:** Eine Platte lässt sich als *gemeinsames Teil* markieren – ein eigenes Modell wie „Kopf + Hände“, das
   mehrere Figuren nutzen. Der Vorrat dieses Teils ist dann gemeinsam: Braucht ein Auftrag es und liegen Teile im Vorrat
   (aufgeteilte Drucke des Teils oder einer Platte, die als dasselbe Teil markiert ist), schlägt die Auftragsseite *aus Vorrat
-  nehmen* für die offenen Sätze vor. Die Farben werden mit den üblichen Farben des Teils verglichen; Vorrat in anderer Farbe
-  steht extra da und lässt sich trotzdem nehmen. Welche Teile auf einer Platte liegen, kann printlog nicht selbst erkennen
+  nehmen* für die offenen Sätze vor. Die Farben werden mit denen des letzten Drucks der Platte verglichen; Vorrat in anderer
+  Farbe steht extra da und lässt sich trotzdem nehmen. Für eine andere Farbe trägst du unter *Platten bearbeiten* optional
+  eine *Farbe* pro Platte ein (nur für diesen Auftrag, aus deinen Filamentfarben oder als Hex-Wert); sie bestimmt dann den
+  Farbpunkt und den Vorrat-Abgleich. Welche Teile auf einer Platte liegen, kann printlog nicht selbst erkennen
   (Bambu meldet nur Projektname und Plattennummer), deshalb markierst du das gemeinsame Teil einmal unter *Platten
   bearbeiten*; das Teil braucht eine eigene Platte.
 - **Hinweise** – eine 🔔 Glocke oben zählt offene Fragen (Drucke prüfen, Zubehör nachkaufen). Auf der Seite **Hinweise**
