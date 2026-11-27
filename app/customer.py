@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 from collections import defaultdict
 from datetime import date, datetime
 from typing import Any
 
+from . import bulkpay as _bulkpay
 from . import extras as _extras
 from . import orders as _orders
 from .costing import parse_materials
@@ -24,7 +26,8 @@ MATS_N = 6
 CSS = """
 .kh{display:flex;gap:12px 16px;align-items:center;flex-wrap:wrap;margin:6px 0 14px}.kh h1{margin:0;font-size:28px}.kh .sp{flex:1}
 .kh .tag{padding:4px 12px;border-radius:999px;border:1px solid var(--line);font-size:13px;font-weight:600}.kh small{color:var(--muted);display:block}
-.kh .btns{display:flex;gap:8px}.back{color:var(--accent);text-decoration:none}
+.kh .btns{display:flex;gap:8px;flex-wrap:wrap}.kh .bpay{font-weight:700;color:var(--warn);border-color:color-mix(in srgb,var(--warn) 45%,transparent)}
+.lt .n.pos{color:var(--ok)}.lt .lnk{border:0;background:none;color:var(--muted);cursor:pointer;padding:2px 6px;min-height:0}.back{color:var(--accent);text-decoration:none}
 .cg{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:12px;margin-top:12px}@media(max-width:900px){.cg{grid-template-columns:1fr}}
 .cg .card h3{margin:0 0 10px}.cg .card h3+.muted{margin-top:-4px}
 .mrow{display:grid;grid-template-columns:minmax(90px,150px) 1fr 64px;gap:10px;align-items:center;font-size:14px;margin:6px 0}
@@ -96,7 +99,7 @@ def summarize(store: Store, cid: int, period: str = "") -> dict[str, Any]:
         price = due + over
         tot["revenue"] += price
         tot["paid"] += paid
-        tot["open"] += max(due - paid, 0)
+        tot["open"] += due - paid if paid < due - 0.005 else 0
         tot["cost"] += cost
         tot["profit"] += price - cost
         tot["billed"] += 1
@@ -207,9 +210,13 @@ def page_customer(store: Store, cid: int, period: str | None = None) -> str | No
         tags += f'<span class="tag">{t("Keine Abrechnung")}</span>'
     seg = "".join(f'<a href="customer?id={cid}{"&period=" + k if k else ""}" class="{"on" if k == period else ""}">{t(v)}</a>'
                   for k, v in PERIODS.items())
+    n_open = 0 if nobill else len(_bulkpay.open_items(store, cid))
+    credits = [] if nobill else store.credits(cid)
+    balance = round(sum(x["amount"] for x in credits), 2)
+    pay_btn = _bulkpay.open_button(cid, "btn bpay") if n_open or balance > 0.005 else ""
     head = (f'<a class="back" href="customers">← {t("alle Kunden")}</a>'
             f'<div class="kh"><div><h1>{e(c["name"])}</h1><small>{" · ".join(e(x) for x in sub)}</small></div>{tags}<span class="sp"></span>'
-            f'<span class="seg">{seg}</span><span class="btns"><a class="btn" href="./?customer={cid}">{t("Drucke")}</a>'
+            f'<span class="seg">{seg}</span><span class="btns">{pay_btn}<a class="btn" href="./?customer={cid}">{t("Drucke")}</a>'
             f'<a class="btn" href="customers?edit={cid}">{t("Bearbeiten")}</a></span></div>')
 
     n = int(tot["n"])
@@ -226,6 +233,8 @@ def page_customer(store: Store, cid: int, period: str | None = None) -> str | No
                f'<small>{t("{v} offen", v=fmt_num(tot["open"], 2, "€")) if tot["open"] >= 0.005 else t("nichts offen")}</small></div>'
                f'<div class="calc"><span>{t("Selbstkosten")}</span><b>{fmt_num(tot["cost"], 2, "€")}</b><small>{t("Druck, Zubehör, Arbeit")}</small></div>'
                f'<div class="calc {"pos" if tot["profit"] >= 0 else "neg"}"><span>{t("Gewinn")}</span><b>{fmt_num(tot["profit"], 2, "€")}</b><small>{pct}</small></div>'
+               + (f'<div class="pos"><span>{t("Guthaben")}</span><b>{fmt_num(balance, 2, "€")}</b>'
+                  f'<small><a href="#guthaben">{t("aus zu viel Gezahltem")}</a></small></div>' if credits else "") +
                f'<div><span>{t("Verschenkt")}</span><b>{tn(int(tot["gift_n"]), "{n} Druck", "{n} Drucke") if tot["gift_n"] else "–"}</b>'
                f'<small class="calc">{t("Kosten {v}", v=fmt_num(tot["gift"], 2, "€")) if tot["gift_n"] else ""}</small></div>')
 
@@ -273,10 +282,21 @@ def page_customer(store: Store, cid: int, period: str | None = None) -> str | No
                   f'<p class="muted" style="font-size:13px">{t("letzte 12 Monate")}</p>{_chart(store, cid)}</div>')
     oft = _orders.often_card(store, cid) or (f'<div class="card"><h3>{t("Öfter gedruckt")}</h3>'
                                               f'<p class="muted" style="font-size:13px">{t("gleiches Modell oder gleicher Name, mit Druckkosten")}</p>{models}</div>')
-    body = (f'<style>{REVENUE_CSS}{CSS}{_orders.CSS}</style>{head}<div class="rvk">{kp}</div>'
+    credit_card = ""
+    if credits:
+        crows = "".join(
+            f'<tr><td class="d">{fmt_date(x["ts"], "dm")}</td><td>{e(x.get("note") or "")}</td>'
+            f'<td class="n {"pos" if x["amount"] > 0 else ""}">{"+" if x["amount"] > 0 else ""}{fmt_num(x["amount"], 2, "€")}</td>'
+            f'<td class="n"><form method="post" action="api/credits/{x["id"]}/delete" style="margin:0" '
+            f'onsubmit="return confirm({e(json.dumps(t("Diesen Eintrag löschen?")))})"><button class="lnk" title="{e(t("Löschen"))}">✕</button></form></td></tr>'
+            for x in credits)
+        credit_card = (f'<div class="card" id="guthaben"><h3>{t("Guthaben")}: {fmt_num(balance, 2, "€")}</h3>'
+                       f'<p class="muted" style="font-size:13px">{t("Zu viel Gezahltes, das bei der nächsten Zahlung mitverwendet werden kann.")}</p>'
+                       f'<table class="lt"><tbody>{crows}</tbody></table></div>')
+    body = (f'<style>{REVENUE_CSS}{CSS}{_orders.CSS}{_bulkpay.CSS}</style>{head}<div class="rvk">{kp}</div>'
             f'<div class="cg" style="align-items:start">{_orders.customer_card(store, cid)}{oft}</div><div class="cg">'
             f'{chart_card}<div class="card"><h3>{t("Auf einen Blick")}</h3><div class="facts">{fc}</div></div>'
             f'<div class="card"><h3>{t("Letzte Drucke")}</h3>{orders}</div>'
-            f'<div class="card"><h3>{t("Filament")}</h3>{mat}</div></div>'
+            f'<div class="card"><h3>{t("Filament")}</h3>{mat}</div>{credit_card}</div>'
             f'<p class="muted" style="font-size:13px;margin:12px 0 0">{t("Nach Druckstart. Preis = Endpreis oder Kosten + Kundenmarge; wurde mehr bezahlt, zählt das Gezahlte.")}</p>')
-    return layout(c["name"], "customers", body + _orders.again_dialog(store), _orders.AGAIN_JS)
+    return layout(c["name"], "customers", body + _orders.again_dialog(store) + _bulkpay.dialog(), _orders.AGAIN_JS + _bulkpay.BULKPAY_JS)

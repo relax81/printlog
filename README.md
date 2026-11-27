@@ -45,6 +45,12 @@ in a **light and a dark** colour scheme (Settings → View → Colour scheme, or
 - **Open items** – the **Open** view next to Table and Gallery lists every print that is not fully paid or handed over yet,
   grouped by customer with the open amount and pieces per customer and buttons to record a payment or hand-over right there.
   Customers with **No billing** and failed prints that are not charged are left out; gifted prints only show up until they are handed over.
+- **One payment for several items** – when a customer pays one lump sum for several prints or projects, **💶 Payment for all**
+  (in the customer's header under **Open** and on the customer page) or **💶 Payment** in the multi-select bar opens a window
+  with all open items of that customer. Tick what the money is for, enter the amount (it starts with the open total) and see right
+  away what each item gets: *oldest first* or *proportional*. Too little leaves the rest open; too much goes as a tip to the newest
+  item, is spread across all of them or is kept as **credit** for the customer, which the next payment can use. Every item gets a
+  normal partial payment, and *Undo* takes the whole booking back.
 - **Assign customers in two taps** – a print without a customer shows a **👤 ＋ Customer** chip right in the list (also on
   the phone and on the print page). Tap it, pick a customer, done: no Edit tab, no Save button, and an *Undo* for ten seconds.
   The picker has a search, the three most recent customers and a suggestion: if you printed the same model for someone
@@ -479,6 +485,12 @@ in **hell und dunkel** (Einstellungen → Ansicht → Farbschema, oder automatis
 - **Offene Posten** – die Ansicht **Offen** neben Tabelle und Galerie zeigt alle Drucke, die noch nicht ganz bezahlt oder
   übergeben sind, nach Kunden gruppiert mit offenem Betrag und Stückzahl pro Kunde und Knöpfen, um Zahlung oder Übergabe
   direkt einzutragen. Kunden mit **Keine Abrechnung** und Fehldrucke, die nicht berechnet werden, fehlen; verschenkte Drucke stehen nur bis zur Übergabe darin.
+- **Eine Zahlung für mehrere Posten** – zahlt ein Kunde einen Pauschalbetrag für mehrere Drucke oder Projekte, öffnet
+  **💶 Zahlung für alle** (im Kundenkopf unter **Offen** und auf der Kundenseite) oder **💶 Zahlung** in der Mehrfachauswahl
+  ein Fenster mit allen offenen Posten des Kunden. Anhaken, wofür das Geld ist, Betrag eingeben (vorbelegt mit der offenen Summe)
+  und sofort sehen, was jeder Posten bekommt: *Älteste zuerst* oder *Nach Anteil*. Zu wenig lässt den Rest offen; zu viel geht als
+  Trinkgeld an den neuesten Posten, wird anteilig verteilt oder als **Guthaben** beim Kunden gemerkt, das die nächste Zahlung
+  mitverwenden kann. Jeder Posten bekommt eine normale Teilzahlung, *Rückgängig* nimmt die ganze Buchung zurück.
 - **Kunde mit zwei Tipps zuordnen** – ein Druck ohne Kunde zeigt direkt in der Liste einen Chip **👤 ＋ Kunde** (auch am
   Handy und auf der Druckseite). Antippen, Kunde wählen, fertig: kein Tab Bearbeiten, kein Speichern-Knopf, zehn Sekunden lang
   *Rückgängig*. Die Auswahl hat eine Suche, die drei zuletzt genutzten Kunden und einen Vorschlag: Hast du das gleiche Modell

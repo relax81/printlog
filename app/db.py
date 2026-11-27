@@ -92,6 +92,14 @@ CREATE TABLE IF NOT EXISTS payments (
     note       TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_payments_job ON payments(job_id);
+CREATE TABLE IF NOT EXISTS credits (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_id INTEGER NOT NULL,
+    amount      REAL NOT NULL,            -- Guthaben in €: + zu viel gezahlt, − verwendet
+    ts          REAL NOT NULL,
+    note        TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_credits_customer ON credits(customer_id);
 CREATE TABLE IF NOT EXISTS customers (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     name       TEXT NOT NULL,
@@ -1137,6 +1145,39 @@ class Store:
             self._conn.execute("DELETE FROM payments WHERE id = ?", (payment_id,))
         return row["job_id"] if row else None
 
+    def add_payment_id(self, job_id: int, amount: float, ts: float | None = None, note: str | None = None) -> int:
+        """Wie add_payment, gibt die ID der neuen Zahlung zurück (zum Rückgängigmachen)."""
+        with self._lock, self._conn:
+            cur = self._conn.execute("INSERT INTO payments (job_id, amount, ts, note) VALUES (?, ?, ?, ?)",
+                                     (job_id, round(amount, 2), ts or time.time(), note))
+        return int(cur.lastrowid or 0)
+
+    # ---- Guthaben pro Kunde (zu viel gezahlt, später verrechnet) ------------
+
+    def credit_balance(self, customer_id: int) -> float:
+        row = self._conn.execute("SELECT COALESCE(SUM(amount),0) FROM credits WHERE customer_id = ?", (customer_id,)).fetchone()
+        return round(row[0] or 0, 2)
+
+    def credit_balances(self) -> dict[int, float]:
+        rows = self._conn.execute("SELECT customer_id, SUM(amount) s FROM credits GROUP BY customer_id").fetchall()
+        return {r["customer_id"]: round(r["s"], 2) for r in rows if abs(r["s"] or 0) >= 0.005}
+
+    def credits(self, customer_id: int) -> list[dict[str, Any]]:
+        rows = self._conn.execute("SELECT * FROM credits WHERE customer_id = ? ORDER BY ts, id", (customer_id,)).fetchall()
+        return [dict(r) for r in rows]
+
+    def add_credit(self, customer_id: int, amount: float, ts: float | None = None, note: str | None = None) -> int:
+        with self._lock, self._conn:
+            cur = self._conn.execute("INSERT INTO credits (customer_id, amount, ts, note) VALUES (?, ?, ?, ?)",
+                                     (customer_id, round(amount, 2), ts or time.time(), note))
+        return int(cur.lastrowid or 0)
+
+    def delete_credit(self, credit_id: int) -> int | None:
+        row = self._conn.execute("SELECT customer_id FROM credits WHERE id = ?", (credit_id,)).fetchone()
+        with self._lock, self._conn:
+            self._conn.execute("DELETE FROM credits WHERE id = ?", (credit_id,))
+        return row["customer_id"] if row else None
+
     def clear_payments(self, job_id: int) -> None:
         with self._lock, self._conn:
             self._conn.execute("DELETE FROM payments WHERE job_id = ?", (job_id,))
@@ -1488,6 +1529,7 @@ class Store:
         with self._lock, self._conn:
             self._conn.execute("UPDATE jobs SET customer_id = NULL WHERE customer_id = ?", (customer_id,))
             self._conn.execute("UPDATE orders SET customer_id = NULL WHERE customer_id = ?", (customer_id,))
+            self._conn.execute("DELETE FROM credits WHERE customer_id = ?", (customer_id,))
             self._conn.execute("DELETE FROM customers WHERE id = ?", (customer_id,))
 
     # ---- Eigene Fotos ---------------------------------------------------------
@@ -1734,7 +1776,7 @@ class Store:
 
     # ---- Datensicherung: Einspielen und Zurücksetzen ------------------------
 
-    HISTORY_TABLES = ("jobs", "photos", "handovers", "payments", "trash", "job_extras", "models", "model_aliases", "model_rejects",
+    HISTORY_TABLES = ("jobs", "photos", "handovers", "payments", "credits", "trash", "job_extras", "models", "model_aliases", "model_rejects",
                       "orders", "order_items", "plate_info", "plate_cells", "plate_colors")
     SETTINGS_TABLES = ("customers", "printer_rates", "material_prices", "settings", "accessories", "locations")
     # Bleiben beim Zurücksetzen/Einspielen erhalten: Sprache der Oberfläche und der
