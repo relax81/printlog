@@ -102,8 +102,8 @@ in a **light and a dark** colour scheme (Settings → View → Colour scheme, or
   **Plates per set:** projects with several build plates (e.g. from MakerWorld) are tracked per plate. printlog learns
   the plates of a model from the plate number in the print file; for something never printed you enter the number of
   plates. The item then counts sets, and a table *plate × set* shows each field as done, running, open, *from stock* or
-  *not needed* – a tap switches print → from stock → not needed. Plates in a **choice group** (e.g. “Design” A or B) are
-  alternatives: one per set, tap the other one to pick it. New prints are assigned to the plate they belong to, and only
+  *not needed* – a tap on a field opens a small menu: print, take from stock or not needed. Plates in a **choice group**
+  (e.g. “Design” A or B) are alternatives: one per set, pick the other one with *Choose for set n*. New prints are assigned to the plate they belong to, and only
   while that plate is still needed. *From stock* fields are booked out of stock for the customer at **To billing**
   (at 0 € when an agreed price is set). Plate names and groups are set under *Edit plates* and apply to every order
   with that model.
@@ -539,8 +539,9 @@ in **hell und dunkel** (Einstellungen → Ansicht → Farbschema, oder automatis
   **Platten pro Satz:** Projekte mit mehreren Druckplatten (z. B. von MakerWorld) verfolgt printlog pro Platte. Die Platten
   eines Modells lernt es aus der Plattennummer der Druckdatei, bei etwas noch nie Gedrucktem trägst du die Anzahl Platten
   ein. Die Position zählt dann Sätze, und eine Tabelle *Platte × Satz* zeigt jedes Feld als fertig, läuft, offen, *aus
-  Vorrat* oder *nicht nötig* – ein Tipp schaltet drucken → aus Vorrat → nicht nötig. Platten einer **Auswahlgruppe**
-  (z. B. „Design“ A oder B) stehen zur Wahl: eine pro Satz, ein Tipp auf die andere wählt sie. Neue Drucke werden der Platte
+  Vorrat* oder *nicht nötig* – ein Tipp auf ein Feld öffnet ein kleines Menü: drucken, aus Vorrat nehmen oder nicht nötig.
+  Platten einer **Auswahlgruppe** (z. B. „Design“ A oder B) stehen zur Wahl: eine pro Satz, die andere wählst du mit
+  *Für Satz n wählen*. Neue Drucke werden der Platte
   zugeordnet, zu der sie gehören, und nur solange diese Platte noch gebraucht wird. Felder *aus Vorrat* bucht **Zur
   Abrechnung** für den Kunden aus dem Vorrat aus (zu 0 €, wenn ein Preis vereinbart ist). Plattennamen und Gruppen stellst
   du unter *Platten bearbeiten* ein, sie gelten für alle Aufträge mit diesem Modell.

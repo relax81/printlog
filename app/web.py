@@ -899,9 +899,9 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
             extra = "#od"
         elif do == "cell" and item:
             it = next(i for i in o["items"] if i["id"] == item)
-            m = re.fullmatch(r"(\d+):(\d+)", str(form.get("cell") or ""))
+            m = re.fullmatch(r"(\d+):(\d+)(?::(print|stock|skip))?", str(form.get("cell") or ""))
             if m:
-                pl.set_cell(store, it, int(m.group(1)), int(m.group(2)))
+                pl.set_cell(store, it, int(m.group(1)), int(m.group(2)), m.group(3))
             extra = f"#pb{item}"
         elif do == "by_plate" and item:
             od.set_item(store, item, by_plate=1 if str(form.get("on")) == "1" else None)

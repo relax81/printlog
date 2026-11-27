@@ -185,3 +185,22 @@ def test_gemeinsame_teile_und_farbe() -> None:
     # Löschen des gemeinsamen Modells: Verweise werden gelöst
     mdl.delete_model(store, kopf)
     assert not store._conn.execute("SELECT 1 FROM plate_info WHERE part_model_id = ?", (kopf,)).fetchone()
+
+
+def test_feld_explizit_waehlen() -> None:
+    store = _store()
+    cid = store.save_customer(None, "Verein", None, None, 0)
+    mid = mdl.create_model(store, "Set")
+    for p in (1, 2):
+        _job(store, "Set", p, mid, ago=20 * 86400)
+    oid = od.create_order(store, cid, "Set", None, None, None)
+    od.add_item(store, oid, mid, None, 1)
+    i = od.order(store, oid)["items"][0]
+    pl.set_cell(store, i, 1, 1, "stock")
+    i = od.order(store, oid)["items"][0]
+    pl.set_cell(store, i, 1, 1, "stock")  # gleiche Wahl nochmal: bleibt, schaltet nicht weiter
+    i = od.order(store, oid)["items"][0]
+    assert i["pl"]["grid"]["want"][(1, 1)] == "stock"
+    pl.set_cell(store, i, 1, 2, "skip")
+    i = od.order(store, oid)["items"][0]
+    assert i["pl"]["grid"]["want"][(1, 2)] == "skip"

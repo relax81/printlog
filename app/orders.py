@@ -1013,8 +1013,21 @@ def _plate_box(store: Store, o: dict[str, Any], i: dict[str, Any], act: str) -> 
             else:
                 lab = {"open": f'○ {e(t("offen"))}', "stock": f'📦 {e(t("aus Vorrat"))}',
                        "skip": f'— {e(t("nicht gewählt") if p["grp"] else t("nicht nötig"))}'}[st]
-                tds += (f'<td class="c"><button class="pc {st}" name="cell" value="{s}:{p["plate"]}" '
-                        f'title="{e(t("Tippen: drucken → aus Vorrat → nicht nötig"))}">{lab}</button></td>')
+                if p["grp"]:
+                    taken = any(g[(s, o["plate"])]["state"] in ("done", "running") for o in plates
+                                if o["grp"] == p["grp"] and o["plate"] != p["plate"])
+                    opts = [] if taken else [("print", f'✓ {e(t("Für Satz {n} wählen", n=s))}')]
+                    opts.append(("stock", f'📦 {e(t("Aus Vorrat nehmen"))}'))
+                    if st != "skip":
+                        opts.append(("skip", f'— {e(t("Nicht nötig"))}'))
+                else:
+                    opts = [("print", f'○ {e(t("Drucken"))}'), ("stock", f'📦 {e(t("Aus Vorrat nehmen"))}'),
+                            ("skip", f'— {e(t("Nicht nötig"))}')]
+                cur = {"open": "print"}.get(st, st)
+                menu = "".join(f'<button name="cell" value="{s}:{p["plate"]}:{k}"{" class=on disabled" if k == cur else ""}>{lab2}</button>'
+                               for k, lab2 in opts)
+                tds += (f'<td class="c"><details class="pcm"><summary class="pc {st}" title="{e(t("Ändern"))}">{lab} <i>▾</i></summary>'
+                        f'<div class="pmenu">{menu}</div></details></td>')
             need += st in ("done", "running", "open")
             done += st == "done"
             stock += st == "stock"
@@ -1106,6 +1119,8 @@ def _stock_hint(store: Store, item: dict[str, Any]) -> str:
 ORDER_JS = r"""
 document.querySelectorAll('[data-tgl]').forEach(b=>b.onclick=()=>{const el=document.getElementById(b.dataset.tgl);el.hidden=!el.hidden;
  const o=b.dataset.tgl2&&document.getElementById(b.dataset.tgl2);if(o)o.hidden=el.hidden});
+document.querySelectorAll('details.pcm').forEach(d=>d.addEventListener('toggle',()=>{if(d.open)document.querySelectorAll('details.pcm[open]').forEach(o=>{if(o!==d)o.open=false})}));
+document.addEventListener('click',ev=>{if(!ev.target.closest('details.pcm'))document.querySelectorAll('details.pcm[open]').forEach(o=>o.open=false)});
 document.querySelectorAll('form.odel').forEach(f=>f.addEventListener('submit',ev=>{if(!confirm(f.dataset.q))ev.preventDefault()}));
 """
 
@@ -1315,7 +1330,7 @@ CSS = """
 
 .pbox{margin:-4px 0 12px 62px;border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:color-mix(in srgb,var(--fg) 2%,var(--card))}
 .ptot{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:13px;margin-bottom:6px}
-.pscroll{overflow-x:auto}.pm{width:100%;border-collapse:separate;border-spacing:0 5px;font-size:13.5px}
+.pscroll{overflow-x:auto}.pscroll:has(details.pcm[open]){padding-bottom:120px}.pm{width:100%;border-collapse:separate;border-spacing:0 5px;font-size:13.5px}
 .pm th{font-size:11.5px;color:var(--muted);font-weight:600;text-align:left;padding:0 6px;text-transform:uppercase;letter-spacing:.03em;white-space:nowrap}
 .pm th.c,.pm td.c{text-align:center}.pm td{padding:6px;background:color-mix(in srgb,var(--fg) 4%,transparent)}
 .pm td:first-child{border-radius:9px 0 0 9px;min-width:180px}.pm td:last-child{border-radius:0 9px 9px 0}
@@ -1329,7 +1344,11 @@ CSS = """
 white-space:nowrap;background:none;color:var(--fg);cursor:pointer;font-family:inherit;text-decoration:none}
 .pc small{font-weight:500;opacity:.8}.pc.done{background:color-mix(in srgb,var(--ok) 18%,transparent);color:var(--ok)}
 .pc.running{background:color-mix(in srgb,var(--run) 18%,transparent);color:var(--run)}.pc.open{border-color:var(--line)}
-.pc.stock{background:color-mix(in srgb,#b07cf0 20%,transparent);color:#b07cf0}.pc.skip{color:var(--muted);opacity:.6}
+.pc.stock{background:color-mix(in srgb,#b07cf0 20%,transparent);color:#b07cf0}
+.pcm{display:inline-block;position:relative}.pcm>summary{list-style:none}.pcm>summary::-webkit-details-marker{display:none}.pc i{font-style:normal;font-size:10px;opacity:.6}
+.pmenu{position:absolute;z-index:30;top:calc(100% + 4px);left:50%;transform:translateX(-50%);box-shadow:0 6px 20px rgba(0,0,0,.18);display:flex;flex-direction:column;gap:2px;padding:4px;border:1px solid var(--line);border-radius:10px;background:var(--card);text-align:left}
+.pmenu button{border:0;background:none;color:var(--fg);font:inherit;font-size:12.5px;padding:6px 9px;border-radius:7px;cursor:pointer;text-align:left;white-space:nowrap}
+.pmenu button:hover{background:color-mix(in srgb,var(--accent) 14%,transparent)}.pmenu button.on{opacity:.45;cursor:default}.pc.skip{color:var(--muted);opacity:.6}
 button.pc:hover{border-color:var(--accent)}
 .opon{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:-4px 0 12px 62px;font-size:13px}.opon .num{width:70px}
 .pedit{margin-top:8px;display:grid;gap:6px}.pedit[hidden],.poff[hidden]{display:none}.perow{display:flex;gap:8px;align-items:center}.perow input{flex:1}
