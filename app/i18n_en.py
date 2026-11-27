@@ -1365,4 +1365,9 @@ EN: dict[str, str] = {
     'Nicht nötig': 'Not needed',
     'Drucken': 'Print',
     'Ändern': 'Change',
+    'gewünschte Farbe': 'wanted colour',
+    'Farbe (optional)': 'Colour (optional)',
+    'Farbe wählen': 'Pick colour',
+    'Nur für diesen Auftrag. Leer = Farbe des letzten Drucks. Mehrere mit Komma.': 'This order only. Empty = colour of the last print. Several separated by commas.',
+    'Die Farbe gilt nur für diesen Auftrag.': 'The colour applies to this order only.',
 }

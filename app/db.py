@@ -217,6 +217,13 @@ CREATE TABLE IF NOT EXISTS plate_cells (
     state   TEXT NOT NULL,                -- print | stock | skip
     PRIMARY KEY (item_id, set_no, plate)
 );
+-- Gewünschte Farbe einer Platte in einer Position (optional, sonst Farbe des letzten Drucks)
+CREATE TABLE IF NOT EXISTS plate_colors (
+    item_id INTEGER NOT NULL,
+    plate   INTEGER NOT NULL,
+    colors  TEXT NOT NULL,                -- JSON-Liste #RRGGBB
+    PRIMARY KEY (item_id, plate)
+);
 CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT
@@ -1728,7 +1735,7 @@ class Store:
     # ---- Datensicherung: Einspielen und Zurücksetzen ------------------------
 
     HISTORY_TABLES = ("jobs", "photos", "handovers", "payments", "trash", "job_extras", "models", "model_aliases", "model_rejects",
-                      "orders", "order_items", "plate_info", "plate_cells")
+                      "orders", "order_items", "plate_info", "plate_cells", "plate_colors")
     SETTINGS_TABLES = ("customers", "printer_rates", "material_prices", "settings", "accessories", "locations")
     # Bleiben beim Zurücksetzen/Einspielen erhalten: Sprache der Oberfläche und der
     # Zeitpunkt der letzten HA-Verbindung (sonst holt printlog alte Drucke aus dem Verlauf nach).

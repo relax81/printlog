@@ -18,6 +18,7 @@ Abweichungen vom Standard stehen in ``plate_cells`` (pro Position, Satz und Plat
 from __future__ import annotations
 
 import json
+import re
 import time
 from typing import Any
 
@@ -45,6 +46,44 @@ def _colors(materials: Any) -> list[str]:
         if len(c) == 6 and all(ch in "0123456789ABCDEF" for ch in c) and f"#{c}" not in out:
             out.append(f"#{c}")
     return out
+
+
+def parse_colors(text: Any) -> list[str]:
+    """Eingabe wie „#FFD21F, d7263d“ → [#FFD21F, #D7263D] (höchstens 4)."""
+    out: list[str] = []
+    for c in re.findall(r"#?([0-9A-Fa-f]{6})\b", str(text or "")):
+        c = f"#{c.upper()}"
+        if c not in out:
+            out.append(c)
+    return out[:4]
+
+
+def _wanted(store: Store, item_id: int | None) -> dict[int, list[str]]:
+    if not item_id:
+        return {}
+    out = {}
+    for r in store._conn.execute("SELECT plate, colors FROM plate_colors WHERE item_id = ?", (item_id,)):
+        try:
+            out[int(r["plate"])] = [c for c in json.loads(r["colors"]) if isinstance(c, str)]
+        except (ValueError, TypeError):
+            pass
+    return out
+
+
+def known_colors(store: Store, limit: int = 400) -> list[tuple[str, str]]:
+    """Farben der letzten Drucke mit Filamentname, für die Auswahl beim Farbfeld: [(#RRGGBB, Name)]."""
+    seen: dict[str, str] = {}
+    for r in store._conn.execute("SELECT materials FROM jobs WHERE materials IS NOT NULL AND kind IS NULL "
+                                 "ORDER BY start_ts DESC LIMIT ?", (limit,)):
+        try:
+            mats = json.loads(r["materials"])
+        except (ValueError, TypeError):
+            continue
+        for m in mats if isinstance(mats, list) else []:
+            c = _colors([m])
+            if c and c[0] not in seen:
+                seen[c[0]] = " ".join(x for x in (str((m or {}).get("type") or ""), str((m or {}).get("name") or "")) if x).strip()
+    return list(seen.items())[:40]
 
 
 def plate_stats(store: Store, model_id: int) -> dict[int, dict[str, Any]]:
@@ -95,6 +134,7 @@ def plates_of(store: Store, item: dict[str, Any]) -> list[dict[str, Any]]:
     mid, iid = item.get("model_id"), item.get("id")
     stats = plate_stats(store, mid) if mid else {}
     info = _info(store, mid, iid)
+    wanted = _wanted(store, iid)
     nums = set(stats) | set(info)
     if mid:
         nums |= set(model_plate_numbers(store, mid))
@@ -118,7 +158,7 @@ def plates_of(store: Store, item: dict[str, Any]) -> list[dict[str, Any]]:
         out.append({"plate": p, "name": i.get("name") or t("Platte {n}", n=p), "named": bool(i.get("name")),
                     "grp": (i.get("grp") or "").strip() or None, "part_model_id": i.get("part_model_id"),
                     "min": s.get("min"), "g": s.get("g"), "pieces": s.get("pieces") or 1, "cost": s.get("cost"),
-                    "work": s.get("work") or 0.0, "colors": s.get("colors") or [], "n": s.get("n") or 0})
+                    "work": s.get("work") or 0.0, "colors": s.get("colors") or [], "want": wanted.get(p) or [], "n": s.get("n") or 0})
     return out
 
 
@@ -265,6 +305,13 @@ def save_plates(store: Store, item: dict[str, Any], rows: list[dict[str, Any]], 
                                 (max(1, min(int(n_plates), MAX_PLATES)) if n_plates else None, item["id"]))
         for r in rows:
             p = int(r["plate"])
+            if "colors" in r:
+                cols = parse_colors(r.get("colors"))
+                if cols:
+                    store._conn.execute("INSERT OR REPLACE INTO plate_colors (item_id, plate, colors) VALUES (?, ?, ?)",
+                                        (item["id"], p, json.dumps(cols)))
+                else:
+                    store._conn.execute("DELETE FROM plate_colors WHERE item_id = ? AND plate = ?", (item["id"], p))
             name = (r.get("name") or "").strip()[:80] or None
             grp = (r.get("grp") or "").strip()[:40] or None
             part = r.get("part_model_id")
@@ -289,6 +336,7 @@ def forget_item(store: Store, item_id: int) -> None:
     with store._lock, store._conn:
         store._conn.execute("DELETE FROM plate_cells WHERE item_id = ?", (item_id,))
         store._conn.execute("DELETE FROM plate_info WHERE item_id = ?", (item_id,))
+        store._conn.execute("DELETE FROM plate_colors WHERE item_id = ?", (item_id,))
 
 
 # ---- Vorrat ---------------------------------------------------------------------------
@@ -333,7 +381,7 @@ def stock_for(store: Store, model_id: int | None, plate: dict[str, Any], want_co
     rows = [dict(r) for r in store._conn.execute(
         f"SELECT jobs.*, {Store.SCRAP_SQL} AS is_scrap FROM jobs WHERE split = 1 AND kind IS NULL AND ({' OR '.join(conds)}) "
         "ORDER BY start_ts", args)]
-    want = set(want_colors or plate.get("colors") or part_colors(store, plate.get("part_model_id")))
+    want = set(want_colors or plate.get("want") or plate.get("colors") or part_colors(store, plate.get("part_model_id")))
     out, pieces, match = [], 0, 0
     for r in rows:
         units = store.stock(r)["units"]
