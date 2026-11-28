@@ -1,0 +1,6 @@
+# .git bleibt bewusst drin: daraus liest der Build die Version (app/version.py).
+data/
+.env
+**/__pycache__/
+*.pyc
+server.log

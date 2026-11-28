@@ -408,6 +408,12 @@ The database is migrated automatically on start. If the blueprint changed, re-im
 and reload automations; existing automations keep their inputs. Since the models update the blueprint also sends the
 plate number and the print file; with an older blueprint models are recognised by name and image only.
 
+**Which version is live?** The small line at the bottom of every page shows the running version, e.g.
+`printlog v53 · 1a2b3c4 · Build 28 Nov 2026 06:31`. The number is the pull request of the last merge on `main`, so it goes
+up with every merge on its own; nothing has to be maintained by hand. It is read from `.git` while the image is built
+(Portainer and `docker compose` both build from a git checkout). Without `.git` only the build time is shown, which still
+tells you whether the redeploy has happened. Also available as `GET /api/version`.
+
 ### The printlog event
 
 If you want to feed printlog from something other than the blueprint, fire an event of type `printlog` with these fields:
@@ -453,6 +459,7 @@ filament weight per slot is usually not available there. Support for other brand
 - `GET /health` – 200 when connected to Home Assistant, otherwise 503
 - `GET /api/jobs` – prints as JSON (filters as in the UI, e.g. `?printer=x1c&month=2026-11`, plus `limit`, `offset`)
 - `GET /api/summary` – totals overall and per printer
+- `GET /api/version` – running version (`version`, PR `number`, `commit`, `date`, `subject`, `built`)
 - `GET /export.csv` – CSV export (filters as in the UI, e.g. `?month=2026-11&printer=x1c`)
 - `GET /backup.zip` – full backup as ZIP
 - `POST /api/jobs/{id}` – update task_name, customer_id, quantity, job_note
@@ -886,6 +893,12 @@ Die Datenbank wird beim Start automatisch angepasst. Hat sich der Blueprint geä
 erneut kopieren) und die Automationen neu laden; bestehende Automationen behalten ihre Eingaben. Seit dem Update mit den
 Modellen schickt der Blueprint auch Plattennummer und Druckdatei; mit einem älteren Blueprint erkennt printlog Modelle nur
 an Name und Bild.
+
+**Welche Version läuft?** Die kleine Zeile unten auf jeder Seite zeigt den laufenden Stand, z. B.
+`printlog v53 · 1a2b3c4 · Build 28.11.26 06:31`. Die Zahl ist der Pull Request des letzten Merges auf `main` und steigt
+damit bei jedem Merge von selbst; von Hand gepflegt wird nichts. Gelesen wird sie beim Bauen des Images aus `.git`
+(Portainer und `docker compose` bauen beide aus einem Git-Checkout). Ohne `.git` steht dort nur die Build-Zeit, die
+trotzdem zeigt, ob der Redeploy schon durch ist. Auch abrufbar unter `GET /api/version`.
 
 ### Ablauf pro Druck im Detail
 

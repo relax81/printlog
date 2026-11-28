@@ -21,6 +21,7 @@ from . import archive
 from . import bulkpay as bp
 from . import calc
 from . import ocr
+from . import version
 from . import extras as zk
 from . import models as mdl
 from . import orders as od
@@ -598,6 +599,10 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
             j["materials"] = parse_materials(j.get("materials"))
             j["photos"] = photos.get(j["id"], 0)
         return web.json_response(jobs)
+
+    @routes.get("/api/version")
+    async def api_version(request: web.Request) -> web.Response:
+        return web.json_response({"version": version.label(), **version.info()})
 
     @routes.get("/api/summary")
     async def api_summary(request: web.Request) -> web.Response:
