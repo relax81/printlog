@@ -18,7 +18,7 @@ for n in desk:
     save(im, n)
 for n in ['failed-print', 'failed-print-stats', 'project-list', 'project-detail', 'assign-customer', 'split-list', 'split-detail', 'split-dialog', 'stock',
           'work-accessories', 'accessory-picker', 'accessory-inventory', 'hints', 'models', 'locations', 'location',
-          'orders', 'order-detail', 'order-plates', 'order-shared']:
+          'orders', 'order-detail', 'order-plates', 'order-shared', 'pay-all']:
     if os.path.exists(f'{src}/{n}.png'):
         im = Image.open(f'{src}/{n}.png').convert('RGB')
         save(trim_bottom(im) if n in ('project-detail', 'stock', 'hints', 'locations', 'location', 'orders', 'order-detail') else im, n)
