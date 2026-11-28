@@ -1,11 +1,11 @@
 // Screenshots für die README aus dem Demo-Modus.
-// Aufruf (App läuft lokal auf Port 8095, sonst PORT=…): node docs/screenshots/capture.js <en|de> <ausgabeordner> <druck-id> [light|dark] [fehldruck-id] [projekt-id]
+// Aufruf (App läuft lokal auf Port 8095, sonst PORT=…): node docs/screenshots/capture.js <en|de> <ausgabeordner> <druck-id> [light|dark] [fehldruck-id] [projekt-id] [zubehoer-id]
 // Danach: python3 docs/screenshots/shrink.py <ausgabeordner> docs/screenshots/<en|de>[-dark]
 // PDF vorher in ein Bild umwandeln: pdftoppm -r 90 -png -singlefile <ausgabeordner>/raw-kosten.pdf <ausgabeordner>/raw-cost
-// Druck-ID: ein fertiger Druck mit Kunde, Fotos und mehreren Filamenten (die Demo-Daten sind fest vorgegeben, z. B. 26).
-// Fehldruck-ID: der anteilig berechnete Fehldruck der Demo (Status-Filter „Fehldruck: Einstellungen“, z. B. 117).
-// Projekt-ID: das Beispielprojekt „Werkstatt-Wand“ der Demo (z. B. 360).
-// Zubehör-ID: ein Schlüsselanhänger-Druck mit Ring, Kette und Arbeitszeit (z. B. 88).
+// Druck-ID: ein fertiger Druck mit Kunde, Fotos und mehreren Filamenten (die Demo-Daten sind fest vorgegeben, z. B. 365 „Becheruntersetzer Café“).
+// Fehldruck-ID: der anteilig berechnete Fehldruck der Demo (Status-Filter „Fehldruck: Einstellungen“, z. B. 237).
+// Projekt-ID: das Beispielprojekt „Garage-Lochwand“ der Demo (z. B. 384).
+// Zubehör-ID: ein Schlüsselanhänger-Druck mit Ring, Kette und Arbeitszeit (z. B. 380).
 const prevMonth = () => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 7); };
 const { chromium, devices } = require('playwright');
 const [lang, out, job, scheme = 'light', fd, proj, zk] = process.argv.slice(2);
@@ -14,7 +14,7 @@ const hdr = { 'Accept-Language': lang };
 (async () => {
   const b = await chromium.launch();
   const init = () => { try { sessionStorage.setItem('pl_demobar', '0') } catch (_) {} };
-  const ctx = await b.newContext({ viewport: { width: 1440, height: 900 }, locale: lang, colorScheme: scheme, extraHTTPHeaders: hdr });
+  const ctx = await b.newContext({ viewport: { width: 1440, height: 900 }, locale: lang === 'de' ? 'de-DE' : lang, colorScheme: scheme, extraHTTPHeaders: hdr });
   await ctx.addInitScript(init);
   const p = await ctx.newPage();
   await p.goto(base); await p.waitForTimeout(500); // trigger seed in this language
@@ -101,6 +101,15 @@ const hdr = { 'Accept-Language': lang };
     const s = await p.$eval('table.acc', el => { const b = el.getBoundingClientRect(); return { y: b.top + scrollY, h: b.height }; });
     await p.screenshot({ path: `${out}/accessory-inventory.png`, clip: { x: 0, y: 0, width: 1440, height: s.y + s.h + 16 }, fullPage: true });
   }
+  {
+    // Zahlung für alle: Fenster mit den offenen Posten eines Kunden (Ansicht „Offen“)
+    await p.setViewportSize({ width: 1440, height: 1000 });
+    await p.goto(base + '?view=todo'); await p.waitForLoadState('networkidle'); await p.waitForTimeout(600);
+    await p.click('[data-bulkpay]'); await p.waitForSelector('#bpdlg:not([hidden]) .bpl .bpr, #bpdlg:not([hidden]) .bpl > div + *', { timeout: 5000 }).catch(() => {});
+    await p.waitForTimeout(700);
+    const d = await p.$eval('#bpdlg .bpd', el => { const b = el.getBoundingClientRect(); return { x: b.left, y: b.top, w: b.width, h: b.height }; });
+    await p.screenshot({ path: `${out}/pay-all.png`, clip: { x: Math.max(0, d.x - 30), y: Math.max(0, d.y - 30), width: d.w + 60, height: d.h + 60 } });
+  }
   // Lager: Lagerorte und Seite eines Lagerorts (der mit Drucken aus dem Vorrat)
   await shot('locations', 'storage?tab=orte', { h: 620 });
   const loc = await p.$eval('.locc:has(img)', a => a.getAttribute('href'));
@@ -132,7 +141,7 @@ const hdr = { 'Accept-Language': lang };
     await p.screenshot({ path: `${out}/order-shared.png`, fullPage: true, clip: { x: 0, y: r.y, width: 1440, height: r.h } });
   }
   // phone
-  const ph = await b.newContext({ ...devices['iPhone 13'], locale: lang, colorScheme: scheme, extraHTTPHeaders: hdr });
+  const ph = await b.newContext({ ...devices['iPhone 13'], locale: lang === 'de' ? 'de-DE' : lang, colorScheme: scheme, extraHTTPHeaders: hdr });
   await ph.addInitScript(init);
   const q = await ph.newPage();
   for (const [n, u] of [['phone-list', ''], ['phone-detail', `job?id=${job}`], ['phone-open', '?view=todo'], ['phone-stock', '?view=stock']]) {
