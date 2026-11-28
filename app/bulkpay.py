@@ -181,7 +181,7 @@ def dialog() -> str:
 <label>{t("Datum")}<input type="date" name="date"></label></div>
 <div class="bpm"><span>{t("Verteilen")}:</span><span class="bpseg"><button type="button" data-m="oldest" class="on">{t("Älteste zuerst")}</button><button type="button" data-m="share">{t("Nach Anteil")}</button></span>
 <span class="sp"></span><button type="button" class="lnk tog"></button></div>
-<div class="bpl"></div><button type="button" class="lnk more" hidden></button>
+<div class="bpl"><div class="bph"><span></span><span>{t("Posten")}</span><span class="op">{t("offen")}</span><span class="gv">{t("bekommt")}</span><span class="af">{t("danach")}</span></div></div><button type="button" class="lnk more" hidden></button>
 <label class="bpcr" hidden><input type="checkbox" name="use_credit" value="1" checked> <span></span></label>
 <div class="bpx" hidden><b></b> {t("Was soll damit passieren?")}
 <label><input type="radio" name="surplus" value="tip" checked> {t("Als Trinkgeld zum neuesten Posten (zählt dort als tatsächlicher Preis)")}</label>
@@ -212,14 +212,17 @@ CSS = """
 .bpseg button.on{background:var(--accent);color:var(--bg)}
 .bpd .lnk{border:0;background:none;padding:2px 4px;min-height:0;color:var(--accent);font-weight:600;cursor:pointer;font-size:13px}
 .bpl{border:1px solid var(--line);border-radius:12px;overflow:auto;max-height:300px;margin-bottom:12px}.bpd .more{display:block;margin:-4px 0 12px}
-.bpl label{display:grid;grid-template-columns:22px 1fr auto auto;gap:4px 12px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--line);
+.bpl .bph,.bpl label{display:grid;grid-template-columns:22px minmax(0,1fr) 70px 80px 92px;gap:4px 12px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--line);
  font-size:14px;font-weight:400;color:var(--fg);cursor:pointer}
-.bpl label:last-child{border-bottom:0}.bpl label[hidden]{display:none}.bpl label.off{opacity:.55}
+.bpl label:last-child{border-bottom:0}.bpl label.off .nm,.bpl label.off .op{opacity:.55}.bpl label[hidden]{display:none}
 .bpl input{width:18px;height:18px;margin:0;accent-color:var(--accent)}
 .bpl .nm{min-width:0}.bpl .nm b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bpl .nm small,.bpl .gv small{display:block;color:var(--muted);font-size:12px}
-.bpl .op{text-align:right;color:var(--muted);white-space:nowrap}.bpl .gv{text-align:right;min-width:86px;white-space:nowrap}
-.bpl .gv b{font-size:15px}.bpl .gv small.ok{color:var(--ok)}.bpl .gv small.part{color:var(--warn)}
+.bpl .bph{position:sticky;top:0;z-index:1;background:var(--card);padding:6px 12px;border-bottom:1px solid var(--line);font-size:11px;font-weight:700;
+ text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+.bpl .op,.bpl .gv,.bpl .af{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}.bpl label .op{color:var(--muted)}
+.bpl label .gv{font-weight:700;font-size:15px}.bpl .gv.zero{color:var(--muted);font-weight:400}
+.bpl label .af{font-size:13px;color:var(--warn)}.bpl .af.ok{color:var(--ok);font-weight:600}.bpl .af.same{color:var(--muted)}
 .bpl .pid{font-family:ui-monospace,monospace;font-size:11px;color:var(--muted);margin-left:6px;font-weight:600}
 .bpcr{flex-direction:row!important;align-items:center;gap:8px!important;font-size:14px!important;color:var(--fg)!important;margin-bottom:10px}
 .bpx,.bps{border-radius:12px;padding:10px 12px;margin-bottom:12px;font-size:14px}
@@ -232,7 +235,7 @@ CSS = """
 .bpd .go{background:var(--accent);color:var(--bg);border-color:var(--accent);font-weight:700}.bpd .go:disabled{opacity:.4}
 .bpe{color:var(--bad);font-size:14px;margin-bottom:12px}
 .bpok p{font-size:15px;margin:4px 0 16px}
-@media (max-width:560px){.bpd{padding:16px}.bpm{flex-wrap:nowrap}.bpm>span:first-child{display:none}.bpseg button{padding:5px 10px}.bpl label{grid-template-columns:22px 1fr auto}.bpl .op{display:none}}
+@media (max-width:560px){.bpd{padding:16px}.bpm{flex-wrap:nowrap}.bpm>span:first-child{display:none}.bpseg button{padding:5px 10px}.bpl .bph,.bpl label{grid-template-columns:22px minmax(0,1fr) 66px 76px;gap:4px 8px}.bpl .op{display:none}}
 """
 
 BULKPAY_JS = r"""
@@ -261,9 +264,12 @@ function upd(){if(!D)return;const s=sel(),opens=s.map(x=>x.open),tot=opens.reduc
   const cash=parse(amt.value),useCr=D.credit>0&&f.use_credit.checked,used=useCr?Math.min(D.credit,Math.max(0,tot-cash)):0;
   const sur=(f.querySelector('input[name=surplus]:checked')||{}).value||'tip';
   const [give,credit]=allocate(opens,cash+used,sur);
-  let k=0;D.items.forEach((x,i)=>{const lb=L.children[i],gv=lb.querySelector('.gv');lb.classList.toggle('off',!boxes()[i].checked);
-    if(!boxes()[i].checked){gv.innerHTML='<b>–</b>';return}const g=give[k++];
-    gv.innerHTML='<b>'+eur(g)+'</b>'+(g>=x.open?'<small class="ok">✓ '+_t("bezahlt")+'</small>':g>0?'<small class="part">'+_t("{v} bleibt offen").replace('{v}',eur(x.open-g))+'</small>':'<small>'+_t("bleibt offen")+'</small>')});
+  // Spalten: offen | bekommt (diese Zahlung) | danach (was nach der Buchung noch offen ist)
+  const rows=L.querySelectorAll('label');let k=0;D.items.forEach((x,i)=>{const lb=rows[i],gv=lb.querySelector('.gv'),af=lb.querySelector('.af');
+    const on=boxes()[i].checked,g=on?give[k++]:0;lb.classList.toggle('off',!on||!g);
+    gv.textContent=g?eur(g):'–';gv.classList.toggle('zero',!g);
+    const left=Math.max(0,x.open-g);af.textContent=!left?'✓ '+_t("bezahlt"):eur(left);
+    af.className='af'+(!left?' ok':g?'':' same')});
   f.querySelector('.sub').textContent=(s.length==1?_t("1 Posten ausgewählt"):_t("{n} Posten ausgewählt").replace('{n}',s.length))+' · '+_t("{v} offen").replace('{v}',eur(tot));
   const cr=f.querySelector('.bpcr');cr.hidden=!(D.credit>0);cr.querySelector('span').textContent=_t("Guthaben verwenden ({v} vorhanden)").replace('{v}',eur(D.credit));
   const over=cash-tot,x=f.querySelector('.bpx');x.hidden=!(over>0&&s.length);
@@ -281,7 +287,7 @@ function show(body){f.querySelector('.bpbody').hidden=!body;f.querySelector('.bp
 async function open(q){err('');show(true);typed=false;mode='oldest';f.reset();
   f.querySelectorAll('.bpseg button').forEach(b=>b.classList.toggle('on',b.dataset.m===mode));
   const d=new Date();f.date.value=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
-  L.textContent='';f.querySelector('.ttl').textContent=_t("Zahlung erfassen");f.querySelector('.sub').textContent='';bg.hidden=false;
+  L.querySelectorAll('label').forEach(l=>l.remove());f.querySelector('.ttl').textContent=_t("Zahlung erfassen");f.querySelector('.sub').textContent='';bg.hidden=false;
   let r;try{r=await(await fetch('api/bulkpay?'+q)).json()}catch(_){r={error:_t("Laden fehlgeschlagen.")}}
   if(r.error){err(r.error);f.querySelector('.bpbody').hidden=true;f.querySelector('.bpok').hidden=false;f.querySelector('.bpok p').textContent='';f.querySelector('.undo').hidden=true;return}
   D=r;f.querySelector('.ttl').textContent=_t("💶 Zahlung von {name}").replace('{name}',D.customer.name);
@@ -290,7 +296,7 @@ async function open(q){err('');show(true);typed=false;mode='oldest';f.reset();
     if(x.code){const p=document.createElement('span');p.className='pid';p.textContent=x.code;b.appendChild(p)}
     const sm=document.createElement('small');sm.textContent=x.sub;nm.append(b,sm);
     const op=document.createElement('span');op.className='op';op.textContent=eur(x.open);const gv=document.createElement('span');gv.className='gv';
-    lb.append(cb,nm,op,gv);lb.hidden=!x.on;L.appendChild(lb)});
+    const af=document.createElement('span');af.className='af';lb.append(cb,nm,op,gv,af);lb.hidden=!x.on;L.appendChild(lb)});
   const rest=D.items.filter(x=>!x.on).length,mo=f.querySelector('.more');mo.hidden=!rest;
   mo.textContent=(rest==1?_t("+ 1 weiterer offener Posten"):_t("+ {n} weitere offene Posten").replace('{n}',rest));
   if(!D.items.length)err(_t("Nichts offen."));upd();if(!r.items.some(x=>!x.on))f.amount.focus()}

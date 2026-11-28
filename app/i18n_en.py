@@ -1427,4 +1427,6 @@ EN: dict[str, str] = {
     'Trinkgeld': 'Tips',
     'bei {n} Drucken, im Gewinn enthalten': 'on {n} prints, included in profit',
     'bei 1 Druck, im Gewinn enthalten': 'on 1 print, included in profit',
+    'bekommt': 'gets',
+    'danach': 'then open',
 }
