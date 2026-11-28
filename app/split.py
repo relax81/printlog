@@ -581,7 +581,7 @@ SPLIT_JS = r"""
  const eur=v=>v==null||isNaN(v)?'–':v.toLocaleString(document.documentElement.lang||'de',{minimumFractionDigits:2,maximumFractionDigits:2})+' €';
  const el=(tag,cls,txt)=>{const x=document.createElement(tag);if(cls)x.className=cls;if(txt!=null)x.textContent=txt;return x};
  function shell(){const bg=el('div','dlgbg sp');bg.hidden=true;const d=el('div','spdlg');d.setAttribute('role','dialog');bg.append(d);document.body.append(bg);
-   bg.addEventListener('click',ev=>{if(ev.target===bg)bg.hidden=true});document.addEventListener('keydown',ev=>{if(ev.key==='Escape'&&!document.getElementById('kpop')?.offsetParent)bg.hidden=true});return [bg,d]}
+   bgClose(bg,()=>bg.hidden=true);document.addEventListener('keydown',ev=>{if(ev.key==='Escape'&&!document.getElementById('kpop')?.offsetParent)bg.hidden=true});return [bg,d]}
  function stepper(val,min,max,on){const w=el('span','stp');const m=el('button',null,'−'),p=el('button',null,'+');m.type=p.type='button';
    const i=el('input');i.type='number';i.inputMode='numeric';i.value=val;
    const sync=fire=>{const old=parseInt(i.value);let v=old||min;v=Math.max(min,max!=null?Math.min(max,v):v);i.value=v;

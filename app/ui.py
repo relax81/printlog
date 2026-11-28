@@ -270,7 +270,11 @@ table.stack .edit input{flex:1 1 140px;width:auto!important}
 }
 """
 
-BASE_JS = """
+BASE_JS = """// Hintergrund eines Dialogs schließt nur, wenn der Klick dort auch begonnen hat
+// (Text markieren und außerhalb loslassen darf den Dialog nicht schließen).
+function bgClose(bg,fn){let down=null;bg.addEventListener('pointerdown',ev=>{down=ev.target});
+  bg.addEventListener('click',ev=>{if(ev.target===bg&&down===bg)fn();down=null})}
+
 document.getElementById('eye').onclick=()=>{const on=document.documentElement.classList.toggle('priv');
  try{localStorage.setItem('pl_priv',on?'1':'0')}catch(_){}};
 const zd=document.getElementById('zoom');
