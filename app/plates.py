@@ -157,7 +157,8 @@ def plates_of(store: Store, item: dict[str, Any]) -> list[dict[str, Any]]:
             s = {**part_stats[pid], "n": 0}
         out.append({"plate": p, "name": i.get("name") or t("Platte {n}", n=p), "named": bool(i.get("name")),
                     "grp": (i.get("grp") or "").strip() or None, "part_model_id": i.get("part_model_id"),
-                    "min": s.get("min"), "g": s.get("g"), "pieces": s.get("pieces") or 1, "cost": s.get("cost"),
+                    "min": s.get("min"), "g": s.get("g"), "pieces": s.get("pieces") or 1,
+                    "cost": s.get("cost") if s.get("cost") is not None else item.get("est_cost"),
                     "work": s.get("work") or 0.0, "colors": s.get("colors") or [], "want": wanted.get(p) or [], "n": s.get("n") or 0})
     return out
 

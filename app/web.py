@@ -19,6 +19,7 @@ from aiohttp import web
 
 from . import archive
 from . import bulkpay as bp
+from . import calc
 from . import extras as zk
 from . import models as mdl
 from . import orders as od
@@ -927,12 +928,70 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
                 f[k] = int(n) if n and n >= 1 else None
         if "est" in form:
             f["est_min"] = od.parse_minutes(form.get("est"))
+        if "est_cost" in form:
+            f["est_cost"] = calc._num(form.get("est_cost"))
         return f
 
     async def _title_for(url: str | None) -> str | None:
         if not url:
             return None
         return await fetch_title(app.get("session"), url) or title_from_url(url)
+
+    # ---- Kosten vorab kalkulieren ------------------------------------------------
+
+    @routes.get("/calc")
+    async def calc_page(request: web.Request) -> web.Response:
+        oid = request.query.get("order")
+        return _html(calc.page_calc(store, int(oid) if oid and oid.isdigit() else None))
+
+    @routes.post("/api/calc/link")
+    async def calc_link(request: web.Request) -> web.Response:
+        try:
+            url = od.clean_url((await request.json()).get("url")) or ""
+        except (ValueError, AttributeError):
+            raise web.HTTPBadRequest()
+        data, err = await calc.fetch_makerworld(request.config_dict.get("session"), url)
+        if not data and demo and calc.is_makerworld(url):
+            data, err = calc.demo_sample(url), None  # Demo: Beispieldaten, wenn MakerWorld nicht erreichbar ist
+        return web.json_response(data or {"error": err})
+
+    @routes.post("/api/calc/quote")
+    async def calc_quote(request: web.Request) -> web.Response:
+        try:
+            d = await request.json()
+        except ValueError:
+            raise web.HTTPBadRequest()
+        if not isinstance(d, dict):
+            raise web.HTTPBadRequest()
+        return web.json_response(calc.quote(store, d))
+
+    @routes.post("/calc/order")
+    async def calc_order(request: web.Request) -> web.Response:
+        """Kalkulation als Freitext-Position in einen neuen oder bestehenden Auftrag übernehmen."""
+        form = await request.post()
+        try:
+            d = json.loads(str(form.get("data") or "{}"))
+        except ValueError:
+            d = {}
+        if not isinstance(d, dict) or not d.get("plates"):
+            raise web.HTTPSeeOther("../calc")
+        q = calc.quote(store, d)
+        f = calc.item_fields(d, q)
+        name, qty = f.pop("name"), f.pop("qty")
+        oid = str(form.get("order") or "")
+        rows = calc.plate_names(d)
+        if str(form.get("do")) == "into" and oid.isdigit() and od.order(store, int(oid)):
+            iid = od.add_item(store, int(oid), None, name, qty, **f)
+            if rows:
+                pl.save_plates(store, {"id": iid, "model_id": None}, rows)
+            raise web.HTTPSeeOther(f"../order?id={oid}&saved=1")
+        cust = next((m.get("customer") for m in calc.params(store)["margins"] if m["key"] == d.get("margin") and m.get("customer")), None)
+        new = od.create_order(store, store.customer_by_name(cust) if cust else None, name,
+                              None, round(q["price"], 2) if q.get("price") is not None else None, None)
+        iid = od.add_item(store, new, None, name, qty, **f)
+        if rows:
+            pl.save_plates(store, {"id": iid, "model_id": None}, rows)
+        raise web.HTTPSeeOther(f"../order?id={new}")
 
     @routes.get("/orders")
     async def orders_page(request: web.Request) -> web.Response:
