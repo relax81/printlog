@@ -130,6 +130,22 @@ in a **light and a dark** colour scheme (Settings → View → Colour scheme, or
   from your filament colours or typed as hex); it then decides the colour dot and the stock match. printlog
   cannot tell on its own which parts sit on a plate (Bambu only reports project name and plate number), so you mark the
   shared part once under *Edit plates*; the part needs its own plate.
+- **Calculate costs up front** – before anything is printed: paste a **MakerWorld link** (Orders → 🧮 *Calculate*) and
+  printlog reads the model page's print profiles: per plate the print time, grams per filament and colour, the profile's
+  printer and the compatible printers. No login is needed; if MakerWorld blocks the request now and then, paste a
+  **screenshot** instead (Ctrl+V, drag & drop or 📋 *Screenshot*): the *Slicing result* of Bambu Studio (grams per
+  filament incl. colour, total time, printer; a missing decimal point is corrected against the total) or the profile box of
+  a MakerWorld model page (plates, time, grams, filament chips, compatible printers). Text recognition runs in the
+  container (Tesseract) and is a typing aid – check the values. Or enter them **by hand** (time per plate, grams per filament).
+  Every value stays editable, plates can be left out. printlog then
+  compares **all your printers**: filament from your prices, printer from depreciation + maintenance, power from the
+  printer's average draw in your past prints (or its fixed wattage) × the average electricity price of your past prints.
+  The printer from the profile is preselected (*detected*), others use the same time as an estimate (~); printers that
+  MakerWorld does not list as compatible are greyed out. With sets, pieces per set, work, accessories and a margin (general
+  or a customer's) you get the price and the price per piece. **Create as new order** or **Add** to an open order makes a
+  free-text item with plates, print time and cost per plate (plate names included), so the order shows an estimated price
+  right away. In the new-order form and on an order page the same calculator opens as a dialog and fills in the item
+  (and the agreed price, if empty).
 - **Notices** – a 🔔 bell at the top counts open questions (prints to check, accessories to restock). The **Notices** page
   answers them in one tap (*Yes, model X* / *Other model …* / *New model*). Each card shows the print's project or
   MakerWorld title with the slicer file name below, because model names come from the file name. The list shows a coloured dot on such prints
@@ -215,7 +231,7 @@ in a **light and a dark** colour scheme (Settings → View → Colour scheme, or
 | <a href="docs/screenshots/en/order-plates.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/order-plates.png"><img src="docs/screenshots/en/order-plates.png" alt="Plates per set: choice group, from stock"></picture></a><br>**Plates per set: choice group, from stock** | <a href="docs/screenshots/en/order-shared.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/order-shared.png"><img src="docs/screenshots/en/order-shared.png" alt="Shared part: suggestion from stock with colour check"></picture></a><br>**Shared part: suggestion from stock with colour check** |
 | <a href="docs/screenshots/en/hints.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/hints.png"><img src="docs/screenshots/en/hints.png" alt="Notices: orders and models with one tap"></picture></a><br>**Notices: orders and models with one tap** | <a href="docs/screenshots/en/models.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/models.png"><img src="docs/screenshots/en/models.png" alt="Models: favourites, design time, print again"></picture></a><br>**Models: favourites, design time, print again** |
 | <a href="docs/screenshots/en/locations.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/locations.png"><img src="docs/screenshots/en/locations.png" alt="Storage: locations for accessories and prints"></picture></a><br>**Storage: locations for accessories and prints** | <a href="docs/screenshots/en/location.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/location.png"><img src="docs/screenshots/en/location.png" alt="A location with its fixed ID and contents"></picture></a><br>**A location with its fixed ID and contents** |
-| <a href="docs/screenshots/en/pay-all.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/pay-all.png"><img src="docs/screenshots/en/pay-all.png" alt="Payment for all: one amount for several open items"></picture></a><br>**Payment for all: one amount for several open items** | |
+| <a href="docs/screenshots/en/pay-all.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/pay-all.png"><img src="docs/screenshots/en/pay-all.png" alt="Payment for all: one amount for several open items"></picture></a><br>**Payment for all: one amount for several open items** | <a href="docs/screenshots/en/calc.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en-dark/calc.png"><img src="docs/screenshots/en/calc.png" alt="Calculate costs up front: MakerWorld link, printer comparison"></picture></a><br>**Calculate costs up front: MakerWorld link, printer comparison** |
 
 | Phone: prints | Phone: print detail | Phone: open items | Phone: stock |
 |---|---|---|---|
@@ -451,6 +467,9 @@ filament weight per slot is usually not available there. Support for other brand
 - `POST /api/projects` (`ids=1,2,3`, `name`, `customer_id`, `quantity`; or `mode=add&into={id}`) – group prints into a project
 - `POST /api/projects/{id}/add` (`ids`), `POST /api/projects/{id}/dissolve`, `POST /api/jobs/{id}/unproject` – add, ungroup, remove one print
   (in `/api/jobs` a project is a row with `kind: "project"`; its prints carry `project_id`)
+- `POST /api/calc/ocr` (image as request body) – read a screenshot (Bambu Studio slicing result or MakerWorld profile);
+  `POST /api/calc/link` (JSON `{"url": …}`) – print profiles of a MakerWorld model page; `POST /api/calc/quote` (JSON with
+  `plates`, `sets`, `pieces`, `printer`, `margin` …) – costs per printer and price, as used by the calculator
 
 There is no authentication in printlog itself. Keep it on your local network or put it behind a reverse proxy with access control.
 
@@ -591,6 +610,22 @@ in **hell und dunkel** (Einstellungen → Ansicht → Farbschema, oder automatis
   Farbpunkt und den Vorrat-Abgleich. Welche Teile auf einer Platte liegen, kann printlog nicht selbst erkennen
   (Bambu meldet nur Projektname und Plattennummer), deshalb markierst du das gemeinsame Teil einmal unter *Platten
   bearbeiten*; das Teil braucht eine eigene Platte.
+- **Kosten vorab kalkulieren** – bevor etwas gedruckt ist: **MakerWorld-Link** einfügen (Aufträge → 🧮 *Kalkulieren*),
+  printlog liest die Druckprofile der Modellseite: pro Platte Druckzeit, Gramm pro Filament und Farbe, den Drucker des
+  Profils und die kompatiblen Drucker. Ein Login ist nicht nötig; blockt MakerWorld den Abruf mal, fügst du stattdessen
+  einen **Screenshot** ein (Strg+V, hineinziehen oder 📋 *Screenshot*): das *Slicing Result* aus Bambu Studio (Gramm pro
+  Filament samt Farbe, Gesamtzeit, Drucker; ein verlorenes Komma wird mit der Gesamtmenge korrigiert) oder den Profil-Kasten
+  einer MakerWorld-Modellseite (Platten, Zeit, Gramm, Filament-Chips, kompatible Drucker). Die Texterkennung läuft im
+  Container (Tesseract) und ist eine Abtipp-Hilfe – Werte kurz prüfen. Oder du trägst sie **von Hand** ein (Zeit pro
+  Platte, Gramm pro Filament). Alle Werte bleiben änderbar, Platten lassen sich abwählen.
+  Dann vergleicht printlog **alle deine Drucker**: Filament nach deinen Preisen, Drucker aus Abschreibung + Wartung,
+  Strom aus dem Ø-Verbrauch des Druckers in deinen bisherigen Drucken (sonst feste Leistung) × Ø-Strompreis deiner
+  bisherigen Drucke. Der Drucker aus dem Profil ist vorausgewählt (*erkannt*), für andere gilt dieselbe Zeit als Näherung
+  (~); Drucker, die MakerWorld nicht als kompatibel nennt, sind ausgegraut. Mit Sätzen, Stück pro Satz, Arbeit, Zubehör und
+  Marge (allgemein oder die eines Kunden) gibt es den Preis und den Preis pro Stück. **Als neuen Auftrag anlegen** oder
+  **Hinzufügen** zu einem offenen Auftrag legt eine Freitext-Position mit Platten, Druckzeit und Kosten pro Platte an
+  (samt Plattennamen), der Auftrag zeigt also gleich einen geschätzten Preis. Im Formular „Neuer Auftrag“ und auf der
+  Auftragsseite öffnet sich derselbe Rechner als Dialog und füllt die Position aus (und den vereinbarten Preis, wenn leer).
 - **Hinweise** – eine 🔔 Glocke oben zählt offene Fragen (Drucke prüfen, Zubehör nachkaufen). Auf der Seite **Hinweise**
   beantwortest du sie mit einem Tipp (*Ja, Modell X* / *Anderes Modell …* / *Neues Modell*). Jede Karte zeigt den Projekt-
   bzw. MakerWorld-Titel des Drucks und darunter den Dateinamen aus dem Slicer, denn danach sind Modelle benannt. Die Liste zeigt bei solchen
@@ -680,7 +715,7 @@ in **hell und dunkel** (Einstellungen → Ansicht → Farbschema, oder automatis
 | <a href="docs/screenshots/de/order-plates.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/order-plates.png"><img src="docs/screenshots/de/order-plates.png" alt="Platten pro Satz: Auswahl, aus Vorrat"></picture></a><br>**Platten pro Satz: Auswahl, aus Vorrat** | <a href="docs/screenshots/de/order-shared.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/order-shared.png"><img src="docs/screenshots/de/order-shared.png" alt="Gemeinsames Teil: Vorschlag aus Vorrat mit Farbabgleich"></picture></a><br>**Gemeinsames Teil: Vorschlag aus Vorrat mit Farbabgleich** |
 | <a href="docs/screenshots/de/hints.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/hints.png"><img src="docs/screenshots/de/hints.png" alt="Hinweise: Aufträge und Modelle mit einem Tipp"></picture></a><br>**Hinweise: Aufträge und Modelle mit einem Tipp** | <a href="docs/screenshots/de/models.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/models.png"><img src="docs/screenshots/de/models.png" alt="Modelle: Favoriten, Designzeit, wieder drucken"></picture></a><br>**Modelle: Favoriten, Designzeit, wieder drucken** |
 | <a href="docs/screenshots/de/locations.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/locations.png"><img src="docs/screenshots/de/locations.png" alt="Lager: Lagerorte für Zubehör und Drucke"></picture></a><br>**Lager: Lagerorte für Zubehör und Drucke** | <a href="docs/screenshots/de/location.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/location.png"><img src="docs/screenshots/de/location.png" alt="Ein Lagerort mit fester Kennung und Inhalt"></picture></a><br>**Ein Lagerort mit fester Kennung und Inhalt** |
-| <a href="docs/screenshots/de/pay-all.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/pay-all.png"><img src="docs/screenshots/de/pay-all.png" alt="Zahlung für alle: ein Betrag für mehrere offene Posten"></picture></a><br>**Zahlung für alle: ein Betrag für mehrere offene Posten** | |
+| <a href="docs/screenshots/de/pay-all.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/pay-all.png"><img src="docs/screenshots/de/pay-all.png" alt="Zahlung für alle: ein Betrag für mehrere offene Posten"></picture></a><br>**Zahlung für alle: ein Betrag für mehrere offene Posten** | <a href="docs/screenshots/de/calc.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/de-dark/calc.png"><img src="docs/screenshots/de/calc.png" alt="Kosten vorab kalkulieren: MakerWorld-Link, Druckervergleich"></picture></a><br>**Kosten vorab kalkulieren: MakerWorld-Link, Druckervergleich** |
 
 | Handy: Drucke | Handy: Druckdetails | Handy: Offen | Handy: Vorrat |
 |---|---|---|---|

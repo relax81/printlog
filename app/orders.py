@@ -22,6 +22,7 @@ import time
 from datetime import date, datetime
 from typing import Any
 
+from . import calc as _calc
 from . import extras as _extras
 from . import plates as _plates
 from .db import Store, code_label
@@ -187,6 +188,8 @@ def estimate(o: dict[str, Any]) -> dict[str, Any]:
         if s.get("piece_cost") is not None:
             cost += i["qty"] * s["piece_cost"]
             work += i["qty"] * (s.get("piece_work") or 0)
+        elif i.get("est_cost") is not None:  # Freitext mit Kalkulation: Kosten pro Platte ÷ Stück pro Platte
+            cost += i["qty"] * i["est_cost"] / pp
         else:
             missing += 0 if i["qty"] <= i["done"] else 1
     price = None
@@ -279,7 +282,7 @@ def save_order(store: Store, oid: int, **f: Any) -> None:
 
 
 def add_item(store: Store, oid: int, model_id: int | None, name: str | None, qty: int, **extra: Any) -> int:
-    """Position anlegen. extra: url, n_plates, per_plate, est_min (alles optional)."""
+    """Position anlegen. extra: url, n_plates, per_plate, est_min, est_g, est_cost (alles optional)."""
     iid = _add_item(store, oid, model_id, name, qty)
     f = {k: v for k, v in extra.items() if v not in (None, "")}
     if f.get("n_plates"):
@@ -338,7 +341,7 @@ def _add_item(store: Store, oid: int, model_id: int | None, name: str | None, qt
 
 
 def set_item(store: Store, item_id: int, **f: Any) -> None:
-    allowed = {k: v for k, v in f.items() if k in ("qty", "adjust", "name", "model_id", "est_min", "est_g", "per_plate", "by_plate", "n_plates", "url")}
+    allowed = {k: v for k, v in f.items() if k in ("qty", "adjust", "name", "model_id", "est_min", "est_g", "est_cost", "per_plate", "by_plate", "n_plates", "url")}
     if "qty" in allowed:
         allowed["qty"] = max(1, min(int(allowed["qty"] or 1), 9999))
     if not allowed:
@@ -773,6 +776,7 @@ def page_orders(store: Store, customer_id: int | None = None, archive: bool = Fa
     chips = (f'<a href="orders" class="{"" if cust else "on"}">{e(t("Alle Kunden"))}</a>'
              + (f'<a class="on" href="orders?c={customer_id}">{e(cust["name"])} ✕</a>' if cust else ""))
     head = (f'<div class="oph1"><h2>📋 {e(t("Aufträge"))}</h2><span class="sp"></span><span class="ochips">{chips}</span>'
+            f'<a class="btn" href="calc">🧮 {e(t("Kalkulieren"))}</a>'
             f'<a class="btn primary" href="order?new=1{f"&c={customer_id}" if customer_id else ""}">＋ {e(t("Auftrag"))}</a></div>')
     if archive:
         rows = [o for o in orders if o["state"] == "archived"]
@@ -836,12 +840,17 @@ def _item_more(i: dict[str, Any] | None = None) -> str:
             f'placeholder="https://makerworld.com/…"><small class="muted">{e(t("Ist die Position leer, wird der Titel der Seite übernommen."))}</small></label>')
     if i.get("model_id"):
         return link
-    more = (f'<label>{e(t("Platten pro Satz"))}<input name="n_plates" inputmode="numeric" class="num" value="{i.get("n_plates") or ""}" placeholder="1"></label>'
+    cost = i.get("est_cost")
+    more = (f'<input type="hidden" name="est_cost" value="{"" if cost is None else f"{cost:.4f}"}">'
+            f'<label>{e(t("Platten pro Satz"))}<input name="n_plates" inputmode="numeric" class="num" value="{i.get("n_plates") or ""}" placeholder="1"></label>'
             f'<label>{e(t("Stück pro Platte"))}<input name="per_plate" inputmode="numeric" class="num" value="{i.get("per_plate") or ""}" placeholder="1"></label>'
             f'<label>{e(t("Druckzeit je Platte"))}<input name="est" value="{e(est_txt)}" placeholder="{e(t("z. B. 1:30"))}"></label>')
     open_ = " open" if i.get("n_plates") or i.get("per_plate") or est else ""
     return (f'{link}<details class="w omore"{open_}><summary>{e(t("Schätzung für Neues (optional)"))}</summary>'
-            f'<div class="omg">{more}</div><small class="muted">{e(t("Nur für etwas, das du noch nie gedruckt hast. Sobald ein Druck da ist, zählen dessen Werte."))}</small></details>')
+            f'<button type="button" class="btn sm kcalc">🧮 {e(t("Kalkulieren: MakerWorld-Link, Screenshot oder von Hand"))}</button>'
+            f'<div class="omg">{more}</div>'
+            + (f'<small class="muted">{e(t("Kosten je Platte ≈ {v} (aus der Kalkulation)", v=fmt_num(cost, 2, "€")))}</small>' if cost is not None else "")
+            + f'<small class="muted">{e(t("Nur für etwas, das du noch nie gedruckt hast. Sobald ein Druck da ist, zählen dessen Werte."))}</small></details>')
 
 
 def page_new(store: Store, customer_id: int | None = None) -> str:
@@ -858,9 +867,9 @@ def page_new(store: Store, customer_id: int | None = None) -> str:
             f'{_item_more()}'
             f'<label class="w">{e(t("Notiz"))}<textarea name="note" rows="6" class="onotes" placeholder="{e(t("Wünsche, Farben, Maße, Absprachen …"))}"></textarea></label>'
             f'<div class="w obtns"><a class="btn" href="orders">{e(t("Abbrechen"))}</a><button class="btn primary">{e(t("Auftrag anlegen"))}</button></div>'
-            f'</form>{_custlist(store)}{_modellist(store)}')
+            f'</form>{_custlist(store)}{_modellist(store)}{_calc.dialog(store)}')
     body = f'<a class="back" href="orders">← {e(t("alle Aufträge"))}</a><h2>＋ {e(t("Neuer Auftrag"))}</h2>{form}'
-    return layout(t("Neuer Auftrag"), "orders", f'<style>{CSS}</style>{body}')
+    return layout(t("Neuer Auftrag"), "orders", f'<style>{CSS}{_calc.CSS}</style>{body}', _calc.CALC_JS + _calc.DIALOG_JS)
 
 
 def page_order(store: Store, o: dict[str, Any], saved: str | None = None, show_link: bool = False) -> str:
@@ -963,6 +972,7 @@ def page_order(store: Store, o: dict[str, Any], saved: str | None = None, show_l
            f'<input name="item" list="modellist" autocomplete="off" placeholder="{e(t("Modell oder Freitext …"))}">'
            f'<input name="qty" inputmode="numeric" value="1" class="num" aria-label="{e(t("Stück"))}">'
            f'<input name="url" type="url" class="ourl" placeholder="🔗 {e(t("Link (optional)"))}" aria-label="{e(t("Projektlink (MakerWorld, Printables …)"))}">'
+           f'<button type="button" class="btn kcalc" data-order="{o["id"]}" title="{e(t("Position kalkulieren: MakerWorld-Link, Screenshot oder von Hand"))}">🧮 {e(t("Kalkulieren"))}</button>'
            f'<button class="btn primary">＋ {e(t("Position"))}</button></form>')
     items = f'<div class="obox"><h3>{e(t("Positionen"))}</h3>{rows}{add}</div>'
 
@@ -1025,7 +1035,8 @@ def page_order(store: Store, o: dict[str, Any], saved: str | None = None, show_l
     danger = (f'<form method="post" action="{act}" class="odel odanger" data-q="{e(t("Auftrag löschen? Die Drucke bleiben erhalten."))}">'
               f'<input type="hidden" name="do" value="delete"><button class="btn lnk">🗑 {e(t("Auftrag löschen"))}</button></form>')
     body = (f'{head}{edit}{note}{kp}{items}{jobs_box}{fin}{danger}{_custlist(store)}{_modellist(store)}')
-    return layout(o.get("title") or t("Auftrag"), "orders", f'<style>{CSS}</style>{body}', ORDER_JS)
+    return layout(o.get("title") or t("Auftrag"), "orders", f'<style>{CSS}{_calc.CSS}</style>{body}{_calc.dialog(store)}',
+                  ORDER_JS + _calc.CALC_JS + _calc.DIALOG_JS)
 
 
 
@@ -1375,7 +1386,7 @@ CSS = """
 .oprow .nm b{display:block;font-size:15.5px}.oprow .nm a{color:var(--fg);text-decoration:none}.oprow small{display:block;color:var(--muted);font-size:12.5px;margin-top:3px}
 .oprow .obar{height:8px}.oprow .c{font-variant-numeric:tabular-nums;text-align:right;font-size:15px}
 .oqty,.odel{display:flex;gap:4px;margin:0}.oqty .btn,.odel .btn{min-height:32px;padding:0 10px}
-.oaddf{display:grid;grid-template-columns:minmax(0,1fr) 70px minmax(0,.8fr) auto;gap:8px;margin-top:10px}.oaddf .num{text-align:center}
+.oaddf{display:grid;grid-template-columns:minmax(0,1fr) 70px minmax(0,.8fr) auto auto;gap:8px;margin-top:10px}.oaddf .num{text-align:center}
 .ojl{display:grid;grid-template-columns:92px minmax(0,1fr) 110px 70px 80px 34px;gap:10px;padding:7px 0;border-top:1px solid var(--line);font-size:14px;align-items:center}
 .ojl:first-of-type{border-top:0}.ojl .n{text-align:right;font-variant-numeric:tabular-nums}.ojl .d{color:var(--muted)}.ojl form{margin:0}
 .ojl .ost{justify-self:end}.btn.lnk{border:0;background:none;color:var(--muted);min-height:0;padding:4px 6px}
@@ -1415,7 +1426,7 @@ CSS = """
  .oseg button{flex:1;border:0;background:none;color:var(--muted);font:inherit;font-weight:600;padding:9px 4px;font-size:14px}
  .oseg button.on{background:color-mix(in srgb,var(--accent) 22%,var(--card));color:var(--fg)}
  .oboard{grid-template-columns:1fr}.ocol{display:none;padding:6px}.ocol.on{display:block}.ocol>h3{display:none}
- .okp{grid-template-columns:repeat(2,minmax(0,1fr))}.oform{grid-template-columns:1fr}.oaddf{grid-template-columns:minmax(0,1fr) 70px}.oaddf .ourl,.oaddf button{grid-column:1/-1}.oitem{margin-left:0}.omg{grid-template-columns:repeat(2,minmax(0,1fr))}.ocand{grid-template-columns:38px minmax(0,1fr) auto}.ocand select{grid-column:2}
+ .okp{grid-template-columns:repeat(2,minmax(0,1fr))}.oform{grid-template-columns:1fr}.oaddf{grid-template-columns:minmax(0,1fr) 70px}.oaddf .ourl,.oaddf button.primary{grid-column:1/-1}.oaddf .kcalc{grid-column:1/-1}.oitem{margin-left:0}.omg{grid-template-columns:repeat(2,minmax(0,1fr))}.ocand{grid-template-columns:38px minmax(0,1fr) auto}.ocand select{grid-column:2}
  .corow{grid-template-columns:minmax(0,1fr) auto}.corow .obar,.corow>span:nth-child(3){display:none}}
 
 .pbox{margin:-4px 0 12px 62px;border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:color-mix(in srgb,var(--fg) 2%,var(--card))}

@@ -140,6 +140,12 @@ const hdr = { 'Accept-Language': lang };
       return { y: a.top + scrollY - 12, h: b.bottom - a.top + 24 }; });
     await p.screenshot({ path: `${out}/order-shared.png`, fullPage: true, clip: { x: 0, y: r.y, width: 1440, height: r.h } });
   }
+  // Kosten vorab kalkulieren: Demo-Beispiel aus einem MakerWorld-Link (Demo antwortet mit Beispieldaten)
+  await p.setViewportSize({ width: 1440, height: 900 });
+  await p.goto(base + 'calc'); await p.waitForLoadState('networkidle');
+  await p.fill('.kurlin', 'https://makerworld.com/en/models/1-demo'); await p.click('.kfetch');
+  await p.waitForSelector('.kcmp tbody tr[data-k]'); await p.waitForTimeout(700);
+  await p.screenshot({ path: `${out}/calc.png`, fullPage: true });
   // phone
   const ph = await b.newContext({ ...devices['iPhone 13'], locale: lang === 'de' ? 'de-DE' : lang, colorScheme: scheme, extraHTTPHeaders: hdr });
   await ph.addInitScript(init);
