@@ -50,8 +50,11 @@ def parse_materials(value: Any) -> list[dict[str, Any]]:
                 "grams": round(grams, 2),
                 # von Hand korrigierte Menge (z. B. wenn HA 0 g gemeldet hat)
                 "manual": bool(m.get("manual")),
+<<<<<<< HEAD
                 # unter „Bearbeiten“ hinzugefügt (lässt sich dort wieder entfernen)
                 "added": bool(m.get("added")),
+=======
+>>>>>>> f2b79f3bf43c1a78defcc3cc3f064a210f644de3
             }
         )
     return out
