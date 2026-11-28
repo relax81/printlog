@@ -92,3 +92,10 @@ def test_statistik_einnahmen_und_gewinn() -> None:
     assert [c["name"] for c in rv["customers"]] == ["Kundin"]
     html = page_stats(store, "month")
     assert "Einnahmen und Gewinn" in html and "14,40 €" in html
+    # Trinkgeld (9,60 € mehr bezahlt) steckt im Gewinn und wird nur als „inkl.“ genannt
+    assert round(tot["tip"], 2) == 9.6 and tot["tip_n"] == 1
+    assert "inkl. 9,60 € Trinkgeld" in html
+
+    from app.customer import page_customer
+    page = page_customer(store, kundin)
+    assert "inkl. 9,60 € Trinkgeld" in page and "bei 1 Druck, im Gewinn enthalten" in page
