@@ -1762,10 +1762,17 @@ DETAIL_CSS = """
 .fields .mfields{display:grid;gap:8px}.fields .mfields>span{font-size:13px;font-weight:600;color:var(--muted)}
 .fields label.mf{display:grid;grid-template-columns:16px minmax(110px,220px) minmax(0,1fr);gap:10px;align-items:center;font-weight:500;color:var(--fg)}
 .fields .mf .dot{width:16px;height:16px;margin:0}.fields .mf .mn{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.fields .mfields>span{display:flex;justify-content:space-between}.fields .mfields>span i{font-style:normal;width:96px}
-.fields label.mf.mg{grid-template-columns:16px minmax(110px,220px) minmax(0,1fr) 96px}
-.fields .mf .gin{display:flex;align-items:center;gap:4px}.fields .mf .gin input{text-align:right;min-width:0}.fields .mf .gin small{color:var(--muted)}
-@media (max-width:760px){.fields label.mf,.fields label.mf.mg{grid-template-columns:16px minmax(0,1fr)}.fields .mf input{grid-column:1/-1}.fields .mf .gin{grid-column:1/-1}.fields .mf .gin input{grid-column:auto;flex:1}.fields .mfields>span i{display:none}}
+.fields .mfields>span{display:flex;justify-content:space-between}
+.fields div.mf.me,.fields .maddrow{display:grid;grid-template-columns:44px minmax(140px,260px) minmax(0,1fr) 96px 28px;gap:8px;align-items:center}
+.fields .maddrow{grid-template-columns:44px minmax(140px,260px) 96px auto;justify-content:start}
+.fields .me input[type=color],.fields .maddrow input[type=color]{height:38px;padding:2px;width:44px;min-width:0}
+.fields .mf .mdel{border:0;background:none;color:var(--muted);cursor:pointer;padding:0 4px;font-size:15px;min-height:0}.fields .mf .mdel:hover{color:var(--bad)}
+.fields .madd summary{cursor:pointer;font-size:14px;font-weight:600;color:var(--accent)}.fields .madd>small{display:block;margin:6px 0}
+.fields .gin{display:flex;align-items:center;gap:4px}.fields .gin input{text-align:right;min-width:0;width:100%}.fields .gin small{color:var(--muted)}
+@media (max-width:760px){.fields label.mf{grid-template-columns:16px minmax(0,1fr)}.fields label.mf input{grid-column:1/-1}
+.fields div.mf.me{grid-template-columns:44px minmax(0,1fr) 28px;padding-bottom:10px;border-bottom:1px solid var(--line)}.fields .me select{grid-column:2/4}
+.fields .me>input:not([type=color]){grid-column:1/-1}.fields .me .gin{grid-column:1/3}
+.fields .maddrow{grid-template-columns:44px minmax(0,1fr)}.fields .maddrow .gin{grid-column:1/-1}.fields .maddrow button{grid-column:1/-1;justify-self:start}}
 .mrow .g{margin-left:auto;font-variant-numeric:tabular-nums;font-weight:600;white-space:nowrap}
 .slot{font-size:12px;color:var(--muted);border:1px solid var(--line);border-radius:6px;padding:0 6px;white-space:nowrap}
 .jd .note{font-size:14px}
@@ -2162,6 +2169,51 @@ SHARE_JS = """
 """
 
 
+
+def _fil_choices(store: Store) -> tuple[list[tuple[str, str | None]], list[str], list[str]]:
+    """Filamente aus den Einstellungen (Name + Typ), reine Typen und zuletzt benutzte Farben."""
+    prices = store.material_prices()
+    names = {m["name"]: m["type"] for m in store.material_names()}
+    for k, v in prices.items():
+        if v["kind"] == "name":
+            names.setdefault(k, None)
+    types = sorted(set(KNOWN_TYPES) | set(store.material_types()) | {k for k, v in prices.items() if v["kind"] == "type"})
+    colors = [c for c in dict.fromkeys(_color_value(c) for c in store.material_colors()) if c != "#888888"][:24]
+    return sorted(names.items()), types, colors
+
+
+def _fil_options(choices: tuple[list[tuple[str, str | None]], list[str], list[str]], current: str = "",
+                 empty: str | None = None) -> str:
+    names, types, _ = choices
+    known = {n for n, _ in names} | {f"type:{ty}" for ty in types}
+    out = f'<option value="">{e(empty)}</option>' if empty is not None else ""
+    if current and current not in known:
+        out += f'<option value="{e(current)}" selected>{e(current)}</option>'
+    if names:
+        out += (f'<optgroup label="{e(t("Filamente"))}">' + "".join(
+            f'<option value="{e(n)}"{" selected" if n == current else ""}>{e(n)}{" (" + e(ty) + ")" if ty else ""}</option>'
+            for n, ty in names) + '</optgroup>')
+    out += (f'<optgroup label="{e(t("Nur Typ"))}">' + "".join(
+        f'<option value="type:{e(ty)}"{" selected" if "type:" + ty == current else ""}>{e(ty)}</option>' for ty in types) + '</optgroup>')
+    return out
+
+
+def _color_value(c: str | None) -> str:
+    """Farbe für <input type=color>: #RRGGBB (HA liefert teils #RRGGBBAA), sonst Grau."""
+    return c[:7].upper() if c and re.fullmatch(r"#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?", c) else "#888888"
+
+
+def _add_filament(choices: tuple[list[tuple[str, str | None]], list[str], list[str]]) -> str:
+    """„+ Filament“ unter Bearbeiten: Filament aus den Einstellungen (Name oder Typ), Farbe, Gramm."""
+    colors = choices[2]
+    return (f'<details class="full madd"><summary>{t("+ Filament hinzufügen")}</summary>'
+            f'<small class="muted">{t("Z. B. wenn ein mehrfarbiger Druck nur ein Filament gemeldet hat. Preis kommt aus den Einstellungen.")}</small>'
+            f'<div class="maddrow"><input type="color" name="madd_color" value="{_color_value(colors[0] if colors else None)}" list="mcolors" aria-label="{e(t("Farbe"))}">'
+            f'<select name="madd_name" aria-label="{e(t("Filament"))}">{_fil_options(choices, "", t("– Filament wählen –"))}</select>'
+            f'<span class="gin"><input name="madd_g" inputmode="decimal" placeholder="0" aria-label="{e(t("Menge in Gramm"))}"><small>g</small></span>'
+            f'<button type="submit" class="btn sm">{t("Hinzufügen")}</button></div></details>')
+
+
 def page_job(store: Store, job: dict[str, Any], saved: str | None) -> str:
     if job.get("kind") == "project":
         return page_project(store, job, saved)
@@ -2307,19 +2359,36 @@ def page_job(store: Store, job: dict[str, Any], saved: str | None) -> str:
     # Menge von Hand korrigieren: nur für abgeschlossene Einzeldrucke (ein Projekt summiert seine Drucke,
     # bei einem laufenden Druck überschreibt das Druckende die Werte ohnehin).
     gram_edit = job.get("state") == "done" and job.get("kind") not in ("project", "share")
-    if materials:
-        mat_fields = (f'<div class="full mfields"><span>{t("Filament-Notizen (z. B. genauer Farbname, erscheint auf Bon und PDF)")}'
-                      + (f'<i>{t("Menge")}</i>' if gram_edit else "") + '</span>'
-                      + "".join(f'<label class="mf{" mg" if gram_edit else ""}"><span class="dot" style="background:{_color(m["color"])}"></span>'
+    choices = _fil_choices(store) if gram_edit else None
+    if materials and gram_edit:
+        # Gemeldetes Filament, Farbe und Menge korrigierbar; hinzugefügte Filamente wieder entfernbar
+        mat_fields = (f'<div class="full mfields"><span>{t("Filamente (falsch gemeldet? Hier korrigieren. Notiz erscheint auf Bon und PDF)")}</span>'
+                      + "".join(
+                          f'<div class="mf me"{(' title="' + e(t(m["slot"])) + '"') if m["slot"] else ""}>'
+                          f'<input type="color" name="mcolor__{i}" value="{_color_value(m["color"])}" list="mcolors" aria-label="{e(t("Farbe"))}">'
+                          f'<select name="mname__{i}" aria-label="{e(t("Filament"))}">'
+                          f'{_fil_options(choices, (m["name"] or "") if m["name"] else ("type:" + m["type"] if m["type"] else ""), "?")}</select>'
+                          f'<input name="mnote__{i}" value="{e(mnotes.get(i, ""))}" maxlength="120" placeholder="{e(t("Notiz, z. B. Ivory White"))}">'
+                          f'<span class="gin"><input name="mgram__{i}" value="{fmt_input(m["grams"])}" inputmode="decimal" '
+                          f'aria-label="{e(t("Menge in Gramm"))}"><small>g</small></span>'
+                          + (f'<button type="submit" name="mdel" value="{i}" class="mdel" title="{e(t("Filament entfernen"))}" '
+                             f'aria-label="{e(t("Filament entfernen"))}">✕</button>' if m.get("added") else '<span></span>')
+                          + '</div>'
+                          for i, m in enumerate(materials)) + '</div>')
+    elif materials:
+        mat_fields = (f'<div class="full mfields"><span>{t("Filament-Notizen (z. B. genauer Farbname, erscheint auf Bon und PDF)")}</span>'
+                      + "".join(f'<label class="mf"><span class="dot" style="background:{_color(m["color"])}"></span>'
                                 f'<span class="mn">{e((t(m["slot"]) + " · ") if m["slot"] else "")}{e(_short(m["name"]))}</span>'
                                 f'<input name="mnote__{i}" value="{e(mnotes.get(i, ""))}" maxlength="120" placeholder="{e(t("z. B. Ivory White"))}">'
-                                + (f'<span class="gin"><input name="mgram__{i}" value="{fmt_input(m["grams"])}" inputmode="decimal" '
-                                   f'aria-label="{e(t("Menge in Gramm"))}"><small>g</small></span>' if gram_edit else "")
-                                + '</label>'
+                                '</label>'
                                 for i, m in enumerate(materials)) + '</div>')
     elif gram_edit:
         mat_fields = (f'<label class="c3">{t("Filament (g)")}<input name="weight_g" value="{fmt_input(job.get("weight_g"))}" '
                       f'inputmode="decimal" placeholder="0"></label>')
+    if gram_edit:
+        mat_fields += _add_filament(choices)
+        if choices[2]:
+            mat_fields += '<datalist id="mcolors">' + "".join(f'<option value="{c}">' for c in choices[2]) + '</datalist>'
     cur = str(job.get("customer_id") or "")
     cust_opts = opt("", t("– kein Kunde –"), cur) + "".join(opt(str(c["id"]), c["name"], cur) for c in customers)
     if parent:
@@ -2367,6 +2436,7 @@ def page_job(store: Store, job: dict[str, Any], saved: str | None) -> str:
 </div></section>
 {ab_pane}<section class="pane{on("ed")}" data-pane="ed"><div class="box">
 <form class="fields" method="post" action="api/jobs/{job["id"]}?redirect=1">
+<button type="submit" tabindex="-1" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden"></button>
 <div class="nrow full"><label>{t("Name")}<input name="task_name" value="{e(job["task_name"] or "")}"></label>
 <div class="fl"><label for="f_qty">{t("Stückzahl auf der Platte")}</label><div class="step">
 <button type="button" data-step="-1" aria-label="{e(t("eins weniger"))}">−</button>

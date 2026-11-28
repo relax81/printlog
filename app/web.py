@@ -24,7 +24,7 @@ from . import models as mdl
 from . import orders as od
 from . import plates as pl
 from . import storage as lg
-from .costing import compute, parse_materials, recompute_all
+from .costing import compute, guess_type, parse_materials, recompute_all
 from .db import Store
 from .defects import DEFECTS
 from .export import bon_png, collect, file_name, report_pdf
@@ -632,11 +632,16 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
                      if k.startswith("mnote__") and k[7:].isdigit() and str(v).strip()}
             fields["material_notes"] = json.dumps(notes, ensure_ascii=False) if notes else None
         recalc = False
-        if any(str(k).startswith("mgram__") for k in form) and job.get("state") == "done" and job.get("kind") not in ("project", "share"):
-            # Filamentmenge pro Material von Hand korrigieren (HA hat z. B. 0 g gemeldet)
+        mat_editable = job.get("state") == "done" and job.get("kind") not in ("project", "share")
+        mat_jump = False  # nach Hinzufügen/Entfernen zurück in den Tab „Bearbeiten“
+        if mat_editable and any(str(k).startswith(("mgram__", "mname__", "mcolor__", "madd_", "mdel")) for k in form):
+            # Filamentmenge pro Material von Hand korrigieren (HA hat z. B. 0 g gemeldet),
+            # weitere Filamente hinzufügen (z. B. mehrfarbig, aber nur „aktiv“ gemeldet) und wieder entfernen.
             try:
                 raw = json.loads(job.get("materials") or "[]")
             except ValueError:
+                raw = []
+            if not isinstance(raw, list):
                 raw = []
             changed = False
             for k, v in form.items():
@@ -653,6 +658,52 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
                 if g != old_g:
                     m["grams"], m["manual"] = g, True
                     changed = True
+            known = {m["name"]: m["type"] for m in store.material_names()}
+
+            def pick(value: str) -> tuple[str, str | None]:
+                """Auswahl aus „+ Filament“/Korrektur: Filamentname oder „type:PLA“ (nur Typ)."""
+                if value.startswith("type:"):
+                    return value[5:], value[5:]
+                return value, known.get(value) or guess_type(value)
+
+            for i, m in enumerate(raw):
+                if not isinstance(m, dict):
+                    continue
+                nv = str(form.get(f"mname__{i}") or "").strip()[:80]
+                cur = m.get("name") or (f"type:{m['type']}" if m.get("type") else "")
+                if nv and nv != cur:
+                    m["name"], m["type"] = pick(nv)
+                    m["manual"] = changed = True
+                cv = str(form.get(f"mcolor__{i}") or "").strip()
+                old_c = str(m.get("color") or "")
+                old_c = old_c[:7].upper() if re.fullmatch(r"#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?", old_c) else "#888888"
+                if re.fullmatch(r"#[0-9A-Fa-f]{6}", cv) and cv.upper() != old_c:
+                    m["color"] = cv.upper()
+                    m["manual"] = changed = True
+            dv = str(form.get("mdel") or "")
+            if dv.isdigit() and int(dv) < len(raw) and isinstance(raw[int(dv)], dict) and raw[int(dv)].get("added"):
+                d = int(dv)
+                del raw[d]
+                # Notizen hängen am Index: dahinterliegende eine Stelle nach vorn
+                src = fields["material_notes"] if "material_notes" in fields else job.get("material_notes")
+                try:
+                    notes = json.loads(src) if src else {}
+                except ValueError:
+                    notes = {}
+                if not isinstance(notes, dict):
+                    notes = {}
+                notes = {str(int(k) - (int(k) > d)): v for k, v in notes.items() if str(k).isdigit() and int(k) != d}
+                fields["material_notes"] = json.dumps(notes, ensure_ascii=False) if notes else None
+                changed = mat_jump = True
+            name = str(form.get("madd_name") or "").strip()[:80]
+            add_g = parse_num(form.get("madd_g"))
+            if name and add_g and add_g > 0:
+                name, mtype = pick(name)
+                color = str(form.get("madd_color") or "").strip()
+                raw.append({"slot": None, "name": name, "type": mtype,
+                            "color": color.upper() if re.fullmatch(r"#[0-9A-Fa-f]{6}", color) else None,
+                            "grams": round(add_g, 2), "manual": True, "added": True})
+                changed = mat_jump = True
             if changed:
                 fields["materials"] = json.dumps(raw, ensure_ascii=False)
                 recalc = True
@@ -696,7 +747,7 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
                 zk.sync_stock(store, job_id)
                 zk.refresh(store, job_id)
         if request.query.get("redirect"):
-            tab = "#ab" if request.query.get("redirect") == "ab" else ""
+            tab = "#ab" if request.query.get("redirect") == "ab" else ("#ed" if mat_jump else "")
             raise web.HTTPSeeOther(f"../../job?id={job_id}&saved=1{tab}")
         job = store.get(job_id) or job
         return web.json_response({"ok": True, "per_piece": _per_piece(job)})
