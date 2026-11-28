@@ -145,7 +145,9 @@ in a **light and a dark** colour scheme (Settings → View → Colour scheme, or
   or a customer's) you get the price and the price per piece. **Create as new order** or **Add** to an open order makes a
   free-text item with plates, print time and cost per plate (plate names included), so the order shows an estimated price
   right away. In the new-order form and on an order page the same calculator opens as a dialog and fills in the item
-  (and the agreed price, if empty).
+  (and the agreed price, if empty). Quicker still, when creating or **editing a free-text item**: under *Estimate and
+  cost* paste a screenshot right there (Ctrl+V, drag & drop or 📋 *Paste screenshot*) or type time, grams and printer
+  yourself; the cost per plate is calculated as you go and can be overwritten.
 - **Notices** – a 🔔 bell at the top counts open questions (prints to check, accessories to restock). The **Notices** page
   answers them in one tap (*Yes, model X* / *Other model …* / *New model*). Each card shows the print's project or
   MakerWorld title with the slicer file name below, because model names come from the file name. The list shows a coloured dot on such prints
@@ -633,6 +635,9 @@ in **hell und dunkel** (Einstellungen → Ansicht → Farbschema, oder automatis
   **Hinzufügen** zu einem offenen Auftrag legt eine Freitext-Position mit Platten, Druckzeit und Kosten pro Platte an
   (samt Plattennamen), der Auftrag zeigt also gleich einen geschätzten Preis. Im Formular „Neuer Auftrag“ und auf der
   Auftragsseite öffnet sich derselbe Rechner als Dialog und füllt die Position aus (und den vereinbarten Preis, wenn leer).
+  Noch schneller beim Anlegen oder **Bearbeiten einer Freitext-Position**: unter *Schätzung und Kosten* direkt einen
+  Screenshot einfügen (Strg+V, hineinziehen oder 📋 *Screenshot einfügen*) oder Zeit, Gramm und Drucker selbst eintragen; die
+  Kosten je Platte rechnen sich mit und lassen sich überschreiben.
 - **Hinweise** – eine 🔔 Glocke oben zählt offene Fragen (Drucke prüfen, Zubehör nachkaufen). Auf der Seite **Hinweise**
   beantwortest du sie mit einem Tipp (*Ja, Modell X* / *Anderes Modell …* / *Neues Modell*). Jede Karte zeigt den Projekt-
   bzw. MakerWorld-Titel des Drucks und darunter den Dateinamen aus dem Slicer, denn danach sind Modelle benannt. Die Liste zeigt bei solchen

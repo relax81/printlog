@@ -44,7 +44,7 @@ _ALIASES = {"x1carbon": "x1c"}
 
 def _num(v: Any) -> float | None:
     try:
-        n = float(str(v).replace(",", ".")) if v not in (None, "") else None
+        n = float(str(v).replace(",", ".").replace("€", "").strip()) if v not in (None, "") else None
     except (TypeError, ValueError):
         return None
     return n if n is not None and n == n and n >= 0 else None
@@ -300,6 +300,12 @@ def quote(store: Store, d: dict[str, Any], prm: dict[str, Any] | None = None) ->
             "kwh_price": kp, "work_rate": prm.get("work_rate")}
 
 
+def plate_cost(store: Store, minutes: float, grams: float, printer: str | None = None) -> float:
+    """Kosten einer Platte aus Druckzeit, Gramm (PLA-Preis) und Drucker, z. B. für die Schnellkalkulation einer Position."""
+    q = quote(store, {"plates": [{"minutes": minutes, "fil": [{"type": "PLA", "grams": grams}]}], "printer": printer})
+    return round(q["per_set"], 4)
+
+
 def item_fields(d: dict[str, Any], q: dict[str, Any]) -> dict[str, Any]:
     """Felder einer Freitext-Position aus einer Kalkulation: Platten, Stück, Druckzeit und Kosten pro Platte."""
     n = max(1, q["n_plates"])
@@ -527,13 +533,54 @@ function init(root,opt){opt=opt||{};const P=JSON.parse(root.dataset.kc),body=roo
  urlIn.onkeydown=ev=>{if(ev.key==='Enter'){ev.preventDefault();fetchLink(urlIn.value)}};
  root.querySelector('.khand').onclick=()=>{say('');start({url:urlIn.value.trim(),source:'hand'})};
  return {fetchLink,start,state:()=>S,quote:()=>Q,payload,setCustomer:c=>{opt.customer=c},el:root}}
-return {init,hm}})();
+const dec=(v,d)=>{let x=(+v).toFixed(d).replace(/\.?0+$/,'');return lang==='en'?x:x.replace('.',',')};
+return {init,hm,pmin,pnum,dec,eur}})();
 (()=>{const root=document.querySelector('.kc:not(.kdlgw)');if(!root)return;const base=document.baseURI.replace(/[^/]*$/,'');
  const f=document.querySelector('form[data-kc-form]');f.hidden=true;
  const C=PLCalc.init(root,{base,onQuote:()=>{f.hidden=false}});
  f.onsubmit=ev=>{const b=ev.submitter;if(b&&b.dataset.need==='order'&&!f.order.value){ev.preventDefault();f.order.focus();return}
   f.data.value=JSON.stringify({...C.payload(),hint:C.state().hint})};
  const u=new URLSearchParams(location.search).get('url');if(u){root.querySelector('.kurlin').value=u;C.fetchLink(u)}})();
+"""
+
+# Schnellkalkulation direkt in der Position (Bearbeiten und Neuer Auftrag): Screenshot einfügen oder Zeit/Gramm/Drucker
+# eintragen, Kosten je Platte rechnen sich mit (außer man trägt sie selbst ein).
+QUICK_JS = r"""
+(()=>{const base=document.baseURI.replace(/[^/]*$/,'');const qs=[...document.querySelectorAll('details.kq')];if(!qs.length)return;
+ let last=null;
+ function setup(q){const f=q.closest('form'),msg=q.querySelector('.kqmsg'),cost=f.querySelector('[name=est_cost]');let seq=0,timer=null;
+  const fld=k=>f.querySelector(`[name="${k}"]`);
+  const say=(t,c)=>{msg.textContent=t||'';msg.className='kqmsg '+(c||'muted')};
+  async function quote(d){const r=await fetch(base+'api/calc/quote',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});return r.json()}
+  async function recalc(){if(!cost||cost.dataset.manual)return;const m=PLCalc.pmin(fld('est').value),g=PLCalc.pnum(fld('est_g').value);
+   if(!m||!g)return;const my=++seq;const pr=fld('est_printer');
+   try{const Q=await quote({plates:[{minutes:m,fil:[{type:'PLA',grams:g}]}],printer:pr?pr.value:null});if(my!==seq)return;
+    cost.value=PLCalc.dec(Q.per_set,2)}catch(e){}}
+  const later=()=>{clearTimeout(timer);timer=setTimeout(recalc,350)};
+  ['est','est_g','est_printer'].forEach(k=>{const i=fld(k);if(i){i.addEventListener('input',later);i.addEventListener('change',later)}});
+  if(cost)cost.addEventListener('input',()=>{cost.dataset.manual=cost.value.trim()?'1':''});
+  async function ocr(file){if(!file)return;q.open=true;say(_t("Screenshot wird gelesen …"));
+   try{const r=await fetch(base+'api/calc/ocr',{method:'POST',headers:{'Content-Type':file.type||'application/octet-stream'},body:file});const d=await r.json();
+    if(d.error){say(d.error,'bad');return}
+    const pl=d.plates||[],n=Math.max(1,pl.length),pr=fld('est_printer');
+    const Q=await quote({plates:pl,hint:d.printer,compatible:d.compatible,printer:d.printer?null:(pr?pr.value:null)});
+    const set=(k,v)=>{const i=fld(k);if(i&&v!=null)i.value=v};
+    set('n_plates',n);set('est',PLCalc.hm(Q.minutes/n));set('est_g',Q.grams?PLCalc.dec(Q.grams/n,1):'');set('est_printer',Q.sel);
+    if(cost){cost.value=PLCalc.dec(Q.per_set/n,2);cost.dataset.manual=''}
+    const fil=pl.flatMap(p=>p.fil||[]).map(x=>PLCalc.dec(x.grams,1)+' g '+(x.type||'')).join(' + ');
+    say(_t("Gelesen:")+' '+PLCalc.hm(Q.minutes/n)+' h · '+(fil||PLCalc.dec(Q.grams/n,1)+' g')+(n>1?' · '+n+' '+_t("Platten"):'')
+     +' → '+PLCalc.eur(Q.per_set/n)+' '+_t("je Platte")+'. '+(d.note||''),'ok')}catch(e){say(_t("Das ist kein lesbares Bild."),'bad')}}
+  q.querySelector('.kqfile input').addEventListener('change',ev=>{ocr(ev.target.files[0]);ev.target.value=''});
+  q.addEventListener('dragover',ev=>{ev.preventDefault();q.classList.add('kdrop')});
+  q.addEventListener('dragleave',ev=>{if(!q.contains(ev.relatedTarget))q.classList.remove('kdrop')});
+  q.addEventListener('drop',ev=>{ev.preventDefault();q.classList.remove('kdrop');const x=[...ev.dataTransfer.files].find(x=>x.type.startsWith('image/'));if(x)ocr(x)});
+  f.addEventListener('focusin',()=>{last=q});f.addEventListener('pointerdown',()=>{last=q});
+  q.ocr=ocr}
+ qs.forEach(setup);
+ document.addEventListener('paste',ev=>{const dlg=document.getElementById('kdlg');if(dlg&&dlg.open)return;
+  const it=[...(ev.clipboardData||{}).items||[]].find(i=>i.type&&i.type.startsWith('image/'));if(!it)return;
+  const vis=qs.filter(q=>q.offsetParent);const q=last&&last.offsetParent?last:(vis.length===1?vis[0]:null);if(!q)return;
+  ev.preventDefault();q.ocr(it.getAsFile())})})();
 """
 
 # Dialog im Auftragsformular: „fill“ trägt die Werte in die Felder der Position ein, „add“ legt auf der
@@ -558,7 +605,8 @@ DIALOG_JS = r"""
   const set=(k,v,empty)=>{const i=f.querySelector(`[name="${k}"]`);if(i&&v!=null&&(!empty||!i.value.trim()))i.value=v};
   set('item',S.title,1);set('name',S.title,1);set('url',S.url,1);
   set('qty',Q.sets*(one?Q.pieces:1));set('n_plates',n);set('per_plate',one?Q.pieces:'');
-  set('est',PLCalc.hm(Q.minutes/n));set('est_cost',((Q.per_set+Q.extras/Q.sets)/n).toFixed(4));
+  set('est',PLCalc.hm(Q.minutes/n));set('est_g',Q.grams?PLCalc.dec(Q.grams/n,1):'');set('est_printer',Q.sel);
+  set('est_cost',PLCalc.dec((Q.per_set+Q.extras/Q.sets)/n,2));{const c=f.querySelector('[name=est_cost]');if(c)c.dataset.manual=''}
   if(Q.price!=null){let v=Q.price.toFixed(2);if(lang!=='en')v=v.replace('.',',');set('agreed',v,1)}
   const d=f.querySelector('details.omore');if(d)d.open=true;close()}})();
 """
