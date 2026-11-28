@@ -847,7 +847,7 @@ def _item_more(i: dict[str, Any] | None = None) -> str:
             f'<label>{e(t("Druckzeit je Platte"))}<input name="est" value="{e(est_txt)}" placeholder="{e(t("z. B. 1:30"))}"></label>')
     open_ = " open" if i.get("n_plates") or i.get("per_plate") or est else ""
     return (f'{link}<details class="w omore"{open_}><summary>{e(t("Schätzung für Neues (optional)"))}</summary>'
-            f'<button type="button" class="btn sm kcalc">🧮 {e(t("Aus MakerWorld-Link oder von Hand kalkulieren"))}</button>'
+            f'<button type="button" class="btn sm kcalc">🧮 {e(t("Kalkulieren: MakerWorld-Link, Screenshot oder von Hand"))}</button>'
             f'<div class="omg">{more}</div>'
             + (f'<small class="muted">{e(t("Kosten je Platte ≈ {v} (aus der Kalkulation)", v=fmt_num(cost, 2, "€")))}</small>' if cost is not None else "")
             + f'<small class="muted">{e(t("Nur für etwas, das du noch nie gedruckt hast. Sobald ein Druck da ist, zählen dessen Werte."))}</small></details>')
@@ -972,7 +972,7 @@ def page_order(store: Store, o: dict[str, Any], saved: str | None = None, show_l
            f'<input name="item" list="modellist" autocomplete="off" placeholder="{e(t("Modell oder Freitext …"))}">'
            f'<input name="qty" inputmode="numeric" value="1" class="num" aria-label="{e(t("Stück"))}">'
            f'<input name="url" type="url" class="ourl" placeholder="🔗 {e(t("Link (optional)"))}" aria-label="{e(t("Projektlink (MakerWorld, Printables …)"))}">'
-           f'<button type="button" class="btn kcalc" data-order="{o["id"]}" title="{e(t("Position aus MakerWorld-Link oder von Hand kalkulieren"))}">🧮 {e(t("Kalkulieren"))}</button>'
+           f'<button type="button" class="btn kcalc" data-order="{o["id"]}" title="{e(t("Position kalkulieren: MakerWorld-Link, Screenshot oder von Hand"))}">🧮 {e(t("Kalkulieren"))}</button>'
            f'<button class="btn primary">＋ {e(t("Position"))}</button></form>')
     items = f'<div class="obox"><h3>{e(t("Positionen"))}</h3>{rows}{add}</div>'
 

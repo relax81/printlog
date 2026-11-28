@@ -20,6 +20,7 @@ from aiohttp import web
 from . import archive
 from . import bulkpay as bp
 from . import calc
+from . import ocr
 from . import extras as zk
 from . import models as mdl
 from . import orders as od
@@ -954,6 +955,12 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
         if not data and demo and calc.is_makerworld(url):
             data, err = calc.demo_sample(url), None  # Demo: Beispieldaten, wenn MakerWorld nicht erreichbar ist
         return web.json_response(data or {"error": err})
+
+    @routes.post("/api/calc/ocr")
+    async def calc_ocr(request: web.Request) -> web.Response:
+        """Screenshot (Bambu Studio „Slicing Result“ oder MakerWorld) als Bild im Body lesen."""
+        data = await request.read()
+        return web.json_response(await in_thread(ocr.analyse, data))
 
     @routes.post("/api/calc/quote")
     async def calc_quote(request: web.Request) -> web.Response:

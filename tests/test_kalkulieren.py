@@ -12,6 +12,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app import calc  # noqa: E402
+from app import ocr  # noqa: E402
 from app import orders as od  # noqa: E402
 from app import plates as pl  # noqa: E402
 from app import printers as pcfg  # noqa: E402
@@ -169,6 +170,54 @@ def test_seiten() -> None:
     assert 'href="calc"' in od.page_orders(store)
     d = calc.demo_sample("https://makerworld.com/de/models/1")
     assert len(d["profiles"]) == 2 and len(d["profiles"][1]["plates"]) == 3
+
+
+
+def _ln(text: str, x: float = 0, cy: float = 10, h: float = 14) -> dict:
+    """Zeile wie aus ocr.lines (Wörter mit Position)."""
+    ws, pos = [], x
+    for w in text.split():
+        ws.append({"text": w, "x": pos, "y": cy - h / 2, "w": len(w) * 7, "h": h})
+        pos += len(w) * 7 + 6
+    return {"text": text, "words": ws, "x": x, "cy": cy, "h": h}
+
+
+def test_dauer_lesen() -> None:
+    assert ocr.duration("3h40m") == 220 and ocr.duration("17m0s") == 17 and ocr.duration("1d2h") == 1560
+    assert ocr.duration("21m52s") == round(21 + 52 / 60, 1) and ocr.duration("–") is None
+
+
+def test_screenshot_bambu() -> None:
+    from PIL import Image, ImageDraw
+
+    img = Image.new("RGB", (400, 140), (38, 38, 39))
+    d = ImageDraw.Draw(img)
+    d.rectangle((20, 13, 33, 26), fill=(244, 238, 42))   # gelbes Kästchen vor Zeile 1
+    d.rectangle((20, 39, 33, 52), fill=(63, 142, 67))    # grünes vor Zeile 2
+    d.rectangle((24, 42, 28, 48), fill=(230, 230, 230))  # Ziffer im Kästchen
+    ls = [_ln("~ Bambu Lab H3C", 200, 120), _ln("6.44g / 2.12m 0.4 Std 17m0s", 140, 20),
+          _ln("2 7.479 1 2.46m 0.4 Std 23m46s", 120, 46),  # „g“ als „9“ gelesen
+          _ln("| 741g | 36.95m 0.4 Std 2h37m", 120, 72),   # Komma verloren: 7.41 g
+          _ln("Total 21.32g / 44.01m 3h40m", 100, 98), _ln("Total time: 3h40m", 100, 130)]
+    r = ocr.parse_bambu(ls, img)
+    fil = r["plates"][0]["fil"]
+    assert r["printer"] == "H3C" and r["plates"][0]["minutes"] == 220
+    assert [f["grams"] for f in fil] == [6.44, 7.47, 7.41]
+    assert any("korrigiert" in w for w in r["warn"])
+    assert fil[0]["color"] == "#F4EE2A" and fil[1]["color"] == "#3F8E43"
+    assert ocr.parse_bambu([_ln("Hallo Welt")]) is None
+
+
+def test_screenshot_makerworld() -> None:
+    ls = [_ln("0.08mm layer, 2 walls, 100% infill", 0, 10), _ln("A1,X1 Carbon,H2S,P1S,A1", 0, 30), _ln("-", 0, 36),
+          _ln("mini,H3C", 0, 42), _ln("{A 2 Platten © 1.5h @ 30g & 0.4mm", 0, 70), _ln("Ams PLAI7g PETG | 13 g", 0, 90)]
+    r = ocr.parse_makerworld([ls, []])
+    assert r["compatible"] == ["A1", "X1 Carbon", "H2S", "P1S", "A1 mini", "H3C"]
+    assert len(r["plates"]) == 2 and r["plates"][0]["minutes"] == 45
+    grams = [f["grams"] for f in r["plates"][0]["fil"]]
+    assert grams == [3.5, 6.5, 5.0]  # 7 g PLA, 13 g PETG, Rest 10 g – je Platte halbiert
+    assert [f["type"] for f in r["plates"][0]["fil"]][:2] == ["PLA", "PETG"]
+    assert ocr.parse_makerworld([[_ln("nichts")], []]) is None
 
 
 if __name__ == "__main__":

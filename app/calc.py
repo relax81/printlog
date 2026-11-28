@@ -338,7 +338,7 @@ def page_calc(store: Store, order_id: int | None = None) -> str:
             f'<button class="btn primary" name="do" value="new">＋ {e(t("Als neuen Auftrag anlegen"))}</button></form>')
     body = (f'<a class="back" href="orders">← {e(t("Aufträge"))}</a>'
             f'<h2>🧮 {e(t("Kosten vorab kalkulieren"))}</h2>'
-            f'<p class="muted kintro">{e(t("MakerWorld-Link einfügen oder Werte von Hand eintragen. printlog rechnet mit deinen Einstellungen und vergleicht die Drucker."))}</p>'
+            f'<p class="muted kintro">{e(t("MakerWorld-Link oder Screenshot einfügen, oder Werte von Hand eintragen. printlog rechnet mit deinen Einstellungen und vergleicht die Drucker."))}</p>'
             f'{widget(prm)}{acts}')
     return layout(t("Kalkulieren"), "orders", f'<style>{CSS}</style>{body}', CALC_JS)
 
@@ -357,7 +357,10 @@ def widget(prm: dict[str, Any], dialog: bool = False) -> str:
     return (f'<div class="kc{" kdlgw" if dialog else ""}" data-kc=\'{e(json.dumps(_public(prm), ensure_ascii=False))}\'>'
             f'<div class="card ksrc"><div class="kurl"><input type="url" class="kurlin" placeholder="https://makerworld.com/…" '
             f'aria-label="{e(t("MakerWorld-Link"))}"><button type="button" class="btn primary kfetch">{e(t("Auslesen"))}</button>'
+            f'<label class="btn kshot" title="{e(t("Screenshot aus Bambu Studio (Slicing-Ergebnis) oder von MakerWorld: einfügen mit Strg+V, hierher ziehen oder auswählen"))}">'
+            f'<input type="file" accept="image/*" class="kshotin" hidden>📋 {e(t("Screenshot"))}</label>'
             f'<button type="button" class="btn khand">✏️ {e(t("Von Hand"))}</button></div>'
+            f'<small class="muted kshint">{e(t("Oder einen Screenshot einfügen (Strg+V): Slicing-Ergebnis aus Bambu Studio oder MakerWorld-Profil."))}</small>'
             f'<div class="kmsg muted"></div></div>'
             f'<div class="kbody" hidden></div></div>')
 
@@ -371,7 +374,8 @@ def _public(prm: dict[str, Any]) -> dict[str, Any]:
 CSS = """
 .kintro{margin:-4px 0 14px}
 .ksrc{padding:14px 16px;margin-bottom:14px}.kurl{display:flex;gap:8px;flex-wrap:wrap}.kurl .kurlin{flex:1 1 260px;min-width:0}
-.kmsg{margin-top:8px;font-size:14px}.kmsg.bad{color:var(--bad)}.kmsg.ok{color:var(--ok)}.kmsg:empty{display:none}
+.kmsg{margin-top:8px;font-size:14px}.kmsg.bad{color:var(--bad)}.kmsg.ok{color:var(--ok)}.kmsg.warn{color:var(--warn)}.kmsg:empty{display:none}
+.kshint{display:block;margin-top:8px;font-size:13px}.kc.kdrop .ksrc{outline:2px dashed var(--accent);outline-offset:2px}.kshot{cursor:pointer}
 .kgrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);gap:14px;align-items:start}
 .kc .card{padding:14px 16px}.kc h4{margin:0 0 10px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
 .khead{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px}.khead .ktitle{flex:1 1 240px;font-weight:600}
@@ -507,6 +511,18 @@ function init(root,opt){opt=opt||{};const P=JSON.parse(root.dataset.kc),body=roo
    if(d.error){say(d.error,'bad');if(!S)start({url:u,source:'hand'});else S.url=u;return}
    say((d.note?d.note+' ':'')+'✓ '+(d.title||'')+(d.profiles.length>1?' · '+d.profiles.length+' '+_t("Druckprofile"):''),'ok');start(d)}
   catch(_){say(_t("MakerWorld ist gerade nicht erreichbar. Trag die Werte von Hand ein."),'bad')}}
+ async function ocrFile(file){if(!file)return;if(!/^image\//.test(file.type||'image/')){say(_t("Das ist kein lesbares Bild."),'bad');return}
+  say(_t("Lese Screenshot …"));
+  try{const r=await fetch(opt.base+'api/calc/ocr',{method:'POST',headers:{'Content-Type':file.type||'application/octet-stream'},body:file});const d=await r.json();
+   if(d.error){say(d.error,'bad');return}
+   d.url=urlIn.value.trim();d.title=S?S.title:'';say(d.note,'warn');start(d)}
+  catch(_){say(_t("Das ist kein lesbares Bild."),'bad')}}
+ const shotIn=root.querySelector('.kshotin');shotIn.onchange=()=>{ocrFile(shotIn.files[0]);shotIn.value=''};
+ document.addEventListener('paste',ev=>{if(!root.offsetParent)return;const it=[...(ev.clipboardData||{}).items||[]].find(i=>i.type&&i.type.startsWith('image/'));
+  if(it){ev.preventDefault();ocrFile(it.getAsFile())}});
+ root.addEventListener('dragover',ev=>{ev.preventDefault();root.classList.add('kdrop')});
+ root.addEventListener('dragleave',ev=>{if(!root.contains(ev.relatedTarget))root.classList.remove('kdrop')});
+ root.addEventListener('drop',ev=>{ev.preventDefault();root.classList.remove('kdrop');const f=[...ev.dataTransfer.files].find(x=>x.type.startsWith('image/'));if(f)ocrFile(f)});
  root.querySelector('.kfetch').onclick=()=>fetchLink(urlIn.value);
  urlIn.onkeydown=ev=>{if(ev.key==='Enter'){ev.preventDefault();fetchLink(urlIn.value)}};
  root.querySelector('.khand').onclick=()=>{say('');start({url:urlIn.value.trim(),source:'hand'})};

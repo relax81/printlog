@@ -132,8 +132,12 @@ in a **light and a dark** colour scheme (Settings → View → Colour scheme, or
   shared part once under *Edit plates*; the part needs its own plate.
 - **Calculate costs up front** – before anything is printed: paste a **MakerWorld link** (Orders → 🧮 *Calculate*) and
   printlog reads the model page's print profiles: per plate the print time, grams per filament and colour, the profile's
-  printer and the compatible printers. No login is needed; if MakerWorld blocks the request now and then, enter the values
-  **by hand** (time per plate, grams per filament). Every value stays editable, plates can be left out. printlog then
+  printer and the compatible printers. No login is needed; if MakerWorld blocks the request now and then, paste a
+  **screenshot** instead (Ctrl+V, drag & drop or 📋 *Screenshot*): the *Slicing result* of Bambu Studio (grams per
+  filament incl. colour, total time, printer; a missing decimal point is corrected against the total) or the profile box of
+  a MakerWorld model page (plates, time, grams, filament chips, compatible printers). Text recognition runs in the
+  container (Tesseract) and is a typing aid – check the values. Or enter them **by hand** (time per plate, grams per filament).
+  Every value stays editable, plates can be left out. printlog then
   compares **all your printers**: filament from your prices, printer from depreciation + maintenance, power from the
   printer's average draw in your past prints (or its fixed wattage) × the average electricity price of your past prints.
   The printer from the profile is preselected (*detected*), others use the same time as an estimate (~); printers that
@@ -463,7 +467,8 @@ filament weight per slot is usually not available there. Support for other brand
 - `POST /api/projects` (`ids=1,2,3`, `name`, `customer_id`, `quantity`; or `mode=add&into={id}`) – group prints into a project
 - `POST /api/projects/{id}/add` (`ids`), `POST /api/projects/{id}/dissolve`, `POST /api/jobs/{id}/unproject` – add, ungroup, remove one print
   (in `/api/jobs` a project is a row with `kind: "project"`; its prints carry `project_id`)
-- `POST /api/calc/link` (JSON `{"url": …}`) – print profiles of a MakerWorld model page; `POST /api/calc/quote` (JSON with
+- `POST /api/calc/ocr` (image as request body) – read a screenshot (Bambu Studio slicing result or MakerWorld profile);
+  `POST /api/calc/link` (JSON `{"url": …}`) – print profiles of a MakerWorld model page; `POST /api/calc/quote` (JSON with
   `plates`, `sets`, `pieces`, `printer`, `margin` …) – costs per printer and price, as used by the calculator
 
 There is no authentication in printlog itself. Keep it on your local network or put it behind a reverse proxy with access control.
@@ -607,8 +612,12 @@ in **hell und dunkel** (Einstellungen → Ansicht → Farbschema, oder automatis
   bearbeiten*; das Teil braucht eine eigene Platte.
 - **Kosten vorab kalkulieren** – bevor etwas gedruckt ist: **MakerWorld-Link** einfügen (Aufträge → 🧮 *Kalkulieren*),
   printlog liest die Druckprofile der Modellseite: pro Platte Druckzeit, Gramm pro Filament und Farbe, den Drucker des
-  Profils und die kompatiblen Drucker. Ein Login ist nicht nötig; blockt MakerWorld den Abruf mal, trägst du die Werte
-  **von Hand** ein (Zeit pro Platte, Gramm pro Filament). Alle Werte bleiben änderbar, Platten lassen sich abwählen.
+  Profils und die kompatiblen Drucker. Ein Login ist nicht nötig; blockt MakerWorld den Abruf mal, fügst du stattdessen
+  einen **Screenshot** ein (Strg+V, hineinziehen oder 📋 *Screenshot*): das *Slicing Result* aus Bambu Studio (Gramm pro
+  Filament samt Farbe, Gesamtzeit, Drucker; ein verlorenes Komma wird mit der Gesamtmenge korrigiert) oder den Profil-Kasten
+  einer MakerWorld-Modellseite (Platten, Zeit, Gramm, Filament-Chips, kompatible Drucker). Die Texterkennung läuft im
+  Container (Tesseract) und ist eine Abtipp-Hilfe – Werte kurz prüfen. Oder du trägst sie **von Hand** ein (Zeit pro
+  Platte, Gramm pro Filament). Alle Werte bleiben änderbar, Platten lassen sich abwählen.
   Dann vergleicht printlog **alle deine Drucker**: Filament nach deinen Preisen, Drucker aus Abschreibung + Wartung,
   Strom aus dem Ø-Verbrauch des Druckers in deinen bisherigen Drucken (sonst feste Leistung) × Ø-Strompreis deiner
   bisherigen Drucke. Der Drucker aus dem Profil ist vorausgewählt (*erkannt*), für andere gilt dieselbe Zeit als Näherung
