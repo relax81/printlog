@@ -168,6 +168,7 @@ EN: dict[str, str] = {
     'Kunden': 'Customers',
     'Papierkorb': 'Trash',
     'Einstellungen': 'Settings',
+    'Build {zeit}': 'Build {zeit}',
     'Endpreis €': 'Final price €',
     'Zu zahlen €': 'To pay €',
     'Bezahlt €': 'Paid €',

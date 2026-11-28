@@ -11,6 +11,7 @@ from typing import Any
 
 from .db import Store
 from .i18n import N_, is_en, js, lang, t
+from . import version
 
 e = html.escape
 
@@ -207,7 +208,8 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px soli
 .lf{display:grid;gap:4px;font-size:12px;font-weight:600;color:var(--muted);min-width:0}
 .lf>:is(input,select,textarea){width:100%;color:var(--fg);font-weight:400}
 .help{max-width:var(--w-text);font-size:13px}.help p{margin:0 0 8px}
-.page{max-width:var(--w-page);margin:0 auto}.narrow{max-width:var(--w-form)}
+.page{max-width:var(--w-page);margin:0 auto}
+.ver{margin:28px 0 6px;text-align:center;font-size:11px;color:var(--muted);opacity:.75}.ver a{color:inherit;text-decoration:none}.ver a:hover{text-decoration:underline}.narrow{max-width:var(--w-form)}
 input.num{width:110px;text-align:right}input.qty{width:56px;text-align:right;padding:4px 6px}
 input.search{min-width:220px;flex:1 1 220px;max-width:360px}
 button{cursor:pointer}button.primary{background:var(--accent);color:var(--bg);border-color:var(--accent);padding:8px 14px}
@@ -375,6 +377,21 @@ def bell() -> str:
             f'{badge}</a>')
 
 
+def version_footer() -> str:
+    """Kleine Versionszeile unten auf jeder Seite: zeigt, welcher Stand gerade läuft."""
+    v = version.info()
+    name = f"printlog {version.label(v)}"
+    if v.get("commit"):
+        name = (f'<a href="{version.REPO_URL}/commit/{e(v["commit"])}" target="_blank" rel="noopener" '
+                f'title="{e(v.get("subject") or "")}">{e(name)}</a>')
+    parts = [name]
+    if v.get("number") and v.get("commit"):
+        parts.append(e(v["commit"]))
+    if v.get("built"):
+        parts.append(e(t("Build {zeit}", zeit=fmt_date(v["built"], "ts"))))
+    return f'<footer class="ver">{" · ".join(parts)}</footer>'
+
+
 def layout(title: str, active: str, body: str, script: str = "") -> str:
     links = "".join(
         f'<a href="{href}" class="{"on" if key == active else ""}">{e(t(label))}</a>' for href, label, key in NAV
@@ -395,5 +412,5 @@ def layout(title: str, active: str, body: str, script: str = "") -> str:
 <div class="top"><h1 class="logo"><a href="./" title="Printlog">{LOGO_SVG}</a>{demo_pill}</h1><nav>{links}</nav>
 <span class="tact">{bell()}<button type="button" class="eye" id="eye" title="{e(t("Kalkulation aus-/einblenden (Diskret-Modus)"))}" aria-label="{e(t("Kalkulation aus- oder einblenden"))}">{EYE_SVG}</button></span></div>
 {demo_bar_html}{body}
-</div><div id="zoom"><img alt=""></div><div id="tip" class="tip"></div>
+{"" if demo_pill else version_footer()}</div><div id="zoom"><img alt=""></div><div id="tip" class="tip"></div>
 <script>{BASE_JS}{DEMO_JS if demo_pill else ""}{js(script)}</script></body></html>"""
