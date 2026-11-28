@@ -156,6 +156,34 @@ def mprice(job: dict[str, Any], m: tuple) -> float | None:
     return _price(job, m[1], getattr(m, "work", False))
 
 
+def margin_rows(store: Store, job: dict[str, Any], qty: int, work: float) -> tuple[str, str]:
+    """Preiszeilen der Detailseite. Mit Kundenmarge steht nur sie da; die allgemeinen Margen
+    liegen eingeklappt unter „weitere Margen“ (Hover zeigt sie als Tooltip, Antippen klappt auf)."""
+    cm = customer_margin(job)
+    general = list(margins(store))
+
+    def row(m: tuple) -> str:
+        price = mprice(job, m)
+        each = (f' <span class="tag">{t("{v}/Stk.", v=fmt_num(price / qty, 2, "€"))}</span>'
+                if price is not None and qty > 1 else "")
+        return (f'<div class="pr"><div>{e(m[0])} <span class="tag">+{e(fmt_input(m[1]))} %{work_tag(m, work)}</span></div>'
+                f'<div><b>{fmt_num(price, 2, "€")}</b>{each}</div></div>')
+
+    if not cm:
+        return "".join(row(m) for m in general), ""
+    if not general:
+        return row(cm), ""
+    tip = "\n".join(f'{m[0]} +{fmt_input(m[1])} %: {fmt_num(mprice(job, m), 2, "€")}' for m in general)
+    label = t("1 weitere Marge") if len(general) == 1 else t("{n} weitere Margen", n=len(general))
+    return row(cm), (f'<details class="mmore"><summary title="{e(tip)}">{e(label)}</summary>'
+                     + "".join(row(m) for m in general) + '</details>')
+
+
+def _no_more(html: str) -> str:
+    """Preiszeilen ohne die eingeklappten weiteren Margen (für die Zusammenfassung am Handy)."""
+    return re.sub(r'<details class="mmore">.*?</details>', "", html, flags=re.S)
+
+
 def work_tag(m: tuple, work: float) -> str:
     """Hinweis an einer Marge, die auch auf die Arbeitszeit gerechnet wird."""
     return f' · {t("inkl. Arbeit")}' if work and getattr(m, "work", False) else ""
@@ -399,6 +427,9 @@ a.tag{color:var(--accent)}
 .jp small{font-size:12px;color:var(--muted);text-align:right}
 .jp .pct{font-size:12px;color:var(--muted)}
 .jp .cu{color:var(--accent)}.jp .fp{color:var(--fg);font-weight:800}
+.jp .cb.mb{grid-column:1/-1;width:auto;justify-self:start;text-align:left;padding:0;font-size:12px;color:var(--muted);overflow:visible}
+.jp .cb.mb:hover,.jp .cb.mb.open{color:var(--fg)}
+.pop.mpop>div{grid-template-columns:1fr auto;gap:12px}.pop.mpop small{grid-column:auto;margin:0}
 .js{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
 .bdg{display:inline-flex;align-items:center;gap:6px;padding:3px 11px;border-radius:999px;font-size:13px;font-weight:700;white-space:nowrap;
  border:1px solid color-mix(in srgb,currentColor 35%,transparent);background:color-mix(in srgb,currentColor 10%,transparent)}
@@ -1204,7 +1235,10 @@ def _prices(j: dict[str, Any], mg: list[tuple[str, float]]) -> str:
     items: list[tuple[str, float, bool, bool]] = []
     if j.get("customer_margin") is not None:
         items.append((f'👤 {j.get("customer_name") or t("Kunde")}', j["customer_margin"], True, bool(j.get("customer_work"))))
-    items += [(m[0], m[1], False, getattr(m, "work", False)) for m in mg]
+    # Mit Kundenmarge zählt nur sie; die allgemeinen Margen gibt es auf Wunsch (Hover/Antippen).
+    hidden = mg if items else []
+    if not items:
+        items += [(m[0], m[1], False, getattr(m, "work", False)) for m in mg]
     out = ""
     if j.get("final_price") is not None:
         fp = j["final_price"]
@@ -1223,6 +1257,13 @@ def _prices(j: dict[str, Any], mg: list[tuple[str, float]]) -> str:
         c2 = (' class="cu"' if shown else ' class="cu calc"') if cu else ' class="calc"'
         out += (f'<span{c2}>{e(name)} <span class="pct calc">+{fmt_input(pct)} %</span></span>'
                 f'<b{c2}>{fmt_num(price, 2, "€")}</b><small class="{"" if shown else "calc"}">{per}</small>')
+    if hidden:
+        rows = "".join(
+            f'<div><span>{e(m[0])} <small>+{fmt_input(m[1])} %</small></span><b>{fmt_num(_price(j, m[1], getattr(m, "work", False)), 2, "€")}</b></div>'
+            for m in hidden)
+        label = t("1 weitere Marge") if len(hidden) == 1 else t("{n} weitere Margen", n=len(hidden))
+        out += (f'<button type="button" class="cb mb calc" aria-label="{e(label)}">+ {e(label)}'
+                f'<span class="pop mpop">{rows}</span></button>')
     return f'<div class="jp">{out}</div>' if out else '<div class="jp muted">–</div>'
 
 
@@ -1684,6 +1725,11 @@ DETAIL_CSS = """
 .prices{background:var(--bg);border:1px solid var(--line);border-radius:16px;padding:14px 16px}
 .pr{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}
 .pr:last-child{border-bottom:0}.pr b{font-size:20px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.mmore{border-bottom:1px solid var(--line)}.mmore:last-child{border-bottom:0}.mmore .pr:last-child{border-bottom:0}
+.mmore summary{cursor:pointer;list-style:none;padding:8px 0;font-size:13px;color:var(--muted);user-select:none;-webkit-tap-highlight-color:transparent}
+.mmore summary::-webkit-details-marker{display:none}.mmore summary::before{content:"▸ ";display:inline-block;width:1em}
+.mmore[open] summary::before{content:"▾ "}.mmore summary:hover{color:var(--fg)}
+.mmore .pr{opacity:.8}.mmore .pr b{font-size:17px}
 .pr .tag{font-size:13px;color:var(--muted);white-space:nowrap}
 .tabs{display:flex;gap:6px;margin:18px 0 14px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:5px;width:max-content;max-width:100%}
 .tabs button{border:0;background:none;padding:10px 22px;border-radius:10px;color:var(--muted);font-weight:700;font-size:15px}
@@ -2177,18 +2223,8 @@ def page_job(store: Store, job: dict[str, Any], saved: str | None) -> str:
             f'<div class="kp"><span>{t("⚡ Strom")}</span><b>{fmt_num(job["cost"], 2, "€")}</b><small>{fmt_num(job["kwh"], 3, "kWh")}</small></div>'
             f'<div class="kp"><span>{t("🧵 Filament")}</span><b>{fmt_num(job.get("cost_filament"), 2, "€")}</b><small>{fmt_num(grams, 1, "g")}</small></div>'
             f'<div class="kp"><span>{t("🖨 Drucker")}</span><b>{fmt_num(job.get("cost_printer"), 2, "€")}</b><small>{t("Abschr. + Wartung")}</small></div>') + xk
-    mg = list(margins(store))
-    if customer_margin(job):
-        mg.insert(0, customer_margin(job))
-    price_rows = ""
-    for m in mg:
-        n, p = m
-        price = mprice(job, m)
-        each = (f' <span class="tag">{t("{v}/Stk.", v=fmt_num(price / qty, 2, "€"))}</span>'
-                if price is not None and qty > 1 else "")
-        price_rows += (f'<div class="pr"><div>{e(n)} <span class="tag">+{e(fmt_input(p))} %{work_tag(m, work)}</span></div>'
-                       f'<div><b>{fmt_num(price, 2, "€")}</b>{each}</div></div>')
-    price_rows += profit_rows(job, qty)
+    price_rows, more = margin_rows(store, job, qty, work)
+    price_rows += more + profit_rows(job, qty)
     if not price_rows:
         price_rows = f'<p class="muted" style="margin:6px 0 0">{t("Keine Margen eingestellt (Einstellungen).")}</p>'
     elif work:
@@ -2237,7 +2273,7 @@ def page_job(store: Store, job: dict[str, Any], saved: str | None) -> str:
     mat_sum = (", ".join(types[:2]) + (" …" if len(types) > 2 else "") + " · " if types else "") + fmt_num(grams, 1, "g")
     dur = fmt_dur(job["start_ts"], job["end_ts"])
     druck_sum = (fmt_date(job["start_ts"], "dm_hm") if job["start_ts"] else "–") + (f" · {dur}" if dur != "–" else "")
-    price_sum = " · ".join(re.sub(r"<[^>]+>", "", x) for x in re.findall(r"<b>([^<]*)</b>", price_rows)[:3])
+    price_sum = " · ".join(re.sub(r"<[^>]+>", "", x) for x in re.findall(r"<b>([^<]*)</b>", _no_more(price_rows))[:3])
     facts = (f'<div><span>{t("Start")}</span><b>{fmt_ts(job["start_ts"])}</b></div>'
              f'<div><span>{t("Ende")}</span><b>{fmt_ts(job["end_ts"])}</b></div>'
              f'<div><span>{t("Dauer")}</span><b>{fmt_dur(job["start_ts"], job["end_ts"])}</b></div>'
@@ -2522,26 +2558,18 @@ def page_project(store: Store, p: dict[str, Any], saved: str | None) -> str:
             f'<div class="kp"><span>{t("🧵 Filament")}</span><b>{fmt_num(p.get("cost_filament"), 2, "€")}</b><small>{fmt_num(p.get("filament_g"), 1, "g")}</small></div>'
             f'<div class="kp"><span>{t("🖨 Drucker")}</span><b>{fmt_num(p.get("cost_printer"), 2, "€")}</b>'
             f'<small>{tn(len({k["printer"] for k in kids}), "{n} Drucker", "{n} Drucker")} · {fmt_hours(hours)}</small></div>') + extra_kpis(p)
-    mg = list(margins(store))
-    if customer_margin(p):
-        mg.insert(0, customer_margin(p))
     price_rows = ""
     if p.get("final_price") is not None:
         each = f' <span class="tag">{t("{v}/Stk.", v=fmt_num(p["final_price"] / qty, 2, "€"))}</span>' if qty > 1 else ""
         price_rows += f'<div class="pr"><div><b>{t("Endpreis")}</b></div><div><b>{fmt_num(p["final_price"], 2, "€")}</b>{each}</div></div>'
-    for m in mg:
-        n, pct = m
-        price = mprice(p, m)
-        each = f' <span class="tag">{t("{v}/Stk.", v=fmt_num(price / qty, 2, "€"))}</span>' if price is not None and qty > 1 else ""
-        price_rows += (f'<div class="pr"><div>{e(n)} <span class="tag">+{e(fmt_input(pct))} %{work_tag(m, _extras.work_total(p))}</span></div>'
-                       f'<div><b>{fmt_num(price, 2, "€")}</b>{each}</div></div>')
-    price_rows += profit_rows(p, qty, endpreis=False)
+    rows, more = margin_rows(store, p, qty, _extras.work_total(p))
+    price_rows += rows + more + profit_rows(p, qty, endpreis=False)
     base = price_base(p)
     if base is not None and total is not None and abs(base - total) >= 0.005:
         price_rows += f'<p class="muted" style="margin:8px 0 0;font-size:13px">{t("Basis {v} (ohne unberechnete Fehldrucke)", v=fmt_num(base, 2, "€"))}</p>'
     if not price_rows:
         price_rows = f'<p class="muted" style="margin:6px 0 0">{t("Keine Margen eingestellt (Einstellungen).")}</p>'
-    price_sum = " · ".join(re.sub(r"<[^>]+>", "", x) for x in re.findall(r"<b>([^<]*€[^<]*)</b>", price_rows)[:2])
+    price_sum = " · ".join(re.sub(r"<[^>]+>", "", x) for x in re.findall(r"<b>([^<]*€[^<]*)</b>", _no_more(price_rows))[:2])
 
     start = "ov"
 

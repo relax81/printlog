@@ -277,6 +277,8 @@ EN: dict[str, str] = {
     'Drucker · Start': 'Printer · start',
     'Verbrauch': 'Usage',
     'Verkaufspreise': 'Selling prices',
+    '1 weitere Marge': '1 more margin',
+    '{n} weitere Margen': '{n} more margins',
     'Balken antippen für die Aufschlüsselung': 'tap a bar for the breakdown',
     'Kosten aufschlüsseln': 'Show cost breakdown',
     'Doch berechnen': 'Charge after all',

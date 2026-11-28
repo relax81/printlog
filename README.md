@@ -314,7 +314,7 @@ Open **Settings**:
   ⚠ an entity that does not exist. Set **Fixed power (W)** for printers without a plug. You can also add printers by hand.
 - **Costs** – purchase price, expected lifetime in print hours, maintenance per 1000 print hours (everything that wears with running time: nozzle, belts, grease, filters, build plate) for each printer. Older values (maintenance per year, wear per hour) are converted automatically so the hourly rate stays the same.
 - **Filament** – €/kg per filament type, optionally per exact product.
-- **Margins** – up to two named margins (e.g. private / business). Each one can be switched off with the tick box in front of it: its selling-price column then disappears everywhere (list, detail page, receipt, PDF, CSV), name and percentage stay saved. Customer margins are not affected.
+- **Margins** – up to two named margins (e.g. private / business). Each one can be switched off with the tick box in front of it: its selling-price column then disappears everywhere (list, detail page, receipt, PDF, CSV), name and percentage stay saved. Customer margins are not affected. If a print has a customer with a margin, the list and detail page show only that price; the general margins appear on hover or tap ("+ 2 more margins").
 - **Receipt & PDF** – your own logo for the receipt image and the PDF.
 - **View** – language, colour scheme (automatic / light / dark), start tab of the detail page, how long prints stay in the trash.
 - **Data & backup** – ZIP backup and restore, CSV export, backup schedule (needs `BACKUP_DIR`, see below), reset.
@@ -761,7 +761,7 @@ Unter **Einstellungen**:
   ⚠ eine Entität, die es nicht gibt. Für Drucker ohne Steckdose **Feste Leistung (W)** eintragen. Drucker lassen sich auch von Hand anlegen.
 - **Kosten** – Anschaffungspreis, erwartete Lebensdauer in Druckstunden, Wartung pro 1000 Druckstunden (alles, was mit der Laufzeit verschleißt: Düse, Riemen, Fett, Filter, Druckplatte) je Drucker. Ältere Werte (Wartung pro Jahr, Verschleiß pro Stunde) werden automatisch so umgerechnet, dass der Stundensatz gleich bleibt.
 - **Filament** – €/kg pro Filamenttyp, optional pro Sorte.
-- **Margen** – bis zu zwei benannte Margen (z. B. Privat / Gewerbe). Jede lässt sich mit dem Häkchen vor dem Namen abschalten: Ihre Verkaufspreis-Spalte verschwindet dann überall (Liste, Detailseite, Bon, PDF, CSV), Name und Prozent bleiben gespeichert. Kundenmargen bleiben unberührt.
+- **Margen** – bis zu zwei benannte Margen (z. B. Privat / Gewerbe). Jede lässt sich mit dem Häkchen vor dem Namen abschalten: Ihre Verkaufspreis-Spalte verschwindet dann überall (Liste, Detailseite, Bon, PDF, CSV), Name und Prozent bleiben gespeichert. Kundenmargen bleiben unberührt. Hat ein Druck einen Kunden mit Marge, zeigen Liste und Detailseite nur diesen Preis; die allgemeinen Margen gibt es per Hover oder Antippen („+ 2 weitere Margen“).
 - **Bon & PDF** – eigenes Logo für Bon-Bild und PDF.
 - **Ansicht** – Sprache, Farbschema (automatisch / hell / dunkel), Start-Tab der Detailseite, Aufbewahrung im Papierkorb.
 - **Daten & Backup** – ZIP-Sicherung und Einspielen, CSV-Export, Backup-Zeitplan (braucht `BACKUP_DIR`, siehe unten), Zurücksetzen.
