@@ -423,7 +423,7 @@ a.tag{color:var(--accent)}
 @media (min-width:1301px) and (max-width:1500px){.jk .kpi b{font-size:22px}.jk .kpi.main b{font-size:27px}}
 @media (min-width:701px) and (max-width:900px){.jt,.legend2{display:none}.mlist{display:grid;grid-template-columns:1fr 1fr;gap:10px}}
 @media (max-width:700px){
-.jk{grid-template-columns:repeat(3,minmax(0,1fr))}.jk .kpi small{display:none}.jk .kpi b,.jk .kpi.main b{font-size:15px}.jk .kpi span{font-size:11px}.jk .kpi{padding:7px 9px;border-radius:10px}
+.jk{grid-template-columns:repeat(3,minmax(0,1fr))}.jk .kpi .kbp{width:100%;box-sizing:border-box;font-size:11px;padding:3px 4px;min-height:0;white-space:normal;line-height:1.2;margin-top:4px}.jk .kpi small{display:none}.jk .kpi b,.jk .kpi.main b{font-size:15px}.jk .kpi span{font-size:11px}.jk .kpi{padding:7px 9px;border-radius:10px}
 .legend2{display:none}
 .jt{display:none}.mlist{display:grid;gap:8px}
 }
@@ -934,13 +934,15 @@ def results(store: Store, f: dict[str, str | None]) -> str:
         (t("🧵 Filament"), fmt_num(tot["cost_filament"], 2, "€"), fmt_num((tot["weight"] or 0) / 1000, 2, "kg"), False, True),
         (t("🖨 Drucker"), fmt_num(tot["cost_printer"], 2, "€"), t("Abschr. + Wartung"), False, True),
         (t("Offen"), fmt_num(tot.get("open_amount") or 0, 2, "€"),
-         tn(tot.get("open_n") or 0, "{n} Posten offen", "{n} Posten offen") if tot.get("open_n") else t("alles bezahlt"), False, True),
+         tn(tot.get("open_n") or 0, "{n} Posten offen", "{n} Posten offen") if tot.get("open_n") else t("alles bezahlt"), False, True,
+         _bulkpay.open_button(int(f["customer"]), "btn bpay kbp")
+         if (f.get("customer") or "").isdigit() and tot.get("open_n") else ""),
         (t("Fehldrucke"), fmt_num(tot["scrap_cost"], 2, "€"), tn(tot["scrap_n"], "{n} Druck", "{n} Drucke")
          + (" · " + t("{v} berechnet", v=fmt_num(tot["scrap_charged"], 2, "€")) if tot.get("scrap_charged", 0) >= 0.005 else ""), False, True),
     ]
     kpi_html = "".join(
-        f'<div class="kpi{" main" if main else ""}"><span class="muted">{e(k)}</span><b class="{"calc" if calc else ""}">{e(v)}</b><small class="calc">{e(sub)}</small></div>'
-        for k, v, sub, main, calc in kpis
+        f'<div class="kpi{" main" if main else ""}"><span class="muted">{e(k)}</span><b class="{"calc" if calc else ""}">{e(v)}</b><small class="calc">{e(sub)}</small>{x[0] if x else ""}</div>'
+        for k, v, sub, main, calc, *x in kpis
     )
     per_printer = " · ".join(
         f'{e(names.get(p["printer"], p["printer"]))}: <b>{fmt_num(p["cost_total"] or p["cost"], 2, "€")}</b>'
@@ -1004,6 +1006,7 @@ TODO_CSS = """
 .otg{display:inline-flex;align-items:center;gap:6px;padding:3px 11px;border-radius:999px;font-weight:700;font-size:13px;white-space:nowrap;
  border:1px solid color-mix(in srgb,currentColor 35%,transparent);background:color-mix(in srgb,currentColor 10%,transparent)}
 .otg.warn{color:var(--warn)}.otg.run{color:var(--run)}.otg.ok{color:var(--ok)}
+.kpi .kbp{margin-top:6px;min-height:30px;padding:0 10px;font-size:13px;font-weight:700;color:var(--warn);border-color:color-mix(in srgb,var(--warn) 45%,transparent)}
 .og .bpay{min-height:32px;padding:0 12px;font-size:13px;font-weight:700;color:var(--warn);border-color:color-mix(in srgb,var(--warn) 45%,transparent)}
 .or{display:grid;grid-template-columns:48px minmax(0,1fr) 220px 170px 236px;gap:14px;align-items:center;padding:11px 16px;border-bottom:1px solid var(--line)}
 .or:last-child{border-bottom:0}
