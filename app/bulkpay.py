@@ -294,12 +294,14 @@ async function open(q){err('');show(true);typed=false;mode='oldest';f.reset();
   const rest=D.items.filter(x=>!x.on).length,mo=f.querySelector('.more');mo.hidden=!rest;
   mo.textContent=(rest==1?_t("+ 1 weiterer offener Posten"):_t("+ {n} weitere offene Posten").replace('{n}',rest));
   if(!D.items.length)err(_t("Nichts offen."));upd();if(!r.items.some(x=>!x.on))f.amount.focus()}
-f.amount.addEventListener('input',()=>{typed=f.amount.value.trim()!=='';upd()});
-L.addEventListener('change',upd);f.addEventListener('change',ev=>{if(ev.target.name!=='amount')upd()});
+// Eintippen (auch Leeren) übernimmt den Betrag; erst eine neue Postenauswahl füllt ein leeres Feld wieder vor.
+const pick=()=>{if(!f.amount.value.trim())typed=false;upd()};
+f.amount.addEventListener('input',()=>{typed=true;upd()});
+L.addEventListener('change',pick);f.addEventListener('change',ev=>{if(ev.target.name!=='amount')upd()});
 f.querySelectorAll('.bpseg button').forEach(b=>b.onclick=()=>{mode=b.dataset.m;f.querySelectorAll('.bpseg button').forEach(x=>x.classList.toggle('on',x===b));upd()});
 f.querySelector('.tog').onclick=()=>{const on=!boxes().filter(c=>!c.closest('label').hidden).every(c=>c.checked);
-  boxes().forEach(c=>{if(!c.closest('label').hidden)c.checked=on});upd()};
-f.querySelector('.more').onclick=ev=>{L.querySelectorAll('label[hidden]').forEach(l=>l.hidden=false);ev.target.hidden=true;upd()};
+  boxes().forEach(c=>{if(!c.closest('label').hidden)c.checked=on});pick()};
+f.querySelector('.more').onclick=ev=>{L.querySelectorAll('label[hidden]').forEach(l=>l.hidden=false);ev.target.hidden=true;pick()};
 const close=()=>{bg.hidden=true;if(last)location.reload()};
 f.querySelector('.cancel').onclick=close;f.querySelector('.close').onclick=close;bg.onclick=ev=>{if(ev.target===bg)close()};
 f.onsubmit=async ev=>{ev.preventDefault();if(!D)return;const fd=new FormData(f);fd.append('customer',D.customer.id);fd.append('mode',mode);
