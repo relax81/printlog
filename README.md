@@ -97,7 +97,10 @@ in a **light and a dark** colour scheme (Settings → View → Colour scheme, or
   printed for a while, or the models of one customer. Each model shows who it is mostly printed for and how many pieces fit
   on a plate, and **Print again …** puts it straight into an order (see below).
 - **Orders** – what a customer ordered, from the request to the bill. An order has a customer, a title, an optional due
-  date and an **agreed price**, and one or more items: a known model or **free text** for something you have never printed.
+  date and an **agreed price**, a note, and one or more items: a known model or **free text** for something you have never printed.
+  Each item can carry a **project link** (MakerWorld, Printables …); leave the item empty and the page title becomes its name.
+  For free text you can enter an optional estimate (plates per set, pieces per plate, print time per plate) right away;
+  ✏️ next to an item edits these later. The link is copied to the prints assigned to the item.
   The **Orders** page is a board *Open / In progress / Done · to bill* (tabs on the phone). Assign prints to an item and
   printlog counts the pieces (failed prints do not count), shows a running print live, sets the order's customer on the
   print and estimates what is left from the model's recent prints: plates, print time and a price with the customer margin.
@@ -552,8 +555,11 @@ in **hell und dunkel** (Einstellungen → Ansicht → Farbschema, oder automatis
   lange nicht gedruckte oder die Modelle eines Kunden. Jedes Modell zeigt, für wen es meist gedruckt wird und wie viele Stück
   auf eine Platte passen, und **Wieder drucken …** legt es direkt in einen Auftrag (siehe unten).
 - **Aufträge** – was ein Kunde bestellt hat, von der Anfrage bis zur Abrechnung. Ein Auftrag hat Kunde, Titel, optional
-  „bis“ (Datum) und einen **vereinbarten Preis** sowie eine oder mehrere Positionen: ein bekanntes Modell oder **Freitext** für
-  etwas, das du noch nie gedruckt hast. Die Seite **Aufträge** ist ein Board *Offen / In Arbeit / Fertig · abrechnen* (am Handy
+  „bis“ (Datum), einen **vereinbarten Preis**, eine Notiz sowie eine oder mehrere Positionen: ein bekanntes Modell oder
+  **Freitext** für etwas, das du noch nie gedruckt hast. Jede Position kann einen **Projektlink** (MakerWorld, Printables …)
+  haben; lässt du die Position leer, wird der Seitentitel ihr Name. Für Freitext trägst du gleich beim Anlegen optional eine
+  Schätzung ein (Platten pro Satz, Stück pro Platte, Druckzeit je Platte); ✏️ neben der Position ändert das später. Der Link
+  wandert an die Drucke, die der Position zugeordnet werden. Die Seite **Aufträge** ist ein Board *Offen / In Arbeit / Fertig · abrechnen* (am Handy
   als Reiter). Ordnest du Drucke einer Position zu, zählt printlog die Stück mit (Fehldrucke zählen nicht), zeigt einen
   laufenden Druck live, trägt den Kunden des Auftrags am Druck ein und schätzt aus den letzten Drucken des Modells, was noch
   fehlt: Platten, Druckzeit und einen Preis mit Kundenmarge. **Zur Abrechnung** fasst die Drucke zum Projekt zusammen (ein

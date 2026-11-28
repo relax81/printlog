@@ -405,6 +405,8 @@ class Store:
             self._conn.execute("ALTER TABLE order_items ADD COLUMN by_plate INTEGER")  # 1 = pro Platte verfolgen (Sätze)
         if "n_plates" not in have:
             self._conn.execute("ALTER TABLE order_items ADD COLUMN n_plates INTEGER")  # Anzahl Platten (Freitext, sonst gelernt)
+        if "url" not in have:
+            self._conn.execute("ALTER TABLE order_items ADD COLUMN url TEXT")  # Projektlink (MakerWorld, Printables …)
         have = {r["name"] for r in self._conn.execute("PRAGMA table_info(models)")}
         if "fav" not in have:
             self._conn.execute("ALTER TABLE models ADD COLUMN fav INTEGER")  # 1 = Favorit (★)

@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import re
 import time
 from datetime import date, datetime
 from typing import Any
@@ -277,7 +278,49 @@ def save_order(store: Store, oid: int, **f: Any) -> None:
         store.assign_customer(ids, allowed["customer_id"])
 
 
-def add_item(store: Store, oid: int, model_id: int | None, name: str | None, qty: int) -> int:
+def add_item(store: Store, oid: int, model_id: int | None, name: str | None, qty: int, **extra: Any) -> int:
+    """Position anlegen. extra: url, n_plates, per_plate, est_min (alles optional)."""
+    iid = _add_item(store, oid, model_id, name, qty)
+    f = {k: v for k, v in extra.items() if v not in (None, "")}
+    if f.get("n_plates"):
+        f["n_plates"] = max(1, min(int(f["n_plates"]), _plates.MAX_PLATES))
+        if not model_id:
+            f["by_plate"] = 1 if f["n_plates"] > 1 else None
+    if f:
+        cur = store._conn.execute("SELECT url FROM order_items WHERE id = ?", (iid,)).fetchone()
+        if cur and cur["url"] and "url" in f:  # Modell war schon im Auftrag: vorhandenen Link behalten
+            f.pop("url")
+        set_item(store, iid, **f)
+    return iid
+
+
+def clean_url(v: Any) -> str | None:
+    u = str(v or "").strip()
+    if not u:
+        return None
+    if not u.lower().startswith(("http://", "https://")):
+        u = "https://" + u
+    return u[:500]
+
+
+def parse_minutes(v: Any) -> float | None:
+    """Druckzeit „1:30“, „1,5“ (Stunden) oder „90 min“ → Minuten."""
+    s = str(v or "").strip().lower().replace(",", ".")
+    if not s:
+        return None
+    m = re.fullmatch(r"(\d+):(\d{1,2})(?:\s*h)?", s)
+    if m:
+        return int(m.group(1)) * 60 + int(m.group(2))
+    m = re.fullmatch(r"(\d+(?:\.\d+)?)\s*(min|m)", s)
+    if m:
+        return float(m.group(1))
+    m = re.fullmatch(r"(\d+(?:\.\d+)?)\s*(h|std)?", s)
+    if m:
+        return float(m.group(1)) * 60
+    return None
+
+
+def _add_item(store: Store, oid: int, model_id: int | None, name: str | None, qty: int) -> int:
     if model_id and not store._conn.execute("SELECT 1 FROM models WHERE id = ?", (model_id,)).fetchone():
         model_id = None
     qty = max(1, min(int(qty or 1), 9999))
@@ -295,7 +338,7 @@ def add_item(store: Store, oid: int, model_id: int | None, name: str | None, qty
 
 
 def set_item(store: Store, item_id: int, **f: Any) -> None:
-    allowed = {k: v for k, v in f.items() if k in ("qty", "adjust", "name", "model_id", "est_min", "est_g", "per_plate", "by_plate", "n_plates")}
+    allowed = {k: v for k, v in f.items() if k in ("qty", "adjust", "name", "model_id", "est_min", "est_g", "per_plate", "by_plate", "n_plates", "url")}
     if "qty" in allowed:
         allowed["qty"] = max(1, min(int(allowed["qty"] or 1), 9999))
     if not allowed:
@@ -346,9 +389,12 @@ def link(store: Store, job_id: int, item_id: int | None, state: str = "confirmed
 
 
 def _prefill(store: Store, job_id: int, item_id: int) -> None:
-    """Stück pro Platte vorbelegen, wenn am Druck noch keine Stückzahl steht."""
-    j = store._conn.execute("SELECT quantity, model_id, gcode_plate FROM jobs WHERE id = ?", (job_id,)).fetchone()
-    it = store._conn.execute("SELECT model_id, per_plate FROM order_items WHERE id = ?", (item_id,)).fetchone()
+    """Stück pro Platte vorbelegen, wenn am Druck noch keine Stückzahl steht; Projektlink der Position übernehmen."""
+    j = store._conn.execute("SELECT quantity, model_id, gcode_plate, project_url FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    it = store._conn.execute("SELECT i.model_id, i.per_plate, i.url, i.name, m.name AS model_name FROM order_items i "
+                             "LEFT JOIN models m ON m.id = i.model_id WHERE i.id = ?", (item_id,)).fetchone()
+    if j and it and it["url"] and not j["project_url"]:
+        store.update(job_id, project_url=it["url"], project_title=it["name"] or it["model_name"])
     if not j or j["quantity"] is not None:
         return
     mid = j["model_id"] or (it["model_id"] if it else None)
@@ -781,6 +827,23 @@ document.querySelectorAll('.oseg button').forEach(b=>b.onclick=()=>{
 
 # ---- Seite „Auftrag“ ----------------------------------------------------------------
 
+def _item_more(i: dict[str, Any] | None = None) -> str:
+    """Zusatzfelder einer Position: Projektlink und, für Freitext, Platten, Stück pro Platte und Druckzeit."""
+    i = i or {}
+    est = i.get("est_min")
+    est_txt = f"{int(est // 60)}:{int(round(est % 60)):02d}" if est else ""
+    link = (f'<label class="w">{e(t("Projektlink (MakerWorld, Printables …)"))}<input name="url" type="url" value="{e(i.get("url") or "")}" '
+            f'placeholder="https://makerworld.com/…"><small class="muted">{e(t("Ist die Position leer, wird der Titel der Seite übernommen."))}</small></label>')
+    if i.get("model_id"):
+        return link
+    more = (f'<label>{e(t("Platten pro Satz"))}<input name="n_plates" inputmode="numeric" class="num" value="{i.get("n_plates") or ""}" placeholder="1"></label>'
+            f'<label>{e(t("Stück pro Platte"))}<input name="per_plate" inputmode="numeric" class="num" value="{i.get("per_plate") or ""}" placeholder="1"></label>'
+            f'<label>{e(t("Druckzeit je Platte"))}<input name="est" value="{e(est_txt)}" placeholder="{e(t("z. B. 1:30"))}"></label>')
+    open_ = " open" if i.get("n_plates") or i.get("per_plate") or est else ""
+    return (f'{link}<details class="w omore"{open_}><summary>{e(t("Schätzung für Neues (optional)"))}</summary>'
+            f'<div class="omg">{more}</div><small class="muted">{e(t("Nur für etwas, das du noch nie gedruckt hast. Sobald ein Druck da ist, zählen dessen Werte."))}</small></details>')
+
+
 def page_new(store: Store, customer_id: int | None = None) -> str:
     c = store.customer(customer_id) if customer_id else None
     form = (f'<form method="post" action="orders" class="oform card">'
@@ -792,7 +855,8 @@ def page_new(store: Store, customer_id: int | None = None) -> str:
             f'<label class="w">{e(t("Erste Position"))}<span class="orow2"><input name="item" list="modellist" autocomplete="off" '
             f'placeholder="{e(t("Modell oder Freitext …"))}"><input name="qty" inputmode="numeric" value="1" class="num" aria-label="{e(t("Stück"))}"></span>'
             f'<small class="muted">{e(t("Ein bekanntes Modell aus der Liste oder Freitext für etwas, das du noch nie gedruckt hast."))}</small></label>'
-            f'<label class="w">{e(t("Notiz"))}<textarea name="note" rows="2"></textarea></label>'
+            f'{_item_more()}'
+            f'<label class="w">{e(t("Notiz"))}<textarea name="note" rows="6" class="onotes" placeholder="{e(t("Wünsche, Farben, Maße, Absprachen …"))}"></textarea></label>'
             f'<div class="w obtns"><a class="btn" href="orders">{e(t("Abbrechen"))}</a><button class="btn primary">{e(t("Auftrag anlegen"))}</button></div>'
             f'</form>{_custlist(store)}{_modellist(store)}')
     body = f'<a class="back" href="orders">← {e(t("alle Aufträge"))}</a><h2>＋ {e(t("Neuer Auftrag"))}</h2>{form}'
@@ -828,7 +892,7 @@ def page_order(store: Store, o: dict[str, Any], saved: str | None = None, show_l
             f'<label>{e(t("Titel"))}<input name="title" maxlength="120" value="{e(o.get("title") or "")}"></label>'
             f'<label>{e(t("Bis"))}<input type="date" name="due" value="{e(o.get("due") or "")}"></label>'
             f'<label>{e(t("Vereinbarter Preis"))}<input name="agreed" inputmode="decimal" value="{fmt_input(o.get("agreed_price")) if o.get("agreed_price") is not None else ""}" placeholder="{e(t("optional, €"))}"></label>'
-            f'<label class="w">{e(t("Notiz"))}<textarea name="note" rows="2">{e(o.get("note") or "")}</textarea></label>'
+            f'<label class="w">{e(t("Notiz"))}<textarea name="note" rows="6" class="onotes">{e(o.get("note") or "")}</textarea></label>'
             f'<div class="w obtns"><button class="btn primary">{e(t("Speichern"))}</button></div></form>')
 
     # Kennzahlen
@@ -875,7 +939,11 @@ def page_order(store: Store, o: dict[str, Any], saved: str | None = None, show_l
                                                   else f'<span class="muted">{e(tn(i["pl"]["n_open"], "noch {n} Platte", "noch {n} Platten"))}</span>' if i.get("pl")
                                                   else f'<span class="muted">{e(t("noch nicht gedruckt") if not i["done"] else t("{n} fehlen", n=i["qty"] - i["done"]))}</span>')
         model_link = (f'<a href="./?model={i["model_id"]}">{e(i["label"])}</a>' if i["model_id"] else e(i["label"]))
-        rows += (f'<div class="oprow">{_img(i, "big")}<div class="nm"><b>{model_link}</b><small>{e(" · ".join(sub))}</small></div>'
+        if i.get("url"):
+            host = re.sub(r"^www\.", "", re.sub(r"^https?://", "", i["url"]).split("/")[0])
+            sub.append(f'\x00<a href="{e(i["url"])}" target="_blank" rel="noopener noreferrer">🔗 {e(host)}</a>')
+        rows += (f'<div class="oprow">{_img(i, "big")}<div class="nm"><b>{model_link}</b><small>{" · ".join(x[1:] if x.startswith(chr(0)) else e(x) for x in sub)}'
+                 f' <button type="button" class="btn lnk oied" data-tgl="oi{i["id"]}" title="{e(t("Position bearbeiten"))}">✏️</button></small></div>'
                  f'<div class="pg">{_bar(i["pl"]["n_done"] if i.get("pl") else i["done"], (i["pl"]["n_print"] or 1) if i.get("pl") else i["qty"], run)}<small>{state_txt}</small></div>'
                  f'<b class="c">{i["done"]} / {i["qty"]}{"<small> " + e(t("Sätze")) + "</small>" if i.get("pl") else ""}</b>'
                  f'<form method="post" action="{act}" class="oqty"><input type="hidden" name="do" value="qty"><input type="hidden" name="item" value="{i["id"]}">'
@@ -884,12 +952,17 @@ def page_order(store: Store, o: dict[str, Any], saved: str | None = None, show_l
                  f'<form method="post" action="{act}" class="odel" data-q="{e(t("Position entfernen? Zugeordnete Drucke bleiben erhalten."))}">'
                  f'<input type="hidden" name="do" value="del_item"><input type="hidden" name="item" value="{i["id"]}">'
                  f'<button class="btn" title="{e(t("Position entfernen"))}">✕</button></form></div>')
+        rows += (f'<form method="post" action="{act}" class="oform oitem card" id="oi{i["id"]}" hidden><input type="hidden" name="do" value="item">'
+                 f'<input type="hidden" name="item" value="{i["id"]}">'
+                 + (f'<label class="w">{e(t("Name"))}<input name="name" maxlength="120" value="{e(i.get("name") or "")}"></label>' if not i["model_id"] else "")
+                 + f'{_item_more(i)}<div class="w obtns"><button class="btn primary">{e(t("Speichern"))}</button></div></form>')
         rows += _plate_box(store, o, i, act)
     if not rows:
         rows = f'<p class="muted">{e(t("Noch keine Positionen. Füge ein Modell oder Freitext hinzu."))}</p>'
     add = (f'<form method="post" action="{act}" class="oaddf"><input type="hidden" name="do" value="add">'
-           f'<input name="item" list="modellist" autocomplete="off" placeholder="{e(t("Modell oder Freitext …"))}" required>'
+           f'<input name="item" list="modellist" autocomplete="off" placeholder="{e(t("Modell oder Freitext …"))}">'
            f'<input name="qty" inputmode="numeric" value="1" class="num" aria-label="{e(t("Stück"))}">'
+           f'<input name="url" type="url" class="ourl" placeholder="🔗 {e(t("Link (optional)"))}" aria-label="{e(t("Projektlink (MakerWorld, Printables …)"))}">'
            f'<button class="btn primary">＋ {e(t("Position"))}</button></form>')
     items = f'<div class="obox"><h3>{e(t("Positionen"))}</h3>{rows}{add}</div>'
 
@@ -1290,7 +1363,7 @@ CSS = """
  border:1px solid var(--line);border-radius:12px;padding:8px 12px;color:var(--fg);text-decoration:none}.oarow small{display:block;color:var(--muted)}.oarow .d{color:var(--muted);font-size:13px}
 .odh{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap;margin:6px 0 12px}.odh h2{margin:0;font-size:26px}
 .odh .meta{color:var(--muted);font-size:14px;margin-top:4px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
-.osaved{color:var(--ok);margin:0 0 10px}.onote{margin:0 0 12px;color:var(--muted)}
+.osaved{color:var(--ok);margin:0 0 10px}.onote{margin:0 0 12px;color:var(--muted);white-space:pre-line}
 .okp{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin-bottom:14px}
 .okp>div{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:9px 13px}.okp small{color:var(--muted);font-size:12.5px;display:block}
 .okp b{font-size:20px;display:block;font-variant-numeric:tabular-nums}.okp b.acc{color:var(--accent)}.okp em{font-style:normal;color:var(--muted);font-size:12.5px}
@@ -1302,7 +1375,7 @@ CSS = """
 .oprow .nm b{display:block;font-size:15.5px}.oprow .nm a{color:var(--fg);text-decoration:none}.oprow small{display:block;color:var(--muted);font-size:12.5px;margin-top:3px}
 .oprow .obar{height:8px}.oprow .c{font-variant-numeric:tabular-nums;text-align:right;font-size:15px}
 .oqty,.odel{display:flex;gap:4px;margin:0}.oqty .btn,.odel .btn{min-height:32px;padding:0 10px}
-.oaddf{display:grid;grid-template-columns:minmax(0,1fr) 70px auto;gap:8px;margin-top:10px}.oaddf .num{text-align:center}
+.oaddf{display:grid;grid-template-columns:minmax(0,1fr) 70px minmax(0,.8fr) auto;gap:8px;margin-top:10px}.oaddf .num{text-align:center}
 .ojl{display:grid;grid-template-columns:92px minmax(0,1fr) 110px 70px 80px 34px;gap:10px;padding:7px 0;border-top:1px solid var(--line);font-size:14px;align-items:center}
 .ojl:first-of-type{border-top:0}.ojl .n{text-align:right;font-variant-numeric:tabular-nums}.ojl .d{color:var(--muted)}.ojl form{margin:0}
 .ojl .ost{justify-self:end}.btn.lnk{border:0;background:none;color:var(--muted);min-height:0;padding:4px 6px}
@@ -1314,7 +1387,9 @@ CSS = """
 .odanger{justify-content:flex-end}
 .oform{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 16px;margin:8px 0 14px;padding:14px 16px}
 .oform[hidden]{display:none}.oform label{display:flex;flex-direction:column;gap:5px;font-size:13px;color:var(--muted);font-weight:600}.oform .w{grid-column:1/-1}
-.oform input,.oform textarea{font:inherit;color:var(--fg)}.orow2{display:grid;grid-template-columns:minmax(0,1fr) 80px;gap:8px}.orow2 .num{text-align:center}
+.oform input,.oform textarea{font:inherit;color:var(--fg)}.oform textarea.onotes{min-height:130px;resize:vertical}
+.omore summary{cursor:pointer;font-size:13px;color:var(--muted);font-weight:600}.omg{display:grid;grid-template-columns:repeat(3,minmax(0,160px));gap:10px 14px;margin:8px 0 4px}
+.oitem{margin:4px 0 10px 64px}.oied{padding:0 4px;font-size:12px;opacity:.6}.oied:hover{opacity:1}.orow2{display:grid;grid-template-columns:minmax(0,1fr) 80px;gap:8px}.orow2 .num{text-align:center}
 .orow2 input,.oaddf input{min-width:0;width:100%;box-sizing:border-box}
 .obtns{display:flex;gap:8px;justify-content:flex-end}
 .coh{display:flex;align-items:center;gap:8px}.coh .btn{min-height:32px;font-size:13px;padding:0 10px}
@@ -1340,7 +1415,7 @@ CSS = """
  .oseg button{flex:1;border:0;background:none;color:var(--muted);font:inherit;font-weight:600;padding:9px 4px;font-size:14px}
  .oseg button.on{background:color-mix(in srgb,var(--accent) 22%,var(--card));color:var(--fg)}
  .oboard{grid-template-columns:1fr}.ocol{display:none;padding:6px}.ocol.on{display:block}.ocol>h3{display:none}
- .okp{grid-template-columns:repeat(2,minmax(0,1fr))}.oform{grid-template-columns:1fr}.ocand{grid-template-columns:38px minmax(0,1fr) auto}.ocand select{grid-column:2}
+ .okp{grid-template-columns:repeat(2,minmax(0,1fr))}.oform{grid-template-columns:1fr}.oaddf{grid-template-columns:minmax(0,1fr) 70px}.oaddf .ourl,.oaddf button{grid-column:1/-1}.oitem{margin-left:0}.omg{grid-template-columns:repeat(2,minmax(0,1fr))}.ocand{grid-template-columns:38px minmax(0,1fr) auto}.ocand select{grid-column:2}
  .corow{grid-template-columns:minmax(0,1fr) auto}.corow .obar,.corow>span:nth-child(3){display:none}}
 
 .pbox{margin:-4px 0 12px 62px;border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:color-mix(in srgb,var(--fg) 2%,var(--card))}
