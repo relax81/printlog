@@ -916,6 +916,24 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
         name = str(form.get("item") or "").strip()
         return (od.model_by_name(store, name) if name else None), name
 
+    def _item_extra(form: Any) -> dict[str, Any]:
+        """Zusatzfelder einer Position aus dem Formular (nur was im Formular steht)."""
+        f: dict[str, Any] = {}
+        if "url" in form:
+            f["url"] = od.clean_url(form.get("url"))
+        for k in ("n_plates", "per_plate"):
+            if k in form:
+                n = parse_num(form.get(k))
+                f[k] = int(n) if n and n >= 1 else None
+        if "est" in form:
+            f["est_min"] = od.parse_minutes(form.get("est"))
+        return f
+
+    async def _title_for(url: str | None) -> str | None:
+        if not url:
+            return None
+        return await fetch_title(app.get("session"), url) or title_from_url(url)
+
     @routes.get("/orders")
     async def orders_page(request: web.Request) -> web.Response:
         cid = request.query.get("c")
@@ -935,11 +953,15 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
     @routes.post("/orders")
     async def order_create(request: web.Request) -> web.Response:
         form = await request.post()
-        oid = od.create_order(store, _customer(form), str(form.get("title") or ""), form.get("due"),
-                              parse_num(form.get("agreed")), str(form.get("note") or ""))
         mid, name = _item(form)
-        if mid or name:
-            od.add_item(store, oid, mid, name, int(parse_num(form.get("qty")) or 1))
+        extra = _item_extra(form)
+        title = str(form.get("title") or "").strip()
+        if not name and extra.get("url"):
+            name = await _title_for(extra["url"]) or ""
+        oid = od.create_order(store, _customer(form), title or name, form.get("due"),
+                              parse_num(form.get("agreed")), str(form.get("note") or ""))
+        if mid or name or extra.get("url"):
+            od.add_item(store, oid, mid, name, int(parse_num(form.get("qty")) or 1), **extra)
         raise web.HTTPSeeOther(f"order?id={oid}")
 
     @routes.post("/orders/answer")
@@ -987,8 +1009,20 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
                           agreed_price=parse_num(form.get("agreed")), note=str(form.get("note") or "").strip() or None)
         elif do == "add":
             mid, name = _item(form)
-            if mid or name:
-                od.add_item(store, oid, mid, name, int(parse_num(form.get("qty")) or 1))
+            ex = _item_extra(form)
+            if not name and ex.get("url"):
+                name = await _title_for(ex["url"]) or ""
+            if mid or name or ex.get("url"):
+                od.add_item(store, oid, mid, name, int(parse_num(form.get("qty")) or 1), **ex)
+        elif do == "item" and item:
+            it = next(i for i in o["items"] if i["id"] == item)
+            f = _item_extra(form)
+            if "name" in form and not it["model_id"]:
+                f["name"] = str(form.get("name") or "").strip()[:120] or it["name"]
+            if not it["model_id"] and "n_plates" in f:
+                f["by_plate"] = 1 if (f["n_plates"] or 0) > 1 else (None if not f["n_plates"] else it.get("by_plate"))
+            od.set_item(store, item, **f)
+            extra = f"#pb{item}" if f.get("by_plate") else ''
         elif do == "qty" and item:
             it = next(i for i in o["items"] if i["id"] == item)
             od.set_item(store, item, qty=it["qty"] + (1 if str(form.get("d")) == "1" else -1))

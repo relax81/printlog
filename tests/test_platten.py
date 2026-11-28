@@ -227,3 +227,18 @@ def test_wunschfarbe() -> None:
     assert p["want"] == ["#FFD21F"] and pl.stock_for(store, mid, p)["match"] == 2
     pl.save_plates(store, i, [{"plate": 1, "colors": ""}])  # leer: wieder wie der letzte Druck
     assert od.order(store, oid)["items"][0]["pl"]["plates"][0]["want"] == []
+
+
+def test_position_mit_link_und_schaetzung() -> None:
+    store = _store()
+    cid = store.save_customer(None, "Verein", None, None, 0)
+    oid = od.create_order(store, cid, "Wolf", None, None, None)
+    iid = od.add_item(store, oid, None, "Winter Wolf", 2, url=od.clean_url("makerworld.com/de/models/123-winter-wolf"),
+                      n_plates=3, per_plate=1, est_min=od.parse_minutes("1:30"))
+    i = od.order(store, oid)["items"][0]
+    assert i["url"] == "https://makerworld.com/de/models/123-winter-wolf" and i["n_plates"] == 3 and i["by_plate"] == 1
+    assert i["est_min"] == 90 and i["pl"] and len(i["pl"]["plates"]) == 3
+    # Druck zuordnen: Projektlink wandert an den Druck
+    j = _job(store, "Winter Wolf", 1, None)
+    od.link(store, j, iid)
+    assert store.get(j)["project_url"] == i["url"] and store.get(j)["project_title"] == "Winter Wolf"
