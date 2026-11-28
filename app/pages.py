@@ -554,7 +554,7 @@ function dlgMode(m){df.querySelectorAll('.seg2 button').forEach(b=>b.classList.t
 df.querySelectorAll('.seg2 button').forEach(b=>b.onclick=()=>dlgMode(b.dataset.m));
 df.querySelectorAll('.stp button').forEach(b=>b.onclick=()=>{const i=df.querySelector('input[name=quantity]');i.value=Math.max(1,(+i.value||1)+(+b.dataset.d))});
 df.querySelector('.cancel').onclick=()=>dlg.hidden=true;
-dlg.onclick=ev=>{if(ev.target===dlg)dlg.hidden=true};
+bgClose(dlg,()=>dlg.hidden=true);
 sb.querySelector('.pjbtn').onclick=()=>{const els=pickedEls();if(!els.length)return;
   const projs=els.filter(([,el])=>el&&el.dataset.kind==='project'),prints=els.filter(([,el])=>!el||el.dataset.kind!=='project');
   const name=(prints.find(([,el])=>el)||projs[0]||[])[1];

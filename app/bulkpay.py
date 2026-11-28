@@ -303,7 +303,7 @@ f.querySelector('.tog').onclick=()=>{const on=!boxes().filter(c=>!c.closest('lab
   boxes().forEach(c=>{if(!c.closest('label').hidden)c.checked=on});pick()};
 f.querySelector('.more').onclick=ev=>{L.querySelectorAll('label[hidden]').forEach(l=>l.hidden=false);ev.target.hidden=true;pick()};
 const close=()=>{bg.hidden=true;if(last)location.reload()};
-f.querySelector('.cancel').onclick=close;f.querySelector('.close').onclick=close;bg.onclick=ev=>{if(ev.target===bg)close()};
+f.querySelector('.cancel').onclick=close;f.querySelector('.close').onclick=close;bgClose(bg,close);
 f.onsubmit=async ev=>{ev.preventDefault();if(!D)return;const fd=new FormData(f);fd.append('customer',D.customer.id);fd.append('mode',mode);
   fd.append('ids',sel().map(x=>x.id).join(','));if(!(D.credit>0))fd.delete('use_credit');
   const go=f.querySelector('.go');go.disabled=true;let r;
