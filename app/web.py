@@ -632,25 +632,17 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
                      if k.startswith("mnote__") and k[7:].isdigit() and str(v).strip()}
             fields["material_notes"] = json.dumps(notes, ensure_ascii=False) if notes else None
         recalc = False
-<<<<<<< HEAD
         mat_editable = job.get("state") == "done" and job.get("kind") not in ("project", "share")
         mat_jump = False  # nach Hinzufügen/Entfernen zurück in den Tab „Bearbeiten“
         if mat_editable and any(str(k).startswith(("mgram__", "mname__", "mcolor__", "madd_", "mdel")) for k in form):
             # Filamentmenge pro Material von Hand korrigieren (HA hat z. B. 0 g gemeldet),
             # weitere Filamente hinzufügen (z. B. mehrfarbig, aber nur „aktiv“ gemeldet) und wieder entfernen.
-=======
-        if any(str(k).startswith("mgram__") for k in form) and job.get("state") == "done" and job.get("kind") not in ("project", "share"):
-            # Filamentmenge pro Material von Hand korrigieren (HA hat z. B. 0 g gemeldet)
->>>>>>> f2b79f3bf43c1a78defcc3cc3f064a210f644de3
             try:
                 raw = json.loads(job.get("materials") or "[]")
             except ValueError:
                 raw = []
-<<<<<<< HEAD
             if not isinstance(raw, list):
                 raw = []
-=======
->>>>>>> f2b79f3bf43c1a78defcc3cc3f064a210f644de3
             changed = False
             for k, v in form.items():
                 idx = k[7:] if k.startswith("mgram__") else ""
@@ -666,7 +658,6 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
                 if g != old_g:
                     m["grams"], m["manual"] = g, True
                     changed = True
-<<<<<<< HEAD
             known = {m["name"]: m["type"] for m in store.material_names()}
 
             def pick(value: str) -> tuple[str, str | None]:
@@ -713,8 +704,6 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
                             "color": color.upper() if re.fullmatch(r"#[0-9A-Fa-f]{6}", color) else None,
                             "grams": round(add_g, 2), "manual": True, "added": True})
                 changed = mat_jump = True
-=======
->>>>>>> f2b79f3bf43c1a78defcc3cc3f064a210f644de3
             if changed:
                 fields["materials"] = json.dumps(raw, ensure_ascii=False)
                 recalc = True

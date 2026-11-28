@@ -432,7 +432,6 @@ EN: dict[str, str] = {
     'Andere Anzahl …': 'Other quantity …',
     'Lokaler Ordner hinterlegt': 'Local folder stored',
     'Foto löschen': 'Delete photo',
-<<<<<<< HEAD
     'Filamente (falsch gemeldet? Hier korrigieren. Notiz erscheint auf Bon und PDF)': 'Filaments (reported wrong? Correct it here. Note appears on receipt and PDF)',
     'Notiz, z. B. Ivory White': 'Note, e.g. Ivory White',
     'Filament entfernen': 'Remove filament',
@@ -441,8 +440,6 @@ EN: dict[str, str] = {
     '– Filament wählen –': '– choose filament –',
     'Filamente': 'Filaments',
     'Nur Typ': 'Type only',
-=======
->>>>>>> f2b79f3bf43c1a78defcc3cc3f064a210f644de3
     'Menge': 'Amount',
     'Menge in Gramm': 'Amount in grams',
     'Filament (g)': 'Filament (g)',
