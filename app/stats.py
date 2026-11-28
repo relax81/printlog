@@ -239,12 +239,15 @@ def revenue_data(store: Store, period: str, since: float, until: float) -> dict[
         if due is None:
             continue
         paid = j.get("paid") or 0
-        price = due + overpaid(j)
+        over = overpaid(j)
+        price = due + over
         gain = price - cost
+        tot["tip"] += over
+        tot["tip_n"] += 1 if over else 0
         for d in (tot, c):
             d["revenue"] += price
             d["paid"] += paid
-            d["open"] += max(due - paid, 0)
+            d["open"] += due - paid if paid < due - 0.005 else 0  # Rundungsreste zählen nicht
             d["profit"] += gain
         tot["cost"] += cost
         tot["n"] += 1
@@ -254,6 +257,13 @@ def revenue_data(store: Store, period: str, since: float, until: float) -> dict[
             per_bucket[(j["bucket"], "loss")] += -gain
     custs = sorted((c for c in per_cust.values() if c["revenue"] or c["gift"]), key=lambda c: -c["revenue"])
     return {"tot": tot, "buckets": per_bucket, "customers": custs}
+
+
+def tip_note(tip: float) -> str:
+    """Zusatz unter dem Gewinn: Trinkgeld (mehr bezahlt als der Preis) steckt schon darin."""
+    if tip < 0.005:
+        return ""
+    return f'<span class="tipn">{t("inkl. {v} Trinkgeld", v=fmt_num(tip, 2, "€"))}</span>'
 
 
 def _revenue_card(keys: list[str], labels: list[str], rv: dict[str, Any]) -> str:
@@ -268,7 +278,7 @@ def _revenue_card(keys: list[str], labels: list[str], rv: dict[str, Any]) -> str
           f'<small>{t("{v} offen", v=fmt_num(tot["open"], 2, "€"))}</small></div>'
           f'<div><span>{t("Selbstkosten")}</span><b>{fmt_num(tot["cost"], 2, "€")}</b><small>{t("Druck, Zubehör, Arbeit")}</small></div>'
           f'<div class="{"pos" if tot["profit"] >= 0 else "neg"}"><span>{t("Gewinn")}</span><b>{fmt_num(tot["profit"], 2, "€")}</b>'
-          f'<small>{pct.lstrip(" ·") or "–"}</small></div>'
+          f'<small>{pct.lstrip(" ·") or "–"}{tip_note(tot["tip"])}</small></div>'
           + (f'<div><span>{t("Verschenkt")}</span><b>{fmt_num(tot["gift"], 2, "€")}</b><small>{t("Kosten, nicht im Gewinn")}</small></div>'
              if tot["gift"] else ""))
     series = [("cost", t("Selbstkosten"), "color-mix(in srgb,var(--fg) 28%,transparent)"), ("profit", t("Gewinn"), "var(--ok)"), ("loss", t("Verlust"), "var(--bad)")]

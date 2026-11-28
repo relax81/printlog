@@ -1423,4 +1423,8 @@ EN: dict[str, str] = {
     'Diesen Eintrag löschen?': 'Delete this entry?',
     'Zahlung für die ausgewählten Drucke eines Kunden erfassen': 'Record a payment for the selected prints of one customer',
     'Nach Anteil': 'Proportional',
+    'inkl. {v} Trinkgeld': 'incl. {v} in tips',
+    'Trinkgeld': 'Tips',
+    'bei {n} Drucken, im Gewinn enthalten': 'on {n} prints, included in profit',
+    'bei 1 Druck, im Gewinn enthalten': 'on 1 print, included in profit',
 }

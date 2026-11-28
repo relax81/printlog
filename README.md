@@ -51,6 +51,8 @@ in a **light and a dark** colour scheme (Settings → View → Colour scheme, or
   away what each item gets: *oldest first* or *proportional*. Too little leaves the rest open; too much goes as a tip to the newest
   item, is spread across all of them or is kept as **credit** for the customer, which the next payment can use. Every item gets a
   normal partial payment, and *Undo* takes the whole booking back.
+  If a customer paid more than the price (a tip), it already counts in revenue and profit: the profit tile on the customer page
+  and in statistics says *incl. … in tips*, and the customer page shows a **Tips** tile marked *included in profit*.
 - **Assign customers in two taps** – a print without a customer shows a **👤 ＋ Customer** chip right in the list (also on
   the phone and on the print page). Tap it, pick a customer, done: no Edit tab, no Save button, and an *Undo* for ten seconds.
   The picker has a search, the three most recent customers and a suggestion: if you printed the same model for someone
@@ -491,6 +493,8 @@ in **hell und dunkel** (Einstellungen → Ansicht → Farbschema, oder automatis
   und sofort sehen, was jeder Posten bekommt: *Älteste zuerst* oder *Nach Anteil*. Zu wenig lässt den Rest offen; zu viel geht als
   Trinkgeld an den neuesten Posten, wird anteilig verteilt oder als **Guthaben** beim Kunden gemerkt, das die nächste Zahlung
   mitverwenden kann. Jeder Posten bekommt eine normale Teilzahlung, *Rückgängig* nimmt die ganze Buchung zurück.
+  Hat ein Kunde mehr als den Preis gezahlt (Trinkgeld), steckt das schon in Umsatz und Gewinn: Die Gewinn-Kachel auf der
+  Kundenseite und in der Statistik zeigt *inkl. … Trinkgeld*, die Kundenseite eine Kachel **Trinkgeld** mit *im Gewinn enthalten*.
 - **Kunde mit zwei Tipps zuordnen** – ein Druck ohne Kunde zeigt direkt in der Liste einen Chip **👤 ＋ Kunde** (auch am
   Handy und auf der Druckseite). Antippen, Kunde wählen, fertig: kein Tab Bearbeiten, kein Speichern-Knopf, zehn Sekunden lang
   *Rückgängig*. Die Auswahl hat eine Suche, die drei zuletzt genutzten Kunden und einen Vorschlag: Hast du das gleiche Modell

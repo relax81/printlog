@@ -15,7 +15,7 @@ from .db import Store, code_label
 from .defects import no_charge
 from .i18n import N_, t, tn
 from .pages import amount_due, overpaid, price_base
-from .stats import REVENUE_CSS, _buckets, _fmt_eur, bar_chart
+from .stats import REVENUE_CSS, _buckets, _fmt_eur, bar_chart, tip_note
 from .ui import e, fmt_date, fmt_hours, fmt_input, fmt_num, layout
 
 PERIODS = {"": N_("Gesamt"), "jahr": N_("Dieses Jahr"), "12m": N_("Letzte 12 Monate")}
@@ -97,6 +97,8 @@ def summarize(store: Store, cid: int, period: str = "") -> dict[str, Any]:
         paid = j.get("paid") or 0
         over = overpaid(j)
         price = due + over
+        tot["tip"] += over
+        tot["tip_n"] += 1 if over else 0
         tot["revenue"] += price
         tot["paid"] += paid
         tot["open"] += due - paid if paid < due - 0.005 else 0
@@ -232,7 +234,7 @@ def page_customer(store: Store, cid: int, period: str | None = None) -> str | No
                f'<div><span>{t("Bezahlt")}</span><b>{fmt_num(tot["paid"], 2, "€")}</b>'
                f'<small>{t("{v} offen", v=fmt_num(tot["open"], 2, "€")) if tot["open"] >= 0.005 else t("nichts offen")}</small></div>'
                f'<div class="calc"><span>{t("Selbstkosten")}</span><b>{fmt_num(tot["cost"], 2, "€")}</b><small>{t("Druck, Zubehör, Arbeit")}</small></div>'
-               f'<div class="calc {"pos" if tot["profit"] >= 0 else "neg"}"><span>{t("Gewinn")}</span><b>{fmt_num(tot["profit"], 2, "€")}</b><small>{pct}</small></div>'
+               f'<div class="calc {"pos" if tot["profit"] >= 0 else "neg"}"><span>{t("Gewinn")}</span><b>{fmt_num(tot["profit"], 2, "€")}</b><small>{pct}{tip_note(tot["tip"])}</small></div>'
                + (f'<div class="pos"><span>{t("Guthaben")}</span><b>{fmt_num(balance, 2, "€")}</b>'
                   f'<small><a href="#guthaben">{t("aus zu viel Gezahltem")}</a></small></div>' if credits else "") +
                f'<div><span>{t("Verschenkt")}</span><b>{tn(int(tot["gift_n"]), "{n} Druck", "{n} Drucke") if tot["gift_n"] else "–"}</b>'
@@ -243,6 +245,10 @@ def page_customer(store: Store, cid: int, period: str | None = None) -> str | No
     if not nobill:
         facts.append((t("Ø Tage bis Zahlung"), tn(round(d["pay_days"]), "{n} Tag", "{n} Tage") if d["pay_days"] is not None else "–",
                       t("ab Druckende bis zur letzten Zahlung")))
+        if tot["tip_n"]:
+            facts.append((t("Trinkgeld"), fmt_num(tot["tip"], 2, "€"),
+                          t("bei {n} Drucken, im Gewinn enthalten", n=int(tot["tip_n"])) if tot["tip_n"] > 1
+                          else t("bei 1 Druck, im Gewinn enthalten")))
         if d["oldest_open"]:
             days = max(0, int((datetime.now().timestamp() - d["oldest_open"]) / 86400))
             facts.append((t("Ältester offener Betrag"), tn(days, "seit {n} Tag", "seit {n} Tagen"), ""))
