@@ -1715,6 +1715,14 @@ class Store:
         ).fetchall()
         return [r["t"] for r in rows]
 
+    def material_colors(self) -> list[str]:
+        """Zuletzt benutzte Filamentfarben (neueste zuerst), als Vorschläge beim Hinzufügen."""
+        rows = self._conn.execute(
+            "SELECT json_extract(m.value, '$.color') c, MAX(jobs.start_ts) ts FROM jobs, json_each(jobs.materials) m "
+            "WHERE c IS NOT NULL GROUP BY c ORDER BY ts DESC LIMIT 40"
+        ).fetchall()
+        return [r["c"] for r in rows]
+
     def material_names(self) -> list[dict[str, Any]]:
         rows = self._conn.execute(
             "SELECT json_extract(m.value, '$.name') name, MAX(json_extract(m.value, '$.type')) type "
