@@ -631,6 +631,35 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
             notes = {k[7:]: str(v).strip()[:120] for k, v in form.items()
                      if k.startswith("mnote__") and k[7:].isdigit() and str(v).strip()}
             fields["material_notes"] = json.dumps(notes, ensure_ascii=False) if notes else None
+        recalc = False
+        if any(str(k).startswith("mgram__") for k in form) and job.get("state") == "done" and job.get("kind") not in ("project", "share"):
+            # Filamentmenge pro Material von Hand korrigieren (HA hat z. B. 0 g gemeldet)
+            try:
+                raw = json.loads(job.get("materials") or "[]")
+            except ValueError:
+                raw = []
+            changed = False
+            for k, v in form.items():
+                idx = k[7:] if k.startswith("mgram__") else ""
+                if not idx.isdigit() or int(idx) >= len(raw) or not isinstance(raw[int(idx)], dict):
+                    continue
+                g = parse_num(v)
+                g = round(max(0.0, g), 2) if g is not None else 0.0
+                m = raw[int(idx)]
+                try:
+                    old_g = round(float(m.get("grams") or 0), 2)
+                except (TypeError, ValueError):
+                    old_g = 0.0
+                if g != old_g:
+                    m["grams"], m["manual"] = g, True
+                    changed = True
+            if changed:
+                fields["materials"] = json.dumps(raw, ensure_ascii=False)
+                recalc = True
+        if "weight_g" in form and job.get("state") == "done" and job.get("kind") not in ("project", "share"):
+            g = parse_num(form["weight_g"])
+            fields["weight_g"] = round(max(0.0, g), 2) if g is not None else None
+            recalc = True
         if "gift" in form:
             fields["gift"] = 1 if str(form["gift"]) == "1" else None
         if "defect" in form:
@@ -659,6 +688,9 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
             store.set_reprint(job_id, int(rv) if rv.isdigit() else None)
         if fields:
             store.update(job_id, **fields)
+            if recalc:
+                store.update(job_id, **compute(store.get(job_id) or job, store))
+                store.refresh_projects()
             if "quantity" in fields:
                 # Zubehör pro Stück und Nachbearbeitung hängen an der Stückzahl
                 zk.sync_stock(store, job_id)

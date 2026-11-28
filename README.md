@@ -61,6 +61,9 @@ in a **light and a dark** colour scheme (Settings → View → Colour scheme, or
   applies to the whole project.
 - **Your own details** – photos (camera upload, auto-resized), notes, filament notes (e.g. the exact colour name),
   MakerWorld / Printables links with their title, a local folder path, and a short project ID per print (e.g. `PL-7K3Q`).
+- **Correct the filament amount** – under *Edit* you can change the grams per filament of a finished print. Sometimes the
+  Bambu integration reports 0 g (e.g. right after a cancelled print); the print then shows a hint. Costs are recalculated,
+  hand-entered amounts are marked with ✎.
 - **Failed prints** – cancelled prints count as failed automatically, and you can mark any print yourself, e.g. when it
   finished but the settings were off. Pick a cause (filament broke, settings, material, adhesion, printer fault, customer changed their mind,
   other) and decide what the customer pays: nothing, a share (in % or as an amount) or the full price. A charged failed
@@ -504,6 +507,9 @@ in **hell und dunkel** (Einstellungen → Ansicht → Farbschema, oder automatis
   Bei einem Projekt gilt der Kunde fürs ganze Projekt.
 - **Eigene Angaben** – Fotos (direkt mit der Kamera, automatisch verkleinert), Notizen, Filament-Notizen (z. B. der
   genaue Farbname), MakerWorld-/Printables-Links mit Titel, ein lokaler Ordner und eine kurze Projekt-ID pro Druck (z. B. `PL-7K3Q`).
+- **Filamentmenge korrigieren** – unter *Bearbeiten* lassen sich die Gramm pro Filament eines fertigen Drucks ändern. Die
+  Bambu-Integration meldet manchmal 0 g (z. B. direkt nach einem abgebrochenen Druck); der Druck zeigt dann einen Hinweis.
+  Die Kosten werden neu berechnet, von Hand eingetragene Mengen sind mit ✎ markiert.
 - **Fehldrucke** – abgebrochene Drucke zählen automatisch als Fehldruck, jeder Druck lässt sich auch selbst markieren,
   z. B. wenn er fertig ist, aber die Einstellungen nicht gepasst haben. Dazu eine Ursache (Filament gebrochen, Einstellungen, Material, Haftung,
   Drucker-Defekt, Kundenwunsch geändert, Sonstiges) und die Wahl, was der Kunde zahlt: nichts, anteilig (in % oder als Betrag)
