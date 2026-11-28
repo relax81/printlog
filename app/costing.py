@@ -119,7 +119,9 @@ def compute(job: dict[str, Any], store: Store) -> dict[str, Any]:
     if materials:
         filament_g = round(sum(m["grams"] for m in materials) * factor, 2)
         for m in materials:
-            price = (prices.get(m["name"] or "") or prices.get(m["type"] or "") or {}).get("eur_per_kg")
+            price = (prices.get(m["name"] or "") or {}).get("eur_per_kg")
+            if price is None:
+                price = (prices.get(m["type"] or "") or {}).get("eur_per_kg")
             if price is not None:
                 cost_filament = (cost_filament or 0.0) + m["grams"] * factor / 1000 * price
         if cost_filament is not None:

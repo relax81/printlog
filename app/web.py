@@ -336,7 +336,15 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
             store.set_printer_rate(
                 printer, **{fld: parse_num(form.get(f"{fld}__{printer}")) for fld in Store.RATE_FIELDS}
             )
+        if form.get("fdel"):
+            store.delete_filament(str(form["fdel"]))
+        if str(form.get("fnew_name") or "").strip():
+            store.save_filament(str(form.get("fnew_vendor") or ""), str(form["fnew_name"]),
+                                str(form.get("fnew_type") or "").strip().upper() or guess_type(str(form["fnew_name"])),
+                                parse_num(form.get("fnew_price")))
         for key, value in form.items():
+            if key.startswith("name__") and key[6:] == form.get("fdel"):
+                continue  # gerade entfernt
             if key.startswith("type__"):
                 store.set_material_price(key[6:], "type", parse_num(value))
             elif key.startswith("name__"):
@@ -659,6 +667,7 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
                     m["grams"], m["manual"] = g, True
                     changed = True
             known = {m["name"]: m["type"] for m in store.material_names()}
+            known.update({f["key"]: f.get("mtype") for f in store.custom_filaments()})
 
             def pick(value: str) -> tuple[str, str | None]:
                 """Auswahl aus „+ Filament“/Korrektur: Filamentname oder „type:PLA“ (nur Typ)."""
@@ -700,6 +709,17 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
             if name and add_g and add_g > 0:
                 name, mtype = pick(name)
                 color = str(form.get("madd_color") or "").strip()
+                note = str(form.get("madd_note") or "").strip()[:120]
+                if note:
+                    src = fields["material_notes"] if "material_notes" in fields else job.get("material_notes")
+                    try:
+                        notes = json.loads(src) if src else {}
+                    except ValueError:
+                        notes = {}
+                    if not isinstance(notes, dict):
+                        notes = {}
+                    notes[str(len(raw))] = note
+                    fields["material_notes"] = json.dumps(notes, ensure_ascii=False)
                 raw.append({"slot": None, "name": name, "type": mtype,
                             "color": color.upper() if re.fullmatch(r"#[0-9A-Fa-f]{6}", color) else None,
                             "grams": round(add_g, 2), "manual": True, "added": True})

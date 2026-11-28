@@ -62,8 +62,8 @@ in a **light and a dark** colour scheme (Settings → View → Colour scheme, or
 - **Your own details** – photos (camera upload, auto-resized), notes, filament notes (e.g. the exact colour name),
   MakerWorld / Printables links with their title, a local folder path, and a short project ID per print (e.g. `PL-7K3Q`).
 - **Correct filaments** – under *Edit* you can change filament, colour and grams of a finished print, e.g. when the printer
-  reported the wrong material or 0 g (happens with the Bambu integration right after a cancelled print; the print then
-  shows a hint). **＋ Add filament** adds more filaments from your settings (e.g. a multi-colour print that only reported one),
+  reported the wrong material (also your own filaments with brand) or 0 g (happens with the Bambu integration right after a cancelled print; the print then
+  shows a hint). **＋ Add filament** adds more filaments from your settings with a colour note (e.g. a multi-colour print that only reported one),
   ✕ removes them again. Costs are recalculated, changed entries are marked with ✎.
 - **Failed prints** – cancelled prints count as failed automatically, and you can mark any print yourself, e.g. when it
   finished but the settings were off. Pick a cause (filament broke, settings, material, adhesion, printer fault, customer changed their mind,
@@ -317,7 +317,9 @@ Open **Settings**:
 - **Printer** – printlog fills this in from the first event of each automation. A ✓ shows the live value from Home Assistant,
   ⚠ an entity that does not exist. Set **Fixed power (W)** for printers without a plug. You can also add printers by hand.
 - **Costs** – purchase price, expected lifetime in print hours, maintenance per 1000 print hours (everything that wears with running time: nozzle, belts, grease, filters, build plate) for each printer. Older values (maintenance per year, wear per hour) are converted automatically so the hourly rate stays the same.
-- **Filament** – €/kg per filament type, optionally per exact product.
+- **Filament** – €/kg per filament type, optionally per exact product. Under **Your filaments** you add your own with brand,
+  product and type (e.g. Sunlu · PLA Silk · PLA), since printers usually only report "Generic" or "Bambu". Without a price of
+  their own they use the type price. You pick them under *Edit* on a print.
 - **Margins** – up to two named margins (e.g. private / business). Each one can be switched off with the tick box in front of it: its selling-price column then disappears everywhere (list, detail page, receipt, PDF, CSV), name and percentage stay saved. Customer margins are not affected. If a print has a customer with a margin, the list and detail page show only that price; the general margins appear on hover or tap ("+ 2 more margins").
 - **Receipt & PDF** – your own logo for the receipt image and the PDF.
 - **View** – language, colour scheme (automatic / light / dark), start tab of the detail page, how long prints stay in the trash.
@@ -509,9 +511,9 @@ in **hell und dunkel** (Einstellungen → Ansicht → Farbschema, oder automatis
 - **Eigene Angaben** – Fotos (direkt mit der Kamera, automatisch verkleinert), Notizen, Filament-Notizen (z. B. der
   genaue Farbname), MakerWorld-/Printables-Links mit Titel, ein lokaler Ordner und eine kurze Projekt-ID pro Druck (z. B. `PL-7K3Q`).
 - **Filamente korrigieren** – unter *Bearbeiten* lassen sich Filament, Farbe und Gramm eines fertigen Drucks ändern, z. B.
-  wenn der Drucker ein falsches Material oder 0 g gemeldet hat (passiert bei der Bambu-Integration direkt nach einem
+  wenn der Drucker ein falsches Material oder 0 g gemeldet hat (auch eigene Filamente mit Hersteller) (passiert bei der Bambu-Integration direkt nach einem
   abgebrochenen Druck; der Druck zeigt dann einen Hinweis). **＋ Filament hinzufügen** ergänzt weitere Filamente aus den
-  Einstellungen (z. B. mehrfarbiger Druck, der nur eins gemeldet hat), ✕ entfernt sie wieder. Die Kosten werden neu
+  Einstellungen samt Farbnotiz (z. B. mehrfarbiger Druck, der nur eins gemeldet hat), ✕ entfernt sie wieder. Die Kosten werden neu
   berechnet, geänderte Einträge sind mit ✎ markiert.
 - **Fehldrucke** – abgebrochene Drucke zählen automatisch als Fehldruck, jeder Druck lässt sich auch selbst markieren,
   z. B. wenn er fertig ist, aber die Einstellungen nicht gepasst haben. Dazu eine Ursache (Filament gebrochen, Einstellungen, Material, Haftung,
@@ -769,7 +771,9 @@ Unter **Einstellungen**:
 - **Drucker** – füllt printlog mit dem ersten Event jeder Automation selbst aus. ✓ zeigt den aktuellen Wert aus Home Assistant,
   ⚠ eine Entität, die es nicht gibt. Für Drucker ohne Steckdose **Feste Leistung (W)** eintragen. Drucker lassen sich auch von Hand anlegen.
 - **Kosten** – Anschaffungspreis, erwartete Lebensdauer in Druckstunden, Wartung pro 1000 Druckstunden (alles, was mit der Laufzeit verschleißt: Düse, Riemen, Fett, Filter, Druckplatte) je Drucker. Ältere Werte (Wartung pro Jahr, Verschleiß pro Stunde) werden automatisch so umgerechnet, dass der Stundensatz gleich bleibt.
-- **Filament** – €/kg pro Filamenttyp, optional pro Sorte.
+- **Filament** – €/kg pro Filamenttyp, optional pro Sorte. Unter **Eigene Filamente** legst du deine Filamente mit Hersteller,
+  Sorte und Typ an (z. B. Sunlu · PLA Silk · PLA), denn die Drucker melden meist nur „Generic“ oder „Bambu“. Ohne eigenen
+  Preis gilt der Typpreis. Auswählen kannst du sie unter *Bearbeiten* eines Drucks.
 - **Margen** – bis zu zwei benannte Margen (z. B. Privat / Gewerbe). Jede lässt sich mit dem Häkchen vor dem Namen abschalten: Ihre Verkaufspreis-Spalte verschwindet dann überall (Liste, Detailseite, Bon, PDF, CSV), Name und Prozent bleiben gespeichert. Kundenmargen bleiben unberührt. Hat ein Druck einen Kunden mit Marge, zeigen Liste und Detailseite nur diesen Preis; die allgemeinen Margen gibt es per Hover oder Antippen („+ 2 weitere Margen“).
 - **Bon & PDF** – eigenes Logo für Bon-Bild und PDF.
 - **Ansicht** – Sprache, Farbschema (automatisch / hell / dunkel), Start-Tab der Detailseite, Aufbewahrung im Papierkorb.

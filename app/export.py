@@ -168,7 +168,9 @@ def collect(store: Store, job: dict[str, Any], image_dir: Path, status: bool = T
         notes = material_notes(src_job)
         for i, m in enumerate(parse_materials(src_job.get("materials"))):
             m["note"] = notes.get(i)
-            eur_kg = (mprices.get(m["name"] or "") or mprices.get(m["type"] or "") or {}).get("eur_per_kg")
+            eur_kg = (mprices.get(m["name"] or "") or {}).get("eur_per_kg")
+            if eur_kg is None:
+                eur_kg = (mprices.get(m["type"] or "") or {}).get("eur_per_kg")
             g = (m["grams"] or 0) * f * frac
             same = next((x for x in materials if many and (x["name"], x.get("color"), x["note"]) == (m["name"], m.get("color"), m["note"])), None)
             if same:  # Projekt: gleiche Filamente der Drucke zusammenzählen
