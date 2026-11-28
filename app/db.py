@@ -380,6 +380,11 @@ class Store:
                 "CASE WHEN maint_per_year > 0 AND hours_per_year > 0 THEN maint_per_year * 1000.0 / hours_per_year ELSE 0 END"
                 " + CASE WHEN extra_per_hour > 0 THEN extra_per_hour * 1000.0 ELSE 0 END, 2) "
                 "WHERE (maint_per_year > 0 AND hours_per_year > 0) OR extra_per_hour > 0")
+        have = {r["name"] for r in self._conn.execute("PRAGMA table_info(material_prices)")}
+        for col, typ in (("vendor", "TEXT"), ("mtype", "TEXT"), ("custom", "INTEGER")):
+            if col not in have:
+                # Eigene Filamente (Hersteller, Sorte, Typ) – die Drucker melden meist nur „Generic“ oder „Bambu“
+                self._conn.execute(f"ALTER TABLE material_prices ADD COLUMN {col} {typ}")
         have = {r["name"] for r in self._conn.execute("PRAGMA table_info(customers)")}
         if "margin_pct" not in have:
             self._conn.execute("ALTER TABLE customers ADD COLUMN margin_pct REAL")
@@ -1850,10 +1855,36 @@ class Store:
         rows = self._conn.execute("SELECT * FROM material_prices").fetchall()
         return {r["key"]: dict(r) for r in rows}
 
+    def custom_filaments(self) -> list[dict[str, Any]]:
+        """Eigene Filamente aus den Einstellungen (Schlüssel = „Hersteller Sorte“)."""
+        rows = self._conn.execute(
+            "SELECT * FROM material_prices WHERE custom = 1 ORDER BY LOWER(COALESCE(vendor, '')), LOWER(key)").fetchall()
+        return [dict(r) for r in rows]
+
+    def save_filament(self, vendor: str | None, name: str, mtype: str | None, eur_per_kg: float | None) -> str | None:
+        vendor, name = (vendor or "").strip()[:40], (name or "").strip()[:60]
+        if not name:
+            return None
+        key = name if not vendor or name.lower().startswith(vendor.lower()) else f"{vendor} {name}"
+        with self._lock, self._conn:
+            self._conn.execute(
+                "INSERT INTO material_prices (key, kind, eur_per_kg, vendor, mtype, custom) VALUES (?, 'name', ?, ?, ?, 1) "
+                "ON CONFLICT(key) DO UPDATE SET eur_per_kg = COALESCE(excluded.eur_per_kg, material_prices.eur_per_kg), "
+                "vendor = excluded.vendor, mtype = excluded.mtype, custom = 1",
+                (key, eur_per_kg, vendor or None, (mtype or "").strip()[:20] or None),
+            )
+        return key
+
+    def delete_filament(self, key: str) -> None:
+        with self._lock, self._conn:
+            self._conn.execute("DELETE FROM material_prices WHERE key = ? AND custom = 1", (key,))
+
     def set_material_price(self, key: str, kind: str, eur_per_kg: float | None) -> None:
         with self._lock, self._conn:
             if eur_per_kg is None:
-                self._conn.execute("DELETE FROM material_prices WHERE key = ?", (key,))
+                # eigene Filamente bleiben auch ohne Preis bestehen (dann gilt der Typpreis)
+                self._conn.execute("UPDATE material_prices SET eur_per_kg = NULL WHERE key = ? AND custom = 1", (key,))
+                self._conn.execute("DELETE FROM material_prices WHERE key = ? AND COALESCE(custom, 0) = 0", (key,))
             else:
                 self._conn.execute(
                     "INSERT INTO material_prices (key, kind, eur_per_kg) VALUES (?, ?, ?) "

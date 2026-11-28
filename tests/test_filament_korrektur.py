@@ -121,3 +121,44 @@ def test_gemeldetes_filament_korrigieren() -> None:
     m = json.loads(job["materials"])[0]
     assert m["name"] == "Bambu PLA Silk" and m["color"] == "#00FF00" and m["manual"] and not m.get("added")
     assert abs(job["cost_filament"] - 50 * 40 / 1000) < 0.001
+
+
+async def _post_settings(store, tmp, data):
+    app = web.Application()
+    setup_routes(app, store, tmp / "img", None)
+    async with TestClient(TestServer(app)) as client:
+        r = await client.post("/settings", data=data, allow_redirects=False)
+        page = await (await client.get("/settings")).text()
+        return r.status, page
+
+
+def test_eigenes_filament_anlegen_auswaehlen_entfernen() -> None:
+    store, tmp, jid = _store()
+    _, page = asyncio.run(_post_settings(store, tmp, {"fnew_vendor": "Sunlu", "fnew_name": "PLA Matte",
+                                                      "fnew_type": "pla", "fnew_price": "15"}))
+    own = store.custom_filaments()
+    assert [(f["key"], f["vendor"], f["mtype"], f["eur_per_kg"]) for f in own] == [("Sunlu PLA Matte", "Sunlu", "PLA", 15.0)]
+    assert 'name="name__Sunlu PLA Matte"' in page
+    # Preis leeren: Filament bleibt, Typpreis gilt
+    asyncio.run(_post_settings(store, tmp, {"name__Sunlu PLA Matte": ""}))
+    assert store.custom_filaments()[0]["eur_per_kg"] is None
+    asyncio.run(_post_settings(store, tmp, {"name__Sunlu PLA Matte": "15"}))
+    # im Druck auswählen, mit Farbnamen hinzufügen
+    asyncio.run(_post(store, tmp, f"/api/jobs/{jid}?redirect=1",
+                      {"mname__0": "Sunlu PLA Matte", "mgram__0": "100", "madd_name": "type:PLA",
+                       "madd_g": "10", "madd_note": "Grün", "mnote__0": "Rot"}))
+    job = store.get(jid)
+    mats = json.loads(job["materials"])
+    assert mats[0]["name"] == "Sunlu PLA Matte" and mats[0]["type"] == "PLA"
+    assert json.loads(job["material_notes"]) == {"0": "Rot", "1": "Grün"}
+    assert abs(job["cost_filament"] - (100 * 15 + 10 * 20) / 1000) < 0.001
+
+    async def detail():
+        app = web.Application()
+        setup_routes(app, store, tmp / "img", None)
+        async with TestClient(TestServer(app)) as client:
+            return await (await client.get(f"/job?id={jid}")).text()
+
+    assert '<option value="Sunlu PLA Matte" selected>' in asyncio.run(detail())
+    asyncio.run(_post_settings(store, tmp, {"fdel": "Sunlu PLA Matte", "name__Sunlu PLA Matte": "15"}))
+    assert store.custom_filaments() == [] and "Sunlu PLA Matte" not in store.material_prices()

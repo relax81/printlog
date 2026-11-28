@@ -1764,7 +1764,7 @@ DETAIL_CSS = """
 .fields .mf .dot{width:16px;height:16px;margin:0}.fields .mf .mn{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .fields .mfields>span{display:flex;justify-content:space-between}
 .fields div.mf.me,.fields .maddrow{display:grid;grid-template-columns:44px minmax(140px,260px) minmax(0,1fr) 96px 28px;gap:8px;align-items:center}
-.fields .maddrow{grid-template-columns:44px minmax(140px,260px) 96px auto;justify-content:start}
+.fields .maddrow{grid-template-columns:44px minmax(140px,260px) minmax(0,1fr) 96px auto}.fields .madd>small:last-child{margin-top:8px}
 .fields .me input[type=color],.fields .maddrow input[type=color]{height:38px;padding:2px;width:44px;min-width:0}
 .fields .mf .mdel{border:0;background:none;color:var(--muted);cursor:pointer;padding:0 4px;font-size:15px;min-height:0}.fields .mf .mdel:hover{color:var(--bad)}
 .fields .madd summary{cursor:pointer;font-size:14px;font-weight:600;color:var(--accent)}.fields .madd>small{display:block;margin:6px 0}
@@ -1772,7 +1772,7 @@ DETAIL_CSS = """
 @media (max-width:760px){.fields label.mf{grid-template-columns:16px minmax(0,1fr)}.fields label.mf input{grid-column:1/-1}
 .fields div.mf.me{grid-template-columns:44px minmax(0,1fr) 28px;padding-bottom:10px;border-bottom:1px solid var(--line)}.fields .me select{grid-column:2/4}
 .fields .me>input:not([type=color]){grid-column:1/-1}.fields .me .gin{grid-column:1/3}
-.fields .maddrow{grid-template-columns:44px minmax(0,1fr)}.fields .maddrow .gin{grid-column:1/-1}.fields .maddrow button{grid-column:1/-1;justify-self:start}}
+.fields .maddrow{grid-template-columns:44px minmax(0,1fr)}.fields .maddrow>input:not([type=color]){grid-column:1/-1}.fields .maddrow .gin{grid-column:1/-1}.fields .maddrow button{grid-column:1/-1;justify-self:start}}
 .mrow .g{margin-left:auto;font-variant-numeric:tabular-nums;font-weight:600;white-space:nowrap}
 .slot{font-size:12px;color:var(--muted);border:1px solid var(--line);border-radius:6px;padding:0 6px;white-space:nowrap}
 .jd .note{font-size:14px}
@@ -2170,29 +2170,33 @@ SHARE_JS = """
 
 
 
-def _fil_choices(store: Store) -> tuple[list[tuple[str, str | None]], list[str], list[str]]:
-    """Filamente aus den Einstellungen (Name + Typ), reine Typen und zuletzt benutzte Farben."""
+def _fil_choices(store: Store) -> dict[str, Any]:
+    """Eigene Filamente (Hersteller), gemeldete Sorten, reine Typen und zuletzt benutzte Farben."""
     prices = store.material_prices()
-    names = {m["name"]: m["type"] for m in store.material_names()}
+    own = [(f["key"], f.get("mtype")) for f in store.custom_filaments()]
+    own_keys = {k for k, _ in own}
+    names = {m["name"]: m["type"] for m in store.material_names() if m["name"] not in own_keys}
     for k, v in prices.items():
-        if v["kind"] == "name":
+        if v["kind"] == "name" and k not in own_keys:
             names.setdefault(k, None)
     types = sorted(set(KNOWN_TYPES) | set(store.material_types()) | {k for k, v in prices.items() if v["kind"] == "type"})
     colors = [c for c in dict.fromkeys(_color_value(c) for c in store.material_colors()) if c != "#888888"][:24]
-    return sorted(names.items()), types, colors
+    return {"own": own, "names": sorted(names.items()), "types": types, "colors": colors}
 
 
-def _fil_options(choices: tuple[list[tuple[str, str | None]], list[str], list[str]], current: str = "",
-                 empty: str | None = None) -> str:
-    names, types, _ = choices
-    known = {n for n, _ in names} | {f"type:{ty}" for ty in types}
+def _fil_options(choices: dict[str, Any], current: str = "", empty: str | None = None) -> str:
+    own, names, types = choices["own"], choices["names"], choices["types"]
+    known = {n for n, _ in own} | {n for n, _ in names} | {f"type:{ty}" for ty in types}
     out = f'<option value="">{e(empty)}</option>' if empty is not None else ""
     if current and current not in known:
         out += f'<option value="{e(current)}" selected>{e(current)}</option>'
-    if names:
-        out += (f'<optgroup label="{e(t("Filamente"))}">' + "".join(
+
+    def group(label: str, items: list[tuple[str, str | None]]) -> str:
+        return (f'<optgroup label="{e(label)}">' + "".join(
             f'<option value="{e(n)}"{" selected" if n == current else ""}>{e(n)}{" (" + e(ty) + ")" if ty else ""}</option>'
-            for n, ty in names) + '</optgroup>')
+            for n, ty in items) + '</optgroup>') if items else ""
+
+    out += group(t("Eigene Filamente"), own) + group(t("Gemeldete Filamente"), names)
     out += (f'<optgroup label="{e(t("Nur Typ"))}">' + "".join(
         f'<option value="type:{e(ty)}"{" selected" if "type:" + ty == current else ""}>{e(ty)}</option>' for ty in types) + '</optgroup>')
     return out
@@ -2203,15 +2207,17 @@ def _color_value(c: str | None) -> str:
     return c[:7].upper() if c and re.fullmatch(r"#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?", c) else "#888888"
 
 
-def _add_filament(choices: tuple[list[tuple[str, str | None]], list[str], list[str]]) -> str:
-    """„+ Filament“ unter Bearbeiten: Filament aus den Einstellungen (Name oder Typ), Farbe, Gramm."""
-    colors = choices[2]
+def _add_filament(choices: dict[str, Any]) -> str:
+    """„+ Filament“ unter Bearbeiten: Filament aus den Einstellungen (Name oder Typ), Farbe, Farbname, Gramm."""
+    colors = choices["colors"]
     return (f'<details class="full madd"><summary>{t("+ Filament hinzufügen")}</summary>'
             f'<small class="muted">{t("Z. B. wenn ein mehrfarbiger Druck nur ein Filament gemeldet hat. Preis kommt aus den Einstellungen.")}</small>'
             f'<div class="maddrow"><input type="color" name="madd_color" value="{_color_value(colors[0] if colors else None)}" list="mcolors" aria-label="{e(t("Farbe"))}">'
             f'<select name="madd_name" aria-label="{e(t("Filament"))}">{_fil_options(choices, "", t("– Filament wählen –"))}</select>'
+            f'<input name="madd_note" maxlength="120" placeholder="{e(t("Notiz, z. B. Ivory White"))}" aria-label="{e(t("Notiz"))}">'
             f'<span class="gin"><input name="madd_g" inputmode="decimal" placeholder="0" aria-label="{e(t("Menge in Gramm"))}"><small>g</small></span>'
-            f'<button type="submit" class="btn sm">{t("Hinzufügen")}</button></div></details>')
+            f'<button type="submit" class="btn sm">{t("Hinzufügen")}</button></div>'
+            f'<small class="muted">{t("Hersteller wie Sunlu oder Jayo legst du unter Einstellungen → Filament → Eigene Filamente an.")}</small></details>')
 
 
 def page_job(store: Store, job: dict[str, Any], saved: str | None) -> str:
@@ -2387,8 +2393,8 @@ def page_job(store: Store, job: dict[str, Any], saved: str | None) -> str:
                       f'inputmode="decimal" placeholder="0"></label>')
     if gram_edit:
         mat_fields += _add_filament(choices)
-        if choices[2]:
-            mat_fields += '<datalist id="mcolors">' + "".join(f'<option value="{c}">' for c in choices[2]) + '</datalist>'
+        if choices["colors"]:
+            mat_fields += '<datalist id="mcolors">' + "".join(f'<option value="{c}">' for c in choices["colors"]) + '</datalist>'
     cur = str(job.get("customer_id") or "")
     cust_opts = opt("", t("– kein Kunde –"), cur) + "".join(opt(str(c["id"]), c["name"], cur) for c in customers)
     if parent:
@@ -2959,6 +2965,12 @@ def _demo_row() -> str:
             f'<small class="fhint muted">{hint}</small></div>')
 
 
+
+def _own_name(f: dict[str, Any]) -> str:
+    """Sorte eines eigenen Filaments ohne den vorangestellten Hersteller."""
+    key, vendor = f["key"], f.get("vendor") or ""
+    return key[len(vendor):].strip() if vendor and key.lower().startswith(vendor.lower() + " ") else key
+
 def page_settings(store: Store, saved: str | None, logo: str | None = None,
                   live: dict[str, Any] | None = None, printer_msg: str | None = None,
                   safety: list[dict[str, Any]] | None = None, data_msg: dict[str, str] | None = None) -> str:
@@ -2989,10 +3001,32 @@ def page_settings(store: Store, saved: str | None, logo: str | None = None,
                 f'value="{fmt_input(value)}" inputmode="decimal" placeholder="{e(placeholder)}"><i>€/kg</i></span></label>')
 
     type_rows = "".join(tile(e(ty), f"type__{e(ty)}", prices.get(ty, {}).get("eur_per_kg"), "–") for ty in types)
-    seen = {m["name"]: m["type"] for m in store.material_names()}
+    own = store.custom_filaments()
+    own_keys = {f["key"] for f in own}
+    seen = {m["name"]: m["type"] for m in store.material_names() if m["name"] not in own_keys}
     for k, v in prices.items():
-        if v["kind"] == "name":
+        if v["kind"] == "name" and k not in own_keys:
             seen.setdefault(k, None)
+    type_opts = "".join(f'<option value="{e(ty)}">' for ty in types)
+    own_rows = "".join(
+        f'<tr><td data-l="{e(t("Hersteller"))}">{e(f.get("vendor") or "–")}</td><td data-l="{e(t("Sorte"))}"><b>{e(_own_name(f))}</b></td>'
+        f'<td data-l="{e(t("Typ"))}">{e(f.get("mtype") or "–")}</td>'
+        f'<td class="n" data-l="€/kg"><input class="num" name="name__{e(f["key"])}" value="{fmt_input(f.get("eur_per_kg"))}" '
+        f'inputmode="decimal" placeholder="{e(t("wie Typ"))}"></td>'
+        f'<td class="n"><button type="submit" name="fdel" value="{e(f["key"])}" class="btn sm" '
+        f'title="{e(t("Filament entfernen"))}" aria-label="{e(t("Filament entfernen"))}">✕</button></td></tr>'
+        for f in own)
+    own_html = (f'<h2>{t("Eigene Filamente")}</h2>'
+                f'<p class="muted">{t("Die Drucker melden meist nur „Generic“ oder „Bambu“. Hier legst du deine Filamente mit Hersteller an, z. B. Sunlu PLA Matte. Unter „Bearbeiten“ eines Drucks wählst du sie dann aus.")}</p>'
+                f'<datalist id="ftypes">{type_opts}</datalist>'
+                f'<div class="wrap"><table class="stack ownf"><thead><tr><th>{t("Hersteller")}</th><th>{t("Sorte")}</th>'
+                f'<th>{t("Typ")}</th><th class="n">€/kg</th><th></th></tr></thead><tbody>{own_rows}'
+                f'<tr class="fnew"><td data-l="{e(t("Hersteller"))}"><input name="fnew_vendor" maxlength="40" placeholder="{e(t("z. B. Sunlu"))}"></td>'
+                f'<td data-l="{e(t("Sorte"))}"><input name="fnew_name" maxlength="60" placeholder="{e(t("z. B. PLA Silk"))}"></td>'
+                f'<td data-l="{e(t("Typ"))}"><input name="fnew_type" list="ftypes" maxlength="20" placeholder="PLA"></td>'
+                f'<td class="n" data-l="€/kg"><input class="num" name="fnew_price" inputmode="decimal" placeholder="{e(t("wie Typ"))}"></td>'
+                f'<td class="n"><button type="submit" name="fadd" value="1" class="btn sm">{t("Anlegen")}</button></td></tr>'
+                f'</tbody></table></div>')
     name_rows = "".join(
         tile(f'{e(n)} <small class="muted">{e(ty or "")}</small>', f"name__{e(n)}", prices.get(n, {}).get("eur_per_kg"), t("wie Typ"))
         for n, ty in sorted(seen.items())
@@ -3083,6 +3117,7 @@ def page_settings(store: Store, saved: str | None, logo: str | None = None,
         pane("filament", t("Filament"), f"""<h2 style="margin-top:0">{t("Filamentpreise nach Typ")}</h2>
 <p class="muted">{t("Standardpreis pro Kilogramm, gilt für alle Filamente dieses Typs.")}</p>
 <div class="fgrid">{type_rows}</div>
+{own_html}
 <h2>{t("Filamentpreise nach Sorte (optional)")}</h2>
 <p class="muted">{t("Überschreibt den Typpreis für eine bestimmte Sorte, z. B. „Bambu PLA Matte“. Leer lassen = Typpreis.")}</p>
 {f'<div class="fgrid wide">{name_rows}</div>' if name_rows else f'<p class="muted">{t("Erscheint, sobald Drucke mit Materialangaben erfasst sind.")}</p>'}"""),
@@ -3136,6 +3171,7 @@ def page_settings(store: Store, saved: str | None, logo: str | None = None,
     panes_html = "".join(f'<section class="spane{" on" if i == 0 else ""}" data-pane="{k}">{h}</section>'
                          for i, (k, _, h) in enumerate(panes))
     body = f"""<style>{SETTINGS_CSS}{DATA_CSS}{_extras.SETTINGS_CSS}</style>{banner}<form method="post" enctype="multipart/form-data" class="settings">
+<button type="submit" tabindex="-1" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden"></button>
 <input type="hidden" name="tab" value="kosten">
 <div class="stabs" role="tablist">{tabs}</div>
 {panes_html}
@@ -3152,6 +3188,7 @@ SETTINGS_CSS = """
 .settings{max-width:960px}
 .spane>p,.spane>ol{max-width:76ch}
 .spane table.rates input.num{width:116px}
+.spane table.ownf{width:100%}.spane table.ownf input,.spane table.ownf input.num{width:100%;max-width:100%;min-width:0;box-sizing:border-box}.spane table.ownf td{min-width:0}.spane table.ownf td:last-child,.spane table.ownf th:last-child{width:1%;white-space:nowrap}.spane table.ownf td.n:nth-child(4){width:130px}
 /* Tablet hochkant: Drucker-Kosten wie am Handy als Karten (Felder sonst zu schmal für die Platzhalter) */
 @media (min-width:701px) and (max-width:1000px){.spane table.rates thead{display:none}
  .spane table.rates tr{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px 12px;padding:12px 14px;border-bottom:1px solid var(--line)}
