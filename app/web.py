@@ -934,8 +934,13 @@ def setup_routes(app: web.Application, store: Store, image_dir: Path, ha_state: 
                 f[k] = int(n) if n and n >= 1 else None
         if "est" in form:
             f["est_min"] = od.parse_minutes(form.get("est"))
+        if "est_g" in form:
+            f["est_g"] = calc._num(form.get("est_g")) or None
         if "est_cost" in form:
             f["est_cost"] = calc._num(form.get("est_cost"))
+            if f["est_cost"] is None and f.get("est_min") and f.get("est_g"):
+                # Kosten je Platte leer: aus Zeit, Gramm und Drucker rechnen
+                f["est_cost"] = calc.plate_cost(store, f["est_min"], f["est_g"], form.get("est_printer"))
         return f
 
     async def _title_for(url: str | None) -> str | None:

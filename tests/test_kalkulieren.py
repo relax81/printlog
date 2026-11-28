@@ -172,6 +172,16 @@ def test_seiten() -> None:
     assert len(d["profiles"]) == 2 and len(d["profiles"][1]["plates"]) == 3
 
 
+def test_schnellkalkulation_in_position() -> None:
+    store = _store()
+    o = od.create_order(store, None, "A", None, None, None)
+    od.add_item(store, o, None, "Wolf", 1)
+    html = od.page_order(store, od.order(store, o))
+    for name in ('name="est_g"', 'name="est_printer"', 'name="est_cost"', 'class="w omore kq" open', "kqfile"):
+        assert name in html, name
+    # 1,5 h und 8 g PLA auf dem A1 mini: 8 g × 20 €/kg + 0,1 kW × 1,5 h × 0,30 €/kWh + 0,10 €/h × 1,5 h
+    assert abs(calc.plate_cost(store, 90, 8, "a1m") - (0.16 + 0.045 + 0.15)) < 0.001
+
 
 def _ln(text: str, x: float = 0, cy: float = 10, h: float = 14) -> dict:
     """Zeile wie aus ocr.lines (Wörter mit Position)."""

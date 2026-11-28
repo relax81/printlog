@@ -831,8 +831,9 @@ document.querySelectorAll('.oseg button').forEach(b=>b.onclick=()=>{
 
 # ---- Seite „Auftrag“ ----------------------------------------------------------------
 
-def _item_more(i: dict[str, Any] | None = None) -> str:
-    """Zusatzfelder einer Position: Projektlink und, für Freitext, Platten, Stück pro Platte und Druckzeit."""
+def _item_more(i: dict[str, Any] | None = None, printers: list[tuple[str, str]] | None = None) -> str:
+    """Zusatzfelder einer Position: Projektlink und, für Freitext, eine Schnellkalkulation (Platten, Stück pro Platte,
+    Druckzeit, Gramm, Drucker, Kosten je Platte) mit Screenshot-Einfügen direkt im Formular."""
     i = i or {}
     est = i.get("est_min")
     est_txt = f"{int(est // 60)}:{int(round(est % 60)):02d}" if est else ""
@@ -840,17 +841,26 @@ def _item_more(i: dict[str, Any] | None = None) -> str:
             f'placeholder="https://makerworld.com/…"><small class="muted">{e(t("Ist die Position leer, wird der Titel der Seite übernommen."))}</small></label>')
     if i.get("model_id"):
         return link
-    cost = i.get("est_cost")
-    more = (f'<input type="hidden" name="est_cost" value="{"" if cost is None else f"{cost:.4f}"}">'
-            f'<label>{e(t("Platten pro Satz"))}<input name="n_plates" inputmode="numeric" class="num" value="{i.get("n_plates") or ""}" placeholder="1"></label>'
+    cost, grams = i.get("est_cost"), i.get("est_g")
+    opts = "".join(f'<option value="{e(k)}">{e(n)}</option>' for k, n in printers or [])
+    more = (f'<label>{e(t("Platten pro Satz"))}<input name="n_plates" inputmode="numeric" class="num" value="{i.get("n_plates") or ""}" placeholder="1"></label>'
             f'<label>{e(t("Stück pro Platte"))}<input name="per_plate" inputmode="numeric" class="num" value="{i.get("per_plate") or ""}" placeholder="1"></label>'
-            f'<label>{e(t("Druckzeit je Platte"))}<input name="est" value="{e(est_txt)}" placeholder="{e(t("z. B. 1:30"))}"></label>')
-    open_ = " open" if i.get("n_plates") or i.get("per_plate") or est else ""
-    return (f'{link}<details class="w omore"{open_}><summary>{e(t("Schätzung für Neues (optional)"))}</summary>'
-            f'<button type="button" class="btn sm kcalc">🧮 {e(t("Kalkulieren: MakerWorld-Link, Screenshot oder von Hand"))}</button>'
+            f'<label>{e(t("Druckzeit je Platte"))}<input name="est" value="{e(est_txt)}" placeholder="{e(t("z. B. 1:30"))}"></label>'
+            f'<label>{e(t("Gramm je Platte"))}<input name="est_g" inputmode="decimal" class="num" value="{fmt_input(grams) if grams else ""}" placeholder="{e(t("z. B. 8"))}"></label>'
+            + (f'<label>{e(t("Drucker"))}<select name="est_printer">{opts}</select></label>' if opts else "")
+            + f'<label>{e(t("Kosten je Platte"))}<input name="est_cost" inputmode="decimal" class="num" value="{fmt_input(round(cost, 2)) if cost is not None else ""}" placeholder="€"></label>')
+    open_ = " open" if i or est else ""
+    return (f'{link}<details class="w omore kq"{open_}><summary>{e(t("Schätzung und Kosten (für Neues)"))}</summary>'
+            f'<div class="kqsrc"><label class="btn sm kqfile">📋 {e(t("Screenshot einfügen"))}<input type="file" accept="image/*" hidden></label>'
+            f'<small class="muted">{e(t("Bambu Studio oder MakerWorld: Strg+V, hierher ziehen oder auswählen. Oder die Werte unten eintragen."))}</small>'
+            f'<button type="button" class="btn sm lnk kcalc">🧮 {e(t("Ausführlich kalkulieren"))}</button></div>'
+            f'<div class="kqmsg muted"></div>'
             f'<div class="omg">{more}</div>'
-            + (f'<small class="muted">{e(t("Kosten je Platte ≈ {v} (aus der Kalkulation)", v=fmt_num(cost, 2, "€")))}</small>' if cost is not None else "")
-            + f'<small class="muted">{e(t("Nur für etwas, das du noch nie gedruckt hast. Sobald ein Druck da ist, zählen dessen Werte."))}</small></details>')
+            f'<small class="muted">{e(t("Kosten je Platte rechnet sich aus Zeit, Gramm und Drucker, du kannst sie auch selbst eintragen. Sobald ein Druck da ist, zählen dessen Werte."))}</small></details>')
+
+
+def _calc_printers(store: Store) -> list[tuple[str, str]]:
+    return [(p["key"], p["name"]) for p in _calc.params(store)["printers"]]
 
 
 def page_new(store: Store, customer_id: int | None = None) -> str:
@@ -864,12 +874,12 @@ def page_new(store: Store, customer_id: int | None = None) -> str:
             f'<label class="w">{e(t("Erste Position"))}<span class="orow2"><input name="item" list="modellist" autocomplete="off" '
             f'placeholder="{e(t("Modell oder Freitext …"))}"><input name="qty" inputmode="numeric" value="1" class="num" aria-label="{e(t("Stück"))}"></span>'
             f'<small class="muted">{e(t("Ein bekanntes Modell aus der Liste oder Freitext für etwas, das du noch nie gedruckt hast."))}</small></label>'
-            f'{_item_more()}'
+            f'{_item_more(None, _calc_printers(store))}'
             f'<label class="w">{e(t("Notiz"))}<textarea name="note" rows="6" class="onotes" placeholder="{e(t("Wünsche, Farben, Maße, Absprachen …"))}"></textarea></label>'
             f'<div class="w obtns"><a class="btn" href="orders">{e(t("Abbrechen"))}</a><button class="btn primary">{e(t("Auftrag anlegen"))}</button></div>'
             f'</form>{_custlist(store)}{_modellist(store)}{_calc.dialog(store)}')
     body = f'<a class="back" href="orders">← {e(t("alle Aufträge"))}</a><h2>＋ {e(t("Neuer Auftrag"))}</h2>{form}'
-    return layout(t("Neuer Auftrag"), "orders", f'<style>{CSS}{_calc.CSS}</style>{body}', _calc.CALC_JS + _calc.DIALOG_JS)
+    return layout(t("Neuer Auftrag"), "orders", f'<style>{CSS}{_calc.CSS}</style>{body}', _calc.CALC_JS + _calc.DIALOG_JS + _calc.QUICK_JS)
 
 
 def page_order(store: Store, o: dict[str, Any], saved: str | None = None, show_link: bool = False) -> str:
@@ -925,6 +935,7 @@ def page_order(store: Store, o: dict[str, Any], saved: str | None = None, show_l
           f'<div class="calc"><small>{e(t("Preis"))}</small><b class="acc">{fmt_num(price, 2, "€") if price is not None else "–"}</b><em>{e(price_sub)}</em></div></div>')
 
     # Positionen
+    prs = _calc_printers(store)
     rows = ""
     for i in o["items"]:
         s = i.get("stats") or {}
@@ -964,7 +975,7 @@ def page_order(store: Store, o: dict[str, Any], saved: str | None = None, show_l
         rows += (f'<form method="post" action="{act}" class="oform oitem card" id="oi{i["id"]}" hidden><input type="hidden" name="do" value="item">'
                  f'<input type="hidden" name="item" value="{i["id"]}">'
                  + (f'<label class="w">{e(t("Name"))}<input name="name" maxlength="120" value="{e(i.get("name") or "")}"></label>' if not i["model_id"] else "")
-                 + f'{_item_more(i)}<div class="w obtns"><button class="btn primary">{e(t("Speichern"))}</button></div></form>')
+                 + f'{_item_more(i, prs)}<div class="w obtns"><button class="btn primary">{e(t("Speichern"))}</button></div></form>')
         rows += _plate_box(store, o, i, act)
     if not rows:
         rows = f'<p class="muted">{e(t("Noch keine Positionen. Füge ein Modell oder Freitext hinzu."))}</p>'
@@ -1036,7 +1047,7 @@ def page_order(store: Store, o: dict[str, Any], saved: str | None = None, show_l
               f'<input type="hidden" name="do" value="delete"><button class="btn lnk">🗑 {e(t("Auftrag löschen"))}</button></form>')
     body = (f'{head}{edit}{note}{kp}{items}{jobs_box}{fin}{danger}{_custlist(store)}{_modellist(store)}')
     return layout(o.get("title") or t("Auftrag"), "orders", f'<style>{CSS}{_calc.CSS}</style>{body}{_calc.dialog(store)}',
-                  ORDER_JS + _calc.CALC_JS + _calc.DIALOG_JS)
+                  ORDER_JS + _calc.CALC_JS + _calc.DIALOG_JS + _calc.QUICK_JS)
 
 
 
@@ -1399,7 +1410,7 @@ CSS = """
 .oform{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 16px;margin:8px 0 14px;padding:14px 16px}
 .oform[hidden]{display:none}.oform label{display:flex;flex-direction:column;gap:5px;font-size:13px;color:var(--muted);font-weight:600}.oform .w{grid-column:1/-1}
 .oform input,.oform textarea{font:inherit;color:var(--fg)}.oform textarea.onotes{min-height:130px;resize:vertical}
-.omore summary{cursor:pointer;font-size:13px;color:var(--muted);font-weight:600}.omg{display:grid;grid-template-columns:repeat(3,minmax(0,160px));gap:10px 14px;margin:8px 0 4px}
+.kqsrc{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap;margin:8px 0 4px}.kqsrc small{flex:1 1 220px}.kq.kdrop{outline:2px dashed var(--accent);outline-offset:4px;border-radius:8px}.kqmsg{font-size:13px;margin:4px 0}.kqmsg:empty{display:none}.kqmsg.bad{color:var(--bad)}.kqmsg.warn{color:var(--warn)}.kqmsg.ok{color:var(--ok)}.omore summary{cursor:pointer;font-size:13px;color:var(--muted);font-weight:600}.omg{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px 14px;margin:8px 0 4px}
 .oitem{margin:4px 0 10px 64px}.oied{padding:0 4px;font-size:12px;opacity:.6}.oied:hover{opacity:1}.orow2{display:grid;grid-template-columns:minmax(0,1fr) 80px;gap:8px}.orow2 .num{text-align:center}
 .orow2 input,.oaddf input{min-width:0;width:100%;box-sizing:border-box}
 .obtns{display:flex;gap:8px;justify-content:flex-end}
