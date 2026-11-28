@@ -220,6 +220,31 @@ def test_screenshot_makerworld() -> None:
     assert ocr.parse_makerworld([[_ln("nichts")], []]) is None
 
 
+
+def test_screenshot_makerworld_punkt_und_chips() -> None:
+    from PIL import Image, ImageDraw
+
+    # „1.5 h“ ohne erkannten Punkt: 15 h für 8 g ist unplausibel → 1,5 h; „S“ statt 5 im Chip
+    ls = [_ln("{A 1 Platte © 15h @ 8g & 0.4mm", 0, 20), _ln("Ams PLAI3g PLAISg", 0, 40)]
+    r = ocr.parse_makerworld([ls, []])
+    assert r["plates"][0]["minutes"] == 90 and any("Dezimalpunkt" in w for w in r["warn"])
+    assert [f["grams"] for f in r["plates"][0]["fil"]] == [3.0, 5.0]
+    # lange Drucke bleiben, wie sie sind
+    r2 = ocr.parse_makerworld([[_ln("1 Platte 15h 300g", 0, 20)], []])
+    assert r2["plates"][0]["minutes"] == 900
+    # Chips im Bild: weißes und schwarzes Rechteck auf dunklem Grund, von links nach rechts
+    img = Image.new("RGB", (300, 60), (36, 36, 36))
+    d = ImageDraw.Draw(img)
+    d.rectangle((10, 20, 70, 42), fill=(255, 255, 255))
+    d.rectangle((90, 20, 150, 42), fill=(0, 0, 0))
+    d.rectangle((100, 26, 104, 36), fill=(255, 255, 255))  # Schrift im schwarzen Chip
+    boxes = ocr._chip_boxes(img, 0, 60)
+    assert [b[0] for b in boxes] == [10, 90] and ocr._box_color(img, boxes[0]) == "#FFFFFF"
+    # „g“ als Ziffer gelesen („3g“ → 38): passt erst ohne letzte Ziffer zur Gesamtmenge
+    assert [g for _, g, _ in ocr._match_total([("PLA", 38.0, None), ("PLA", 5.0, None)], 8)] == [3.0, 5.0]
+    assert [g for _, g, _ in ocr._match_total([("PLA", 30.0, None)], 30)] == [30.0]
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

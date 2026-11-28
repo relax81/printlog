@@ -1525,4 +1525,5 @@ EN: dict[str, str] = {
     '{a} g als {b} g gelesen, korrigiert.': '{a} g was read as {b} g, corrected.',
     'Position kalkulieren: MakerWorld-Link, Screenshot oder von Hand': 'Calculate an item: MakerWorld link, screenshot or by hand',
     'Kalkulieren: MakerWorld-Link, Screenshot oder von Hand': 'Calculate: MakerWorld link, screenshot or by hand',
+    'Druckzeit als {h} h gelesen (Dezimalpunkt ergänzt).': 'Print time read as {h} h (decimal point added).',
 }

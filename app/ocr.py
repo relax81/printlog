@@ -19,6 +19,7 @@ from __future__ import annotations
 import io
 import logging
 import re
+from itertools import product
 import shutil
 import subprocess
 from typing import Any
@@ -37,7 +38,7 @@ _NUM = r"\d+(?:[.,]\d+)?"
 # „6.44g / 2.12m“; Bambu zeigt Gramm immer mit zwei Nachkommastellen, ein „g“ wird manchmal als „9“ gelesen
 _BAMBU_ROW = re.compile(r"(\d+[.,]\d{2}|\d+)\s*[g9]\s*[/|\\lI1!]?\s*\d+(?:[.,]\d+)?\s*m\b", re.I)
 _DUR = re.compile(r"(?:(\d+)\s*d\s*)?(?:(\d+)\s*h\s*)?(?:(\d+)\s*m(?!m)\s*)?(?:(\d+)\s*s)?", re.I)
-_CHIP = re.compile(rf"\b({_TYPES})(?:[-\s](?:CF|HF|GF|Basic|Matte|Silk\+?|Tough|Lite))?[\s|I!l]*?({_NUM})\s*g\b", re.I)
+_CHIP = re.compile(rf"\b({_TYPES})(?:[-\s](?:CF|HF|GF|Basic|Matte|Silk\+?|Tough|Lite))?[\s|I!l]*?({_NUM})\s*[g¢9]?(?:\b|$)", re.I)
 
 
 def available() -> bool:
@@ -135,7 +136,10 @@ def read_image(data: bytes) -> tuple[Image.Image, list[list[dict[str, Any]]]]:
     img = Image.open(io.BytesIO(data))
     if img.width * img.height > MAX_PIXELS:
         raise ValueError("zu groß")
-    img = ImageOps.exif_transpose(img).convert("RGB")
+    return _read(ImageOps.exif_transpose(img).convert("RGB"))
+
+
+def _read(img: Image.Image) -> tuple[Image.Image, list[list[dict[str, Any]]]]:
     gray = img.convert("L")
     scale = 3 if img.width < 1000 else 2 if img.width < 3000 else 1
     big = gray.resize((gray.width * scale, gray.height * scale), Image.LANCZOS) if scale > 1 else gray
@@ -242,37 +246,162 @@ def _chip_color(img: Image.Image, w: dict[str, Any]) -> str | None:
     return f"#{r:02X}{g:02X}{b:02X}"
 
 
+def _ocr_text(img: Image.Image) -> str:
+    """Kurzen Ausschnitt (ein Wort, ein Chip) als eine Textzeile lesen."""
+    buf = io.BytesIO()
+    img.save(buf, "PNG")
+    try:
+        return subprocess.run(["tesseract", "stdin", "stdout", "-l", _lang(), "--psm", "7"], input=buf.getvalue(),
+                              capture_output=True, timeout=30, check=False).stdout.decode("utf-8", "replace").strip()
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def _crop_read(img: Image.Image, box: tuple[int, int, int, int], scale: int = 4) -> str:
+    """Ausschnitt einzeln, stark vergrößert lesen: kleine Punkte („1.5 h“) gehen so nicht verloren."""
+    x0, y0, x1, y1 = (int(v) for v in box)
+    x0, y0, x1, y1 = max(0, x0), max(0, y0), min(img.width, x1), min(img.height, y1)
+    if x1 - x0 < 3 or y1 - y0 < 3:
+        return ""
+    c = img.convert("L").crop((x0, y0, x1, y1))
+    dark = sum(c.getdata()) / (c.width * c.height) < 128
+    c = c.resize((c.width * scale, c.height * scale), Image.LANCZOS)
+    if dark:
+        c = ImageOps.invert(c)
+    return _ocr_text(ImageOps.expand(c, border=20, fill=255))
+
+
+def _word_box(ws: list[dict[str, Any]], pad: int = 4) -> tuple[int, int, int, int]:
+    return (int(min(w["x"] for w in ws)) - pad, int(min(w["y"] for w in ws)) - pad,
+            int(max(w["x"] + w["w"] for w in ws)) + pad, int(max(w["y"] + w["h"] for w in ws)) + pad)
+
+
+def _chip_boxes(img: Image.Image, y0: int, y1: int) -> list[tuple[int, int, int, int]]:
+    """Farbige Filament-Chips (Rechtecke) in einem Streifen des Bildes finden, von links nach rechts."""
+    y0, y1 = max(0, y0), min(img.height, y1)
+    if y1 - y0 < 8:
+        return []
+    px = img.load()
+    strip = img.crop((0, y0, img.width, y1)).convert("RGB")
+    bg = max(strip.getcolors(strip.width * strip.height) or [(1, px[1, y0])])[1]  # häufigste Farbe = Hintergrund
+    far = lambda p: max(abs(a - b) for a, b in zip(p, bg)) > 28  # noqa: E731
+    rows = [sum(1 for x in range(0, img.width, 2) if far(px[x, y])) for y in range(y0, y1)]
+    band, start = None, None
+    for i, n in enumerate(rows + [0]):
+        on = n > img.width / 2 * 0.12
+        if on and start is None:
+            start = i
+        elif not on and start is not None:
+            if 10 <= i - start <= 60:
+                band = (y0 + start, y0 + i)
+                break
+            start = None
+    if not band:
+        return []
+    ya, yb = band
+    mid = [(ya + yb) // 2 + d for d in (-(yb - ya) // 3, 0, (yb - ya) // 3)]
+    cols = [sum(1 for y in mid if far(px[x, y])) >= 2 for x in range(img.width)]
+    # Ein Chip: Spalten mit Chipfarbe, kleine Lücken (Buchstaben auf gleicher Farbe wie der Hintergrund) überbrücken
+    boxes, start, gap = [], None, 0
+    for x, on in enumerate(cols + [False] * 8):
+        if on:
+            start = x if start is None else start
+            gap = 0
+        elif start is not None:
+            gap += 1
+            if gap > 4:
+                if x - gap - start >= (yb - ya) * 1.5:
+                    boxes.append((start, ya, x - gap + 1, yb))
+                start, gap = None, 0
+    return boxes
+
+
+def _box_color(img: Image.Image, box: tuple[int, int, int, int]) -> str:
+    """Häufigste Farbe in einem Chip (= Hintergrund des Chips)."""
+    c = img.crop(box).convert("RGB").quantize(colors=4).convert("RGB")
+    (_n, col), *_ = sorted(c.getcolors(64) or [(1, (128, 128, 128))], reverse=True)
+    return f"#{col[0]:02X}{col[1]:02X}{col[2]:02X}"
+
+
+def _fix_digits(s: str) -> str:
+    """Typische Verwechslungen in Zahlen (S→5, O→0, l/I→1) vor einer Einheit."""
+    return re.sub(r"(?<=[|I!l\s])([0-9SOolI]{1,4}(?:[.,][0-9SOolI]+)?)\s*(?=[g¢9]\b)",
+                  lambda m: m.group(1).translate(str.maketrans("SOolI", "50011")), s)
+
+
+def _mw_stats(ls: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Zeile „1 Platte · 1.5 h · 8 g“ im MakerWorld-Kasten."""
+    return next((ln for ln in ls if re.search(r"\d+\s*(?:Platten?|Plates?)\b", ln["text"], re.I)), None)
+
+
+MW_TEXT_H = 16  # Schrifthöhe der Statistikzeile in px, auf die MakerWorld-Screenshots gebracht werden
+
+
+def _match_total(chips: list[tuple[str, float, str | None]], total: float | None) -> list[tuple[str, float, str | None]]:
+    """Passen die Chips nicht zur Gesamtmenge, war oft das „g“ als Ziffer gelesen („3g“ → 38, „5g“ → 55):
+    die letzte Ziffer der Chips weglassen, bei denen es dann aufgeht."""
+    if not total or not chips or len(chips) > 6 or abs(sum(g for _, g, _ in chips) - total) <= 0.5:
+        return chips
+    alts = [[g] + ([float(int(g) // 10)] if g >= 10 and g == int(g) else []) for _, g, _ in chips]
+    for combo in product(*alts):
+        if abs(sum(combo) - total) <= 0.5:
+            return [(tp, g, col) for (tp, _, col), g in zip(chips, combo)]
+    return chips
+
+
 def parse_makerworld(passes: list[list[dict[str, Any]]], img: Image.Image | None = None) -> dict[str, Any] | None:
     ls = passes[0]
-    txt = "\n".join(ln["text"] for ln in ls)
-    pm = re.search(r"(\d+)\s*(?:Platten?|Plates?|Druckplatten?)\b", txt, re.I)
-    hm = re.search(rf"({_NUM})\s*h\b", txt)
-    if not (pm and hm):
+    stats = _mw_stats(ls)
+    if not stats or not re.search(rf"{_NUM}\s*h\b", stats["text"]):
         return None
-    n = max(1, min(int(pm.group(1)), 60))
-    minutes = _f(hm.group(1)) * 60
-    total = None
-    for ln in ls:  # Gesamtgramm steht in der Zeile mit Platten/Zeit
-        if re.search(r"Platte|Plate", ln["text"], re.I):
-            gm = re.search(rf"({_NUM})\s*g\b", ln["text"][ln["text"].find(hm.group(0)) + len(hm.group(0)):] if hm.group(0) in ln["text"] else ln["text"])
-            if gm:
-                total = _f(gm.group(1))
-                break
-    chips: list[tuple[str, float]] = []
-    colors: dict[tuple[str, float], str | None] = {}
-    for ls_ in passes:
-        for ln in ls_:
-            if re.search(r"Platte|Plate", ln["text"], re.I):
-                continue
-            for m in _CHIP.finditer(ln["text"]):
-                c = (m.group(1).upper(), _f(m.group(2)))
-                if c not in chips:
-                    chips.append(c)
-                    w = next((w for w in ln["words"] if w["text"].upper().startswith(c[0])), None)
-                    colors[c] = _chip_color(img, w) if img is not None and w else None
+    n = max(1, min(int(re.search(r"(\d+)\s*(?:Platten?|Plates?)\b", stats["text"], re.I).group(1)), 60))
+    hours = total = None
+    hours_dot = False
+    ws = stats["words"]
+    for i, w in enumerate(ws):  # Zeit und Gramm einzeln vergrößert nachlesen (Dezimalpunkt)
+        nxt = ws[i + 1]["text"] if i + 1 < len(ws) else ""
+        unit = "h" if re.fullmatch(rf"{_NUM}h", w["text"], re.I) or (re.fullmatch(_NUM, w["text"]) and nxt.lower() == "h") else \
+               "g" if re.fullmatch(rf"{_NUM}g", w["text"], re.I) or (re.fullmatch(_NUM, w["text"]) and nxt.lower() == "g") else None
+        if not unit or (unit == "h" and hours is not None) or (unit == "g" and total is not None):
+            continue
+        parts = [w] + ([ws[i + 1]] if re.fullmatch(_NUM, w["text"]) else [])
+        txt = _crop_read(img, _word_box(parts)) if img is not None else ""
+        m = re.search(rf"({_NUM})\s*{unit}", txt, re.I) or re.search(rf"({_NUM})", w["text"])
+        if not m:
+            continue
+        if unit == "h":
+            hours, hours_dot = _f(m.group(1)), bool(re.search(r"[.,]", m.group(1)))
+        else:
+            total = _f(m.group(1))
+    if hours is None:
+        hours = _f(re.search(rf"({_NUM})\s*h\b", stats["text"]).group(1))
     warn = []
-    fil = [{"type": tp, "name": tp, "color": colors.get((tp, g)), "grams": g} for tp, g in chips]
-    got = sum(g for _, g in chips)
+    # MakerWorld zeigt Stunden mit einer Nachkommastelle; ohne Punkt und unplausibel wenig Filament pro Stunde
+    if not hours_dot and hours >= 10 and total and total / hours < 2:
+        hours /= 10
+        warn.append(t("Druckzeit als {h} h gelesen (Dezimalpunkt ergänzt).", h=f"{hours:g}"))
+    minutes = hours * 60
+
+    chips: list[tuple[str, float, str | None]] = []
+    if img is not None:  # Chips im Bild suchen (Streifen unter der Zeile mit Platten/Zeit) und einzeln lesen
+        y = int(stats["cy"] + stats["h"])
+        for box in _chip_boxes(img, y, int(y + stats["h"] * 5)):
+            m = _CHIP.search(_fix_digits(_crop_read(img, (box[0] + 2, box[1] + 2, box[2] - 2, box[3] - 2))))
+            if m:
+                chips.append((m.group(1).upper(), _f(m.group(2)), _box_color(img, box)))
+    if not chips:  # sonst aus dem Text der ganzen Seite
+        for ls_ in passes:
+            for ln in ls_:
+                if ln is stats or re.search(r"Platte|Plate", ln["text"], re.I):
+                    continue
+                for m in _CHIP.finditer(_fix_digits(ln["text"])):
+                    c = (m.group(1).upper(), _f(m.group(2)))
+                    if c not in [(a, b) for a, b, _ in chips]:
+                        w = next((w for w in ln["words"] if w["text"].upper().startswith(c[0])), None)
+                        chips.append((*c, _chip_color(img, w) if img is not None and w else None))
+    chips = _match_total(chips, total)
+    fil = [{"type": tp, "name": tp, "color": col, "grams": g} for tp, g, col in chips]
+    got = sum(g for _, g, _ in chips)
     if total and got < total - 0.5:
         fil.append({"type": chips[0][0] if chips else "PLA", "name": None, "color": None, "grams": round(total - got, 1)})
         warn.append(t("Nicht alle Filamente erkannt, Rest ({g} g) als eigene Zeile.", g=f"{total - got:g}"))
@@ -305,7 +434,16 @@ def analyse(data: bytes) -> dict[str, Any]:
     except Exception as err:  # noqa: BLE001
         log.info("Screenshot nicht lesbar: %s", err)
         return {"error": t("Das ist kein lesbares Bild.")}
-    res = parse_bambu(passes[0], img) or parse_bambu(passes[1], img) or parse_makerworld(passes, img)
+    res = parse_bambu(passes[0], img) or parse_bambu(passes[1], img)
+    if not res:
+        stats = _mw_stats(passes[0])
+        if stats and stats["h"] and abs(stats["h"] / MW_TEXT_H - 1) > 0.15:
+            # Screenshot auf eine feste Schriftgröße bringen (Zoom, Retina, Handy): Punkte und Chips sind sonst
+            # je nach Auflösung zu klein oder zu groß für die Erkennung
+            f = MW_TEXT_H / stats["h"]
+            if img.width * f * img.height * f <= MAX_PIXELS:
+                img, passes = _read(img.resize((max(1, round(img.width * f)), max(1, round(img.height * f))), Image.LANCZOS))
+        res = parse_makerworld(passes, img)
     if not res:
         return {"error": t("Im Bild steht kein Slicing-Ergebnis aus Bambu Studio und keine MakerWorld-Profilangabe. Trag die Werte von Hand ein.")}
     note = t("Aus dem Screenshot gelesen, bitte prüfen.")
